@@ -120,7 +120,9 @@ async def run_foreground(config: Config):
             continue
         
         user_msg = UserMessage(text=text, chat_id=chat_id)
+        print(f"[Debug] Enqueuing message: {text}")
         await mq.enqueue(user_msg)
+        print(f"[Debug] Message enqueued, queue sizes: {mq.queue_sizes}")
 
 
 # ============================================
