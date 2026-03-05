@@ -70,7 +70,9 @@ def create_agent(config: Config):
     
     # 建立 Agent
     agent = AgentLoop(agent_config, llm, storage)
+    print("[Debug] Creating MessageQueue...")
     mq = MessageQueue(agent)
+    print("[Debug] MessageQueue created")
     
     return agent, mq
 
