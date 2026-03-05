@@ -62,6 +62,7 @@ class AgentConfig:
     Agent 的設定參數集合。
     """
     model: str | None = None
+    system_prompt: str = ""
     max_tokens: int = 2048
     temperature: float = 0.7
 
