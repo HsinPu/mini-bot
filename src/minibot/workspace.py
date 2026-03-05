@@ -1,11 +1,11 @@
 """
-minibot/workspace.py - Workspace helper functions
+minibot/workspace.py - 工作區輔助函式
 
-Provides functions to:
-- Get workspace path (default: ~/.minibot/workspace)
-- Sync templates from package to workspace
-- Load bootstrap files (AGENTS.md, SOUL.md, etc.)
-- Load/save memory (memory/MEMORY.md)
+提供以下功能：
+- 取得工作區路徑（預設：~/.minibot/workspace）
+- 從套件同步範本到工作區
+- 載入啟動檔案（AGENTS.md、SOUL.md 等）
+- 載入/儲存長期記憶（memory/MEMORY.md）
 """
 
 from pathlib import Path

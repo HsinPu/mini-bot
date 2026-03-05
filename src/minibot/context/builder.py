@@ -1,4 +1,9 @@
-"""Context builder interface."""
+"""
+minibot/context/builder.py - ContextBuilder 介面定義
+
+定義 ContextBuilder Protocol，用於建構 Agent 的 prompt 上下文
+不同實作方式可以從不同來源（檔案、資料庫、API 等）組裝 prompt
+"""
 
 from pathlib import Path
 from typing import Protocol

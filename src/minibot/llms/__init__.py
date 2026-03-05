@@ -1,8 +1,7 @@
 """
-minibot/llms/__init__.py - LLM  providers
+minibot/llms/__init__.py - LLM 提供者
 
 匯出所有 LLM Provider 實作
-
 """
 
 from minibot.llms.base import LLMProvider, ChatMessage, LLMResponse

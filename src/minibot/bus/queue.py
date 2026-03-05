@@ -1,11 +1,11 @@
 """
-minibot/bus/queue.py - Async message bus
+minibot/bus/queue.py - 非同步訊息匯流排
 
-Implements the MessageBus class with two queues:
-- inbound: messages from channels to agent
-- outbound: responses from agent to channels
+實作 MessageBus 類別，擁有兩個 Queue：
+- inbound：從頻道到 Agent 的訊息
+- outbound：從 Agent 到頻道的回覆
 
-This decouples channels from the agent core.
+這實現了頻道與 Agent 核心的解耦。
 """
 
 import asyncio

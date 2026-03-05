@@ -1,9 +1,9 @@
 """
-minibot/bus/events.py - Event types for the message bus
+minibot/bus/events.py - 訊息匯流排的事件類型
 
-Defines the message structures used by the MessageBus:
-- InboundMessage: message received from a chat channel
-- OutboundMessage: message to send to a chat channel
+定義 MessageBus 使用的訊息結構：
+- InboundMessage：從聊天頻道收到的訊息
+- OutboundMessage：要發送到聊天頻道的訊息
 """
 
 from dataclasses import dataclass, field

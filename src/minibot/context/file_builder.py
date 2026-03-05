@@ -1,4 +1,11 @@
-"""File-based context builder implementation."""
+"""
+minibot/context/file_builder.py - 檔案式 ContextBuilder 實作
+
+從 workspace 檔案組裝 system prompt：
+- IDENTITY.md（身份設定）
+- AGENTS.md、SOUL.md、USER.md、TOOLS.md（啟動檔案）
+- memory/MEMORY.md（長期記憶）
+"""
 
 import platform
 from datetime import datetime
