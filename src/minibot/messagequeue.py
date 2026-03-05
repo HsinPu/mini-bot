@@ -1,5 +1,5 @@
 """
-minibot/queue.py - 訊息佇列（Bus 版本）
+minibot/messagequeue.py - 訊息佇列（Bus 版本）
 
 設計理念：
 - 支援多個對話同時進行
@@ -317,7 +317,7 @@ import asyncio
 from minibot.agent import AgentLoop, AgentConfig
 from minibot.llms import OpenAILLM
 from minibot.storage import MemoryStorage
-from minibot.queue import MessageQueue
+from minibot.messagequeue import MessageQueue
 from minibot.message import UserMessage
 
 async def main():
