@@ -42,12 +42,20 @@ def create_storage(config: Config) -> StorageProvider:
 
 def create_agent(config: Config):
     """建立 Agent 和 Queue"""
-    # 建立 LLM
-    llm = OpenAILLM(
-        api_key=config.llm.api_key,
-        base_url=config.llm.base_url,
-        default_model=config.llm.model
-    )
+    # 根據 base_url 決定用哪個 LLM
+    if config.llm.base_url and "openrouter" in config.llm.base_url:
+        from minibot.llms import OpenRouterLLM
+        llm = OpenRouterLLM(
+            api_key=config.llm.api_key,
+            default_model=config.llm.model
+        )
+    else:
+        from minibot.llms import OpenAILLM
+        llm = OpenAILLM(
+            api_key=config.llm.api_key,
+            base_url=config.llm.base_url,
+            default_model=config.llm.model
+        )
     
     # 建立 Agent 設定
     agent_config = BotAgentConfig(
