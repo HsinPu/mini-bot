@@ -1,14 +1,13 @@
 """
-minibot/channels/telegram.py - Telegram 訊息 Adapter 範例
+minibot/channels/telegram.py - Telegram 訊息 Adapter
 
-展示如何把 Telegram 的原始訊息轉換成「統一訊息格式」。
+把 Telegram 的原始訊息轉換成「統一訊息格式」並走 MessageQueue。
 
 流程：
 1. 收到 Telegram Update
 2. 用 TelegramAdapter.to_user_message() 轉成 UserMessage
-3. 傳給 Agent
-4. Agent 回傳 AssistantMessage
-5. 用 TelegramAdapter.send() 發送回去
+3. 丟到 MessageQueue（enqueue_raw）
+4. Queue 處理完後，on_response callback 會把回覆發送到 Telegram
 
 """
 
@@ -23,17 +22,20 @@ class TelegramAdapter(MessageAdapter):
     Telegram 訊息轉接器
     
     實作 MessageAdapter 介面，把 Telegram 的訊息轉換成統一格式。
+    透過 MessageQueue 處理訊息，支援並行處理。
     """
     
-    def __init__(self, bot_token: str):
+    def __init__(self, bot_token: str, mq=None):
         """
         初始化 Telegram Adapter
         
         參數：
             bot_token: Telegram Bot Token（從 @BotFather 取得）
+            mq: MessageQueue 實例（可選，不給則用舊方式直接叫 agent）
         """
         self.bot_token = bot_token
-        self.app = None  # 等到 run() 才會建立
+        self.app = None
+        self.mq = mq
     
     def to_user_message(self, raw_update: Update) -> UserMessage:
         """
@@ -50,8 +52,6 @@ class TelegramAdapter(MessageAdapter):
         # 取出訊息內容
         message = raw_update.message
         if message is None:
-            # 如果是 edited_message 或 callback_query 等，邏輯會不同
-            # 這裡先只處理一般文字訊息
             return UserMessage(text="", sender=None, chat_id=None, raw=raw_update)
         
         text = message.text or ""
@@ -68,7 +68,7 @@ class TelegramAdapter(MessageAdapter):
             text=text,
             sender=sender,
             chat_id=chat_id,
-            raw=raw_update  # 保留原始訊息，備用
+            raw=raw_update
         )
     
     async def send(self, message: AssistantMessage) -> None:
@@ -84,7 +84,6 @@ class TelegramAdapter(MessageAdapter):
             raise RuntimeError("TelegramAdapter 未啟動，請先呼叫 run()")
         
         if message.chat_id is None:
-            # 如果沒有指定 chat_id，不知道要發到哪
             raise ValueError("AssistantMessage 缺少 chat_id，無法發送")
         
         await self.app.bot.send_message(
@@ -92,13 +91,21 @@ class TelegramAdapter(MessageAdapter):
             text=message.text
         )
     
-    async def run(self, on_message_callback):
+    async def _on_response(self, response: AssistantMessage, channel: str, chat_id: str) -> None:
+        """
+        Queue 的回調：收到 Agent 回覆後發送到 Telegram
+        """
+        # 轉換成 AssistantMessage
+        msg = AssistantMessage(text=response.text, chat_id=chat_id)
+        await self.send(msg)
+    
+    async def run(self):
         """
         啟動 Telegram Bot
         
-        參數：
-            on_message_callback: 收到訊息時要呼叫的回調函式
-                             格式：async def callback(adapter, update)
+        使用 MessageQueue 時：
+        - 訊息會丟到 Queue 處理
+        - 回覆會透過 _on_response 發送
         """
         self.app = Application.builder().token(self.bot_token).build()
         
@@ -111,8 +118,18 @@ class TelegramAdapter(MessageAdapter):
             if not user_msg.text:
                 return
             
-            # 呼叫回調
-            await on_message_callback(self, update, user_msg)
+            if self.mq:
+                # === 新方式：走 MessageQueue ===
+                await self.mq.enqueue_raw(
+                    content=user_msg.text,
+                    chat_id=user_msg.chat_id,
+                    channel="telegram",
+                    sender_id=user_msg.sender or "unknown"
+                )
+            else:
+                # === 舊方式：直接叫 agent（向後相容）===
+                # 這裡需要傳入 agent，暫時不支援
+                raise RuntimeError("請传入 mq (MessageQueue) 來啟動")
         
         from telegram.ext import MessageHandler, filters
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_update))
@@ -126,32 +143,43 @@ class TelegramAdapter(MessageAdapter):
 # ============================================
 
 """
-使用方式：
+使用方式（Queue 版）：
 
 ```python
+import asyncio
 from minibot.agent import AgentLoop, AgentConfig
+from minibot.llms import OpenAILLM
+from minibot.storage import MemoryStorage
+from minibot.queue import MessageQueue
 from minibot.channels.telegram import TelegramAdapter
 
-# 1. 建立 Agent
-config = AgentConfig(api_key="your-openai-key")
-agent = AgentLoop(config)
-
-# 2. 建立 Telegram Adapter
-telegram = TelegramAdapter(bot_token="your-telegram-token")
-
-# 3. 處理訊息的回調
-async def handle(adapter: TelegramAdapter, raw_update, user_msg):
-    # 傳給 Agent 處理
-    response = await agent.process(user_msg)
+async def main():
+    # 1. 建立 LLM
+    llm = OpenAILLM(api_key="your-openai-key")
     
-    # 把回覆發送回去
-    await adapter.send(response)
+    # 2. 建立 Agent 設定
+    config = AgentConfig(system_prompt="你是個有用的助理。")
+    
+    # 3. 建立 Storage
+    storage = MemoryStorage()
+    
+    # 4. 建立 Agent
+    agent = AgentLoop(config, llm, storage)
+    
+    # 5. 建立 MessageQueue
+    mq = MessageQueue(agent)
+    
+    # 6. 建立 Telegram Adapter（傳入 mq）
+    telegram = TelegramAdapter(bot_token="your-telegram-token", mq=mq)
+    
+    # 7. 啟動（不需要callback，Queue 會自動處理回覆）
+    await telegram.run()
 
-# 4. 啟動
-import asyncio
-asyncio.run(telegram.run(handle))
+asyncio.run(main())
 ```
 
-這樣 Agent 完全不需要知道「這是 Telegram」，
-只需要處理 UserMessage -> 回傳 AssistantMessage。
+這樣：
+- 收到 Telegram 訊息 → 丟到 Queue
+- Agent 處理完 → Queue 的 on_response 會發送到 Telegram
+- 支援多訊息並行處理
 """
