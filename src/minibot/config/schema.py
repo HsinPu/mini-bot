@@ -1,11 +1,10 @@
 """
 minibot/config/schema.py - 設定檔定義
 
-從 YAML 或 JSON 檔案讀取設定
+從 JSON 檔案讀取設定
 """
 
 import json
-import yaml
 from pathlib import Path
 from typing import Literal
 
@@ -92,19 +91,6 @@ class Config:
         self.channels = channels
     
     @classmethod
-    def from_yaml(cls, path: str | Path) -> "Config":
-        """從 YAML 檔案讀取設定"""
-        path = Path(path)
-        
-        if not path.exists():
-            raise FileNotFoundError(f"設定檔不存在: {path}")
-        
-        with open(path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-        
-        return cls._parse_data(data, path)
-    
-    @classmethod
     def from_json(cls, path: str | Path) -> "Config":
         """從 JSON 檔案讀取設定"""
         path = Path(path)
@@ -143,15 +129,13 @@ class Config:
         載入設定
         
         參數：
-            path: 設定檔路徑，預設搜尋 src/minibot/config/config.json 或 config.yaml
+            path: 設定檔路徑，預設搜尋 src/minibot/config/config.json
         """
         if path is None:
             # 預設路徑搜尋順序
             possible_paths = [
                 Path("src/minibot/config/config.json"),
-                Path("src/minibot/config/config.yaml"),
                 Path.home() / ".config" / "minibot" / "config.json",
-                Path.home() / ".config" / "minibot" / "config.yaml",
             ]
             
             for p in possible_paths:
@@ -169,7 +153,7 @@ class Config:
         if path.suffix == ".json":
             return cls.from_json(path)
         else:
-            return cls.from_yaml(path)
+            raise ValueError(f"不支援的格式: {path.suffix}，只支援 .json")
     
     @property
     def is_llm_configured(self) -> bool:
@@ -206,12 +190,11 @@ class Config:
         }
     
     def save(self, path: str | Path):
-        """儲存到檔案（根據副檔名判斷格式）"""
+        """儲存到 JSON 檔案"""
         path = Path(path)
         
         if path.suffix == ".json":
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(self.to_dict(), f, ensure_ascii=False, indent=2)
         else:
-            with open(path, "w", encoding="utf-8") as f:
-                yaml.dump(self.to_dict(), f, allow_unicode=True, default_flow_style=False)
+            raise ValueError(f"不支援的格式: {path.suffix}，只支援 .json")
