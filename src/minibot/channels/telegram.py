@@ -150,7 +150,7 @@ import asyncio
 from minibot.agent import AgentLoop, AgentConfig
 from minibot.llms import OpenAILLM
 from minibot.storage import MemoryStorage
-from minibot.messagequeue import MessageQueue
+from minibot.message_queue import MessageQueue
 from minibot.channels.telegram import TelegramAdapter
 
 async def main():
