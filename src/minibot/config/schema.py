@@ -29,7 +29,7 @@ class LLMsConfig(BaseModel):
 # Agent 設定
 # ============================================
 
-class AgentConfig(BaseModel):
+class AgentSettings(BaseModel):
     """Agent 設定（從 JSON 讀取）"""
     
     system_prompt: str  # 必填
@@ -81,7 +81,7 @@ class Config:
     def __init__(
         self,
         llm: LLMsConfig,
-        agent: AgentConfig,
+        agent: AgentSettings,
         storage: StorageConfig,
         channels: ChannelsConfig,
     ):
@@ -117,7 +117,7 @@ class Config:
         
         # 建立各部分設定（無預設值）
         llm = LLMsConfig(**data["llm"])
-        agent = AgentConfig(**data["agent"])
+        agent = AgentSettings(**data["agent"])
         storage = StorageConfig(**data["storage"])
         channels = ChannelsConfig(**data["channels"])
         
