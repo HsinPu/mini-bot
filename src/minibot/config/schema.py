@@ -1,9 +1,10 @@
 """
 minibot/config/schema.py - 設定檔定義
 
-從 YAML 檔案讀取設定（無預設值）
+從 YAML 或 JSON 檔案讀取設定
 """
 
+import json
 import yaml
 from pathlib import Path
 from typing import Literal
@@ -101,6 +102,24 @@ class Config:
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
         
+        return cls._parse_data(data, path)
+    
+    @classmethod
+    def from_json(cls, path: str | Path) -> "Config":
+        """從 JSON 檔案讀取設定"""
+        path = Path(path)
+        
+        if not path.exists():
+            raise FileNotFoundError(f"設定檔不存在: {path}")
+        
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        
+        return cls._parse_data(data, path)
+    
+    @classmethod
+    def _parse_data(cls, data: dict, path: Path) -> "Config":
+        """解析設定資料"""
         if not data:
             raise ValueError(f"設定檔是空的: {path}")
         
@@ -124,12 +143,14 @@ class Config:
         載入設定
         
         參數：
-            path: 設定檔路徑，預設搜尋 src/minibot/config/config.yaml
+            path: 設定檔路徑，預設搜尋 src/minibot/config/config.json 或 config.yaml
         """
         if path is None:
             # 預設路徑搜尋順序
             possible_paths = [
+                Path("src/minibot/config/config.json"),
                 Path("src/minibot/config/config.yaml"),
+                Path.home() / ".config" / "minibot" / "config.json",
                 Path.home() / ".config" / "minibot" / "config.yaml",
             ]
             
@@ -142,7 +163,13 @@ class Config:
                     f"找不到設定檔，搜尋過的路徑: {[str(p) for p in possible_paths]}"
                 )
         
-        return cls.from_yaml(path)
+        path = Path(path)
+        
+        # 根據副檔名判斷格式
+        if path.suffix == ".json":
+            return cls.from_json(path)
+        else:
+            return cls.from_yaml(path)
     
     @property
     def is_llm_configured(self) -> bool:
@@ -150,7 +177,7 @@ class Config:
         return bool(self.llm.api_key)
     
     def to_dict(self) -> dict:
-        """轉成 dict（可用來寫回 YAML）"""
+        """轉成 dict"""
         return {
             "llm": {
                 "api_key": self.llm.api_key,
@@ -179,6 +206,12 @@ class Config:
         }
     
     def save(self, path: str | Path):
-        """儲存到 YAML 檔案"""
-        with open(path, "w", encoding="utf-8") as f:
-            yaml.dump(self.to_dict(), f, allow_unicode=True, default_flow_style=False)
+        """儲存到檔案（根據副檔名判斷格式）"""
+        path = Path(path)
+        
+        if path.suffix == ".json":
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(self.to_dict(), f, ensure_ascii=False, indent=2)
+        else:
+            with open(path, "w", encoding="utf-8") as f:
+                yaml.dump(self.to_dict(), f, allow_unicode=True, default_flow_style=False)
