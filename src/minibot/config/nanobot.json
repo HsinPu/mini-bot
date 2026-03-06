@@ -22,5 +22,10 @@
     "console": {
       "enabled": true
     }
+  },
+  "log": {
+    "enabled": true,
+    "retention_days": 365,
+    "level": "INFO"
   }
 }
