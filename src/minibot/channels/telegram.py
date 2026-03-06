@@ -16,6 +16,7 @@ from telegram import Update
 from telegram.ext import Application
 
 from minibot.bus.message import MessageAdapter, UserMessage, AssistantMessage
+from minibot.utils.log import logger
 
 
 class TelegramAdapter(MessageAdapter):
@@ -136,13 +137,13 @@ class TelegramAdapter(MessageAdapter):
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_update))
         
         # 初始化並啟動
-        print("  📡 Initializing Telegram app...", flush=True)
+        logger.info("Initializing Telegram app...")
         await self.app.initialize()
-        print("  📡 Starting Telegram app...", flush=True)
+        logger.info("Starting Telegram app...")
         await self.app.start()
-        print("  📡 Starting polling...", flush=True)
+        logger.info("Starting polling...")
         await self.app.updater.start_polling()
-        print("  📡 Telegram polling started!", flush=True)
+        logger.info("Telegram polling started!")
         
         # 保持執行
         await asyncio.Event().wait()

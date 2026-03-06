@@ -9,6 +9,7 @@ minibot/workspace.py - 工作區輔助函式
 """
 
 from pathlib import Path
+from minibot.utils.log import logger
 
 
 def get_workspace_path(workspace: str | None = None) -> Path:
@@ -57,7 +58,7 @@ def sync_templates(workspace: Path, silent: bool = False) -> list[str]:
                 _write(item, memory_dir / item.name)
 
     if added and not silent:
-        print(f"Created template files: {added}")
+        logger.info(f"Created template files: {added}")
     
     return added
 

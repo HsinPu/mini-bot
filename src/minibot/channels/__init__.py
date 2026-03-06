@@ -16,7 +16,8 @@ async def start_channels(mq, telegram_config):
     if telegram_config and telegram_config.enabled:
         telegram = TelegramAdapter(bot_token=telegram_config.token, mq=mq)
         tasks.append(asyncio.create_task(telegram.run()))
-        print("📱 Telegram 已啟動")
+        from minibot.utils.log import logger
+        logger.info("Telegram 已啟動")
     
     # 等待所有頻道
     if tasks:

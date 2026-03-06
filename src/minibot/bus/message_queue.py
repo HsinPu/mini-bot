@@ -21,6 +21,7 @@ import asyncio
 from dataclasses import dataclass, field
 from minibot.bus import MessageBus, InboundMessage, OutboundMessage
 from minibot.bus.message import UserMessage, AssistantMessage
+from minibot.utils.log import logger
 
 
 @dataclass
@@ -167,7 +168,7 @@ class MessageQueue:
             # Task 被取消時優雅退出
             pass
         except Exception as e:
-            print(f"[{chat_id}] 處理訊息時發生錯誤: {e}")
+            logger.error(f"[{chat_id}] 處理訊息時發生錯誤: {e}")
             # 發送錯誤訊息到 outbound
             outbound = OutboundMessage(
                 channel=inbound.channel,
@@ -202,7 +203,7 @@ class MessageQueue:
             except asyncio.TimeoutError:
                 continue
             except Exception as e:
-                print(f"Outbound consumer 發生錯誤: {e}")
+                logger.error(f"Outbound consumer 發生錯誤: {e}")
     
     async def process_queue(self) -> None:
         """
@@ -244,7 +245,7 @@ class MessageQueue:
                 )
                 
             except Exception as e:
-                print(f"Inbound consumer 發生錯誤: {e}")
+                logger.error(f"Inbound consumer 發生錯誤: {e}")
     
     async def cancel_chat(self, chat_id: str) -> int:
         """
@@ -348,7 +349,7 @@ async def main():
     # 5. 定義收到回覆時要做什麼
     # 注意：現在多了 channel 參數
     async def on_response(response, channel, chat_id):
-        print(f"\n[{channel}] 🤖: {response.text}")
+        logger.info(f"[{channel}] 🤖: {response.text}")
     
     mq.on_response = on_response
     
@@ -365,12 +366,12 @@ async def main():
         
         if line.lower() == "/reset":
             await mq.reset_conversation("default")
-            print("✅ 歷史已清除")
+            logger.info("歷史已清除")
             continue
         
         if line.lower() == "/queues":
             inbound, outbound = mq.queue_sizes
-            print(f"Queue sizes: inbound={inbound}, outbound={outbound}")
+            logger.info(f"Queue sizes: inbound={inbound}, outbound={outbound}")
             continue
         
         # 解析 chat_id

@@ -159,7 +159,8 @@ class Config:
             # 如果 workspace 裡沒有 config，產生預設範本
             if not config_path.exists():
                 cls.generate_template(config_path)
-                print(f"已建立設定檔: {config_path}")
+                from minibot.utils.log import logger
+                logger.info(f"已建立設定檔: {config_path}")
             
             path = config_path
         
@@ -202,7 +203,8 @@ class Config:
         
         # 如果檔案已存在，就不覆蓋
         if path.exists():
-            print(f"設定檔已存在: {path}")
+            from minibot.utils.log import logger
+            logger.info(f"設定檔已存在: {path}")
             return path
         
         # 產生預設設定

@@ -14,6 +14,7 @@ from minibot.llms import OpenAILLM
 from minibot.storage import MemoryStorage, StorageProvider
 from minibot.bus.message_queue import MessageQueue
 from minibot.config import Config
+from minibot.utils.log import logger
 
 
 # ============================================
@@ -86,7 +87,7 @@ async def run():
     
     # 檢查 LLM 設定
     if not config.is_llm_configured:
-        print("⚠️  警告：請在 nanobot.json 設定 LLM API Key")
+        logger.warning("請在 nanobot.json 設定 LLM API Key")
         return
     
     # 建立 Agent + MessageQueue
@@ -99,19 +100,19 @@ async def run():
     from minibot.channels import start_channels
     await start_channels(mq, config.channels.telegram)
     
-    print("🤖 mini-bot 啟動完成！")
-    print("按 Ctrl+C 停止")
+    logger.info("mini-bot 啟動完成！")
+    logger.info("按 Ctrl+C 停止")
     
     # 等待直到被中斷
     try:
         await asyncio.Event().wait()
     except KeyboardInterrupt:
-        print("\n正在關閉...")
+        logger.info("正在關閉...")
     
     # 關閉
     await mq.stop()
     await processor
-    print("👋 再見！")
+    logger.info("再見！")
 
 
 # ============================================
