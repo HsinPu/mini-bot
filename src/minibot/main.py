@@ -80,6 +80,10 @@ async def run():
     # 讀取設定
     config = Config.load()
     
+    # 初始化日誌
+    from minibot.utils.log import setup_log
+    setup_log(config.log)
+    
     # 檢查 LLM 設定
     if not config.is_llm_configured:
         print("⚠️  警告：請在 nanobot.json 設定 LLM API Key")

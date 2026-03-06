@@ -72,6 +72,18 @@ class ChannelsConfig(BaseModel):
 
 
 # ============================================
+# Log 設定
+# ============================================
+
+class LogConfig(BaseModel):
+    """Log 設定（從 JSON 讀取）"""
+    
+    enabled: bool = True  # 預設開啟
+    retention_days: int = 365  # 預設保留 365 天
+    level: str = "INFO"  # 預設 INFO
+
+
+# ============================================
 # 主設定
 # ============================================
 
@@ -84,11 +96,13 @@ class Config:
         agent: AgentSettings,
         storage: StorageConfig,
         channels: ChannelsConfig,
+        log: LogConfig | None = None,
     ):
         self.llm = llm
         self.agent = agent
         self.storage = storage
         self.channels = channels
+        self.log = log or LogConfig()  # 預設值
     
     @classmethod
     def from_json(cls, path: str | Path) -> "Config":
@@ -121,7 +135,12 @@ class Config:
         storage = StorageConfig(**data["storage"])
         channels = ChannelsConfig(**data["channels"])
         
-        return cls(llm=llm, agent=agent, storage=storage, channels=channels)
+        # Log 設定可選
+        log = None
+        if "log" in data:
+            log = LogConfig(**data["log"])
+        
+        return cls(llm=llm, agent=agent, storage=storage, channels=channels, log=log)
     
     @classmethod
     def load(cls, path: str | Path | None = None) -> "Config":
