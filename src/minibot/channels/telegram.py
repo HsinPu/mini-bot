@@ -11,6 +11,7 @@ minibot/channels/telegram.py - Telegram 訊息 Adapter
 
 """
 
+import asyncio
 from telegram import Update
 from telegram.ext import Application
 
@@ -134,8 +135,17 @@ class TelegramAdapter(MessageAdapter):
         from telegram.ext import MessageHandler, filters
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_update))
         
-        # 啟動 polling
-        await self.app.run_polling()
+        # 初始化並啟動
+        print("  📡 Initializing Telegram app...", flush=True)
+        await self.app.initialize()
+        print("  📡 Starting Telegram app...", flush=True)
+        await self.app.start()
+        print("  📡 Starting polling...", flush=True)
+        await self.app.updater.start_polling()
+        print("  📡 Telegram polling started!", flush=True)
+        
+        # 保持執行
+        await asyncio.Event().wait()
 
 
 # ============================================

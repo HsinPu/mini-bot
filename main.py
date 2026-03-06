@@ -45,11 +45,12 @@ def install_deps():
 
 def run_bot():
     """啟動機器人"""
-    print("🚀 啟動 mini-bot...")
+    print("🚀 啟動 mini-bot...", flush=True)
     
     # 把 src 目錄加入 Python 路徑
     env = os.environ.copy()
     env["PYTHONPATH"] = str(BOT_DIR / "src")
+    env["PYTHONUNBUFFERED"] = "1"
     
     # 使用虛擬環境的 Python 執行
     python = get_venv_python()
