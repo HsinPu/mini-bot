@@ -156,15 +156,10 @@ class Config:
             workspace.mkdir(parents=True, exist_ok=True)
             config_path = workspace / "nanobot.json"
             
-            # 如果 workspace 裡沒有 config，複製預設範本
+            # 如果 workspace 裡沒有 config，產生預設範本
             if not config_path.exists():
-                default_config = Path("src/minibot/config/nanobot.json")
-                if default_config.exists():
-                    import shutil
-                    shutil.copy(default_config, config_path)
-                    print(f"已建立設定檔: {config_path}")
-                else:
-                    raise FileNotFoundError(f"找不到預設設定檔，也沒有現存的設定檔")
+                cls.generate_template(config_path)
+                print(f"已建立設定檔: {config_path}")
             
             path = config_path
         
@@ -183,6 +178,71 @@ class Config:
     def is_llm_configured(self) -> bool:
         """檢查 LLM 是否已設定"""
         return bool(self.llm.api_key)
+    
+    @classmethod
+    def generate_template(cls, path: str | Path | None = None) -> Path:
+        """
+        產生預設設定檔
+        
+        參數：
+            path: 輸出路徑，預設 ~/.minibot/workspace/nanobot.json
+        
+        回傳：
+            設定檔路徑
+        """
+        import json
+        
+        if path is None:
+            workspace = Path.home() / ".minibot" / "workspace"
+            workspace.mkdir(parents=True, exist_ok=True)
+            path = workspace / "nanobot.json"
+        else:
+            path = Path(path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # 如果檔案已存在，就不覆蓋
+        if path.exists():
+            print(f"設定檔已存在: {path}")
+            return path
+        
+        # 產生預設設定
+        default_config = {
+            "llm": {
+                "api_key": "",
+                "model": "openai/gpt-4o-mini",
+                "base_url": "https://openrouter.ai/api/v1",
+                "temperature": 0.7,
+                "max_tokens": 2048
+            },
+            "agent": {
+                "system_prompt": "你是個有用且簡潔的助理。",
+                "max_history": 50
+            },
+            "storage": {
+                "type": "memory",
+                "path": "./data"
+            },
+            "channels": {
+                "telegram": {
+                    "enabled": False,
+                    "token": ""
+                },
+                "console": {
+                    "enabled": True
+                }
+            },
+            "log": {
+                "enabled": True,
+                "retention_days": 365,
+                "level": "INFO"
+            }
+        }
+        
+        # 寫入檔案
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(default_config, f, indent=2, ensure_ascii=False)
+        
+        return path
     
     def to_dict(self) -> dict:
         """轉成 dict"""
@@ -210,6 +270,11 @@ class Config:
                 "console": {
                     "enabled": self.channels.console.enabled,
                 },
+            },
+            "log": {
+                "enabled": self.log.enabled,
+                "retention_days": self.log.retention_days,
+                "level": self.log.level,
             }
         }
     
