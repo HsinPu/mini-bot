@@ -130,12 +130,10 @@ class MessageQueue:
             inbound: InboundMessage
         """
         chat_id = inbound.chat_id
-        print(f"[Debug] _process_message called for chat_id: {chat_id}")
         
         try:
             # 取得或建立對話
             conversation = self.get_or_create_conversation(chat_id)
-            print(f"[Debug] Calling agent.process()...")
             
             # 轉換成 UserMessage 給 Agent
             user_message = UserMessage(
@@ -205,7 +203,6 @@ class MessageQueue:
         每個訊息都會spawn成独立task並行處理
         結果會丟到 outbound queue，由 _consume_outbound 發送
         """
-        print("[Debug] process_queue started")
         self.running = True
         
         # 啟動 outbound 消費者
@@ -219,7 +216,6 @@ class MessageQueue:
                         self.bus.consume_inbound(), 
                         timeout=1.0
                     )
-                    print(f"[Debug] Got inbound message: {inbound.content[:20]}...")
                 except asyncio.TimeoutError:
                     continue
                 

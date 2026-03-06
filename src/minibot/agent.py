@@ -221,16 +221,12 @@ class AgentLoop:
         ]
         
         # 呼叫 Provider
-        try:
-            response = await self.provider.chat(
-                messages=chat_messages,
-                model=self.config.model,
-                temperature=self.config.temperature,
-                max_tokens=self.config.max_tokens
-            )
-        except Exception as e:
-            print(f"[Error] LLM call failed: {e}")
-            raise
+        response = await self.provider.chat(
+            messages=chat_messages,
+            model=self.config.model,
+            temperature=self.config.temperature,
+            max_tokens=self.config.max_tokens
+        )
         
         return response.content
 

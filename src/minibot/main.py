@@ -70,9 +70,7 @@ def create_agent(config: Config):
     
     # 建立 Agent
     agent = AgentLoop(agent_config, llm, storage)
-    print("[Debug] Creating MessageQueue...")
     mq = MessageQueue(agent)
-    print("[Debug] MessageQueue created")
     
     return agent, mq
 
@@ -130,9 +128,7 @@ async def run_foreground(config: Config):
             continue
         
         user_msg = UserMessage(text=text, chat_id=chat_id)
-        print(f"[Debug] Enqueuing message: {text}")
         await mq.enqueue(user_msg)
-        print(f"[Debug] Message enqueued, queue sizes: {mq.queue_sizes}")
 
 
 # ============================================
