@@ -20,8 +20,17 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 # 移除預設的 stderr 輸出（我們會自己加）
 logger.remove()
 
+# 追蹤是否已初始化
+_initialized = False
+
 
 def setup_log(config=None, console: bool = True):
+    global _initialized
+    
+    # 防止重複初始化
+    if _initialized:
+        return logger
+    
     """
     初始化日誌
     
@@ -54,6 +63,8 @@ def setup_log(config=None, console: bool = True):
             level=level,
             colorize=True,
         )
+    
+    _initialized = True
     
     return logger
 
