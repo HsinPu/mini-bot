@@ -27,17 +27,7 @@ from minibot.llms import LLMProvider, ChatMessage
 from minibot.storage import StorageProvider, StoredMessage
 from minibot.context.builder import ContextBuilder
 from minibot.utils.log import logger
-
-
-@dataclass
-class AgentConfig:
-    """
-    Agent 的設定參數集合。
-    """
-    model: str | None = None
-    system_prompt: str = ""
-    max_tokens: int = 2048
-    temperature: float = 0.7
+from minibot.config import AgentConfig
 
 
 class AgentLoop:
@@ -101,18 +91,11 @@ class AgentLoop:
                 sync_templates(workspace)  # 同步範本（如果不存在會创建）
                 context_builder = FileContextBuilder(workspace)
                 self._context_builder = context_builder
-                self._use_simple_context = False
-            except Exception:
-                self._use_simple_context = True
-        else:
-            self._use_simple_context = False
+            except Exception as e:
+                raise RuntimeError(f"無法建立 ContextBuilder: {e}")
 
         # 目前處理的 chat_id
         self._current_chat_id: str | None = None
-
-    def _build_simple_system_prompt(self) -> str:
-        """Simple fallback system prompt if no context_builder provided."""
-        return "You are a helpful AI assistant."
 
     async def _load_history(self, chat_id: str) -> list[ChatMessage]:
         """
@@ -124,8 +107,11 @@ class AgentLoop:
         回傳：
             list[ChatMessage]: 給 LLM 用的訊息格式
         """
-        # 從 storage 取訊息
-        stored_messages = await self.storage.get_messages(chat_id)
+        # 從 storage 取訊息（使用 max_history 限制數量）
+        stored_messages = await self.storage.get_messages(
+            chat_id, 
+            limit=self.config.max_history
+        )
 
         # 轉換成 ChatMessage 格式
         return [
@@ -173,20 +159,10 @@ class AgentLoop:
         ]
 
         # 用 context builder 組 messages
-        logger.info(f"[{chat_id}] 使用 context builder: not simple")
-        if self._use_simple_context:
-            # Fallback: 簡單的 system prompt
-            logger.info(f"[{chat_id}] 使用 simple context")
-            full_messages = [
-                {"role": "system", "content": self._build_simple_system_prompt()},
-                *history_dicts,
-            ]
-        else:
-            # 使用 context builder
-            logger.info(f"[{chat_id}] 使用 context builder")
-            full_messages = self._context_builder.build_messages(
-                history=history_dicts,
-                current_message="",  # 這裡不放 content，我們會用 user message
+        logger.info(f"[{chat_id}] 使用 context builder")
+        full_messages = self._context_builder.build_messages(
+            history=history_dicts,
+            current_message="",  # 這裡不放 content，我們會用 user message
                 channel=channel,
                 chat_id=chat_id,
             )
