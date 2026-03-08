@@ -168,13 +168,13 @@ class Config:
         載入設定
         
         參數：
-            path: 設定檔路徑，預設從 workspace 讀取 ~/.minibot/workspace/nanobot.json
+            path: 設定檔路徑，預設從 workspace 讀取 ~/.minibot/workspace/minibot.json
         """
         if path is None:
             # 預設從 workspace 讀取
             workspace = Path.home() / ".minibot" / "workspace"
             workspace.mkdir(parents=True, exist_ok=True)
-            config_path = workspace / "nanobot.json"
+            config_path = workspace / "minibot.json"
             
             # 如果 workspace 裡沒有 config，產生預設範本
             if not config_path.exists():
@@ -206,7 +206,7 @@ class Config:
         產生預設設定檔
         
         參數：
-            path: 輸出路徑，預設 ~/.minibot/workspace/nanobot.json
+            path: 輸出路徑，預設 ~/.minibot/workspace/minibot.json
         
         回傳：
             設定檔路徑
@@ -216,7 +216,7 @@ class Config:
         if path is None:
             workspace = Path.home() / ".minibot" / "workspace"
             workspace.mkdir(parents=True, exist_ok=True)
-            path = workspace / "nanobot.json"
+            path = workspace / "minibot.json"
         else:
             path = Path(path)
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -247,15 +247,15 @@ class Config:
                 
                 # 共用參數
                 "temperature": 0.7,
-                "max_tokens": 2048
+                "max_tokens": 8192
             },
             "agent": {
                 "system_prompt": "你是個有用且簡潔的助理。",
                 "max_history": 50
             },
             "storage": {
-                "type": "memory",
-                "path": "./data"
+                "type": "sqlite",
+                "path": "~/.minibot/data/sessions.db"
             },
             "channels": {
                 "telegram": {

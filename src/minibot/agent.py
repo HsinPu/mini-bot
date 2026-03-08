@@ -27,17 +27,7 @@ from minibot.llms import LLMProvider, ChatMessage
 from minibot.storage import StorageProvider, StoredMessage
 from minibot.context.builder import ContextBuilder
 from minibot.utils.log import logger
-
-
-@dataclass
-class AgentConfig:
-    """
-    Agent 的設定參數集合。
-    """
-    model: str | None = None
-    system_prompt: str = ""
-    max_tokens: int = 2048
-    temperature: float = 0.7
+from minibot.config import AgentConfig
 
 
 class AgentLoop:
