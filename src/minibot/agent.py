@@ -107,8 +107,11 @@ class AgentLoop:
         回傳：
             list[ChatMessage]: 給 LLM 用的訊息格式
         """
-        # 從 storage 取訊息
-        stored_messages = await self.storage.get_messages(chat_id)
+        # 從 storage 取訊息（使用 max_history 限制數量）
+        stored_messages = await self.storage.get_messages(
+            chat_id, 
+            limit=self.config.max_history
+        )
 
         # 轉換成 ChatMessage 格式
         return [
