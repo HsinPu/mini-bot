@@ -66,6 +66,7 @@ class AgentLoop:
         storage: StorageProvider | None = None,
         context_builder: ContextBuilder | None = None,
         tools: ToolRegistry | None = None,
+        brave_api_key: str = "",
     ):
         """
         AgentLoop 的建構函式。
@@ -167,7 +168,7 @@ class AgentLoop:
         self.tools.register(ExecTool(workspace=workspace))
         
         # 網路工具
-        self.tools.register(WebSearchTool(api_key=self.config.brave_api_key if hasattr(self.config, 'brave_api_key') else None))
+        self.tools.register(WebSearchTool(api_key=brave_api_key))
         self.tools.register(WebFetchTool())
         
         logger.info(f"已註冊工具: {self.tools.tool_names}")
