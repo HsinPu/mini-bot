@@ -21,6 +21,7 @@ minibot/agent.py - Agent Loop
 """
 
 import json
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,7 @@ from minibot.bus.message import UserMessage, AssistantMessage
 from minibot.llms import LLMProvider, ChatMessage
 from minibot.storage import StorageProvider, StoredMessage
 from minibot.context.builder import ContextBuilder
+from minibot.memory import MemoryStore
 from minibot.tools import ToolRegistry, ReadFileTool, WriteFileTool, ListDirTool, EditFileTool, ExecTool, WebSearchTool, WebFetchTool
 from minibot.utils.log import logger
 from minibot.config import AgentConfig
@@ -109,8 +111,44 @@ class AgentLoop:
         if not self.tools.tool_names:
             self._register_default_tools()
 
+        # Memory store (long-term memory)
+        workspace = getattr(self._context_builder, 'workspace', Path.cwd())
+        self.memory = MemoryStore(workspace)
+        self._last_consolidated = 0  # Track message count for consolidation
+
+        # Register save_memory tool
+        self._register_memory_tool()
+
         # 目前處理的 chat_id
         self._current_chat_id: str | None = None
+
+    def _register_memory_tool(self) -> None:
+        """Register the save_memory tool."""
+        # Dynamic tool for saving memory
+        from minibot.tools.base import Tool
+        
+        class SaveMemoryTool(Tool):
+            name = "save_memory"
+            description = "Save important information to long-term memory. Include all existing facts plus new ones."
+            parameters = {
+                "type": "object",
+                "properties": {
+                    "memory_update": {"type": "string", "description": "Updated memory as markdown"}
+                },
+                "required": ["memory_update"]
+            }
+            
+            def __init__(self, memory_store: MemoryStore):
+                self.memory_store = memory_store
+            
+            async def execute(self, memory_update: str, **kwargs: Any) -> str:
+                current = self.memory_store.read()
+                if memory_update != current:
+                    self.memory_store.write(memory_update)
+                    return f"Memory saved ({len(memory_update)} chars)"
+                return "Memory unchanged"
+        
+        self.tools.register(SaveMemoryTool(self.memory))
 
     def _register_default_tools(self) -> None:
         """註冊預設的工具"""
@@ -322,11 +360,40 @@ class AgentLoop:
         # 3. 把 AI 回覆存入 storage
         await self._save_message(chat_id, "assistant", response)
 
-        # 4. 回傳
+        # 4. 檢查是否需要 consolidation
+        await self._maybe_consolidate_memory(chat_id)
+
+        # 5. 回傳
         return AssistantMessage(
             text=response,
             chat_id=chat_id
         )
+
+    async def _maybe_consolidate_memory(self, chat_id: str) -> None:
+        """Check if memory consolidation is needed and run it."""
+        # Get total message count
+        messages = await self.storage.get_messages(chat_id, limit=1000)
+        message_count = len(messages)
+        
+        # Check if we should consolidate
+        unconsolidated = message_count - self._last_consolidated
+        if unconsolidated >= self.config.memory_threshold:
+            logger.info(f"[{chat_id}] Consolidating memory ({unconsolidated} messages)")
+            try:
+                # Get messages to consolidate
+                old_messages = messages[self._last_consolidated:]
+                msg_dicts = [{"role": m.role, "content": m.content} for m in old_messages]
+                
+                success = await self.memory.consolidate(
+                    messages=msg_dicts,
+                    provider=self.provider,
+                    model=self.provider.get_default_model(),
+                )
+                if success:
+                    self._last_consolidated = message_count
+                    logger.info(f"[{chat_id}] Memory consolidated, last_consolidated={self._last_consolidated}")
+            except Exception as e:
+                logger.error(f"[{chat_id}] Memory consolidation failed: {e}")
 
     async def reset_history(self, chat_id: str | None = None) -> None:
         """

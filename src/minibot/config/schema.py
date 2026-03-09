@@ -28,6 +28,7 @@ class LLMsConfig(BaseModel):
 class AgentConfig(BaseModel):
     system_prompt: str
     max_history: int
+    memory_threshold: int = 30  # Trigger consolidation after this many messages
 
 
 class StorageConfig(BaseModel):
