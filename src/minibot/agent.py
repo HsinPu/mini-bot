@@ -189,10 +189,14 @@ class AgentLoop:
         )
 
         # 轉換成 ChatMessage 格式
-        return [
-            ChatMessage(role=m.role, content=m.content)
-            for m in stored_messages
-        ]
+        chat_messages = []
+        for m in stored_messages:
+            if isinstance(m, dict):
+                chat_messages.append(ChatMessage(role=m.get("role", "?"), content=m.get("content", "")))
+            else:
+                chat_messages.append(ChatMessage(role=m.role, content=m.content))
+        
+        return chat_messages
 
     async def _save_message(self, chat_id: str, role: str, content: str) -> None:
         """
@@ -230,10 +234,12 @@ class AgentLoop:
         history_messages = await self._load_history(chat_id)
 
         # 轉換成 dict 格式（給 context builder 用）
-        history_dicts = [
-            {"role": m.role, "content": m.content}
-            for m in history_messages
-        ]
+        history_dicts = []
+        for m in history_messages:
+            if isinstance(m, dict):
+                history_dicts.append({"role": m.get("role", "?"), "content": m.get("content", "")})
+            else:
+                history_dicts.append({"role": m.role, "content": m.content})
 
         # 用 context builder 組 messages
         logger.info(f"[{chat_id}] 使用 context builder")
