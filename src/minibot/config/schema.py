@@ -26,7 +26,6 @@ class LLMsConfig(BaseModel):
 
 
 class AgentConfig(BaseModel):
-    system_prompt: str
     max_history: int
     memory_threshold: int = 30  # Trigger consolidation after this many messages
 
@@ -129,7 +128,7 @@ class Config:
                 "temperature": 0.7,
                 "max_tokens": 8192
             },
-            "agent": {"system_prompt": "你是個有用且簡潔的助理。", "max_history": 50},
+            "agent": {"max_history": 50},
             "storage": {"type": "sqlite", "path": "~/.minibot/data/sessions.db"},
             "channels": {"telegram": {"enabled": False, "token": ""}, "console": {"enabled": True}},
             "log": {"enabled": True, "retention_days": 365, "level": "INFO"},
@@ -150,7 +149,7 @@ class Config:
                 "temperature": self.llm.temperature,
                 "max_tokens": self.llm.max_tokens,
             },
-            "agent": {"system_prompt": self.agent.system_prompt, "max_history": self.agent.max_history},
+            "agent": {"max_history": self.agent.max_history},
             "storage": {"type": self.storage.type, "path": self.storage.path},
             "channels": {
                 "telegram": {"enabled": self.channels.telegram.get("enabled", False), "token": self.channels.telegram.get("token", "")},

@@ -46,7 +46,6 @@ def create_agent(config: Config):
     
     # 建立 Agent 設定
     agent_config = AgentConfig(
-        system_prompt=config.agent.system_prompt,
         max_history=config.agent.max_history,
     )
     
