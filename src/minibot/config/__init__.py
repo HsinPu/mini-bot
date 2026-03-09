@@ -8,8 +8,6 @@ from minibot.config.schema import (
     ProviderConfig,
     AgentConfig,
     StorageConfig,
-    TelegramConfig,
-    ConsoleConfig,
     ChannelsConfig,
     LogConfig,
 )
@@ -20,8 +18,6 @@ __all__ = [
     "ProviderConfig",
     "AgentConfig",
     "StorageConfig",
-    "TelegramConfig",
-    "ConsoleConfig",
     "ChannelsConfig",
     "LogConfig",
 ]
