@@ -45,16 +45,14 @@ def create_agent(config: Config):
     llm = create_llm(api_key=cfg.api_key, model=cfg.model, base_url=cfg.base_url or "", provider_name=config.llm.default or "")
     
     # 建立 Agent 設定
-    agent_config = AgentConfig(
-        max_history=config.agent.max_history,
-    )
+    agent_config = AgentConfig()
     
     # 建立 Storage
     storage = create_storage(config)
     
     # 建立 Agent
     brave_api_key = config.tools.brave_api_key if hasattr(config, 'tools') else ""
-    agent = AgentLoop(agent_config, llm, storage, brave_api_key=brave_api_key)
+    agent = AgentLoop(agent_config, llm, storage, memory_config=config.memory, brave_api_key=brave_api_key)
     mq = MessageQueue(agent)
     
     return agent, mq

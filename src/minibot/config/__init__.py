@@ -11,6 +11,7 @@ from minibot.config.schema import (
     ChannelsConfig,
     LogConfig,
     ToolsConfig,
+    MemoryConfig,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "ChannelsConfig",
     "LogConfig",
     "ToolsConfig",
+    "MemoryConfig",
 ]

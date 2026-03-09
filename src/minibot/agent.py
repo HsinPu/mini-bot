@@ -32,7 +32,7 @@ from minibot.context.builder import ContextBuilder
 from minibot.memory import MemoryStore, consolidate
 from minibot.tools import ToolRegistry, ReadFileTool, WriteFileTool, ListDirTool, EditFileTool, ExecTool, WebSearchTool, WebFetchTool
 from minibot.utils.log import logger
-from minibot.config import AgentConfig
+from minibot.config import AgentConfig, MemoryConfig
 
 
 class AgentLoop:
@@ -66,8 +66,11 @@ class AgentLoop:
         storage: StorageProvider | None = None,
         context_builder: ContextBuilder | None = None,
         tools: ToolRegistry | None = None,
+        memory_config: MemoryConfig | None = None,
         brave_api_key: str = "",
     ):
+        ...
+        self.memory_config = memory_config or {"max_history": 50, "threshold": 30}
         """
         AgentLoop 的建構函式。
 
@@ -86,6 +89,7 @@ class AgentLoop:
             5. 初始化 Tools（如果沒給，用預設的檔案/shell 工具）
         """
         self.config = config
+        self.memory_config = memory_config or MemoryConfig()
         self.provider = provider
 
         # 如果沒給 storage，用記憶體 storage
@@ -186,7 +190,7 @@ class AgentLoop:
         # 從 storage 取訊息（使用 max_history 限制數量）
         stored_messages = await self.storage.get_messages(
             chat_id, 
-            limit=self.config.max_history
+            limit=self.memory_config.max_history
         )
 
         # 轉換成 ChatMessage 格式
@@ -393,7 +397,7 @@ class AgentLoop:
         
         # Check if we should consolidate
         unconsolidated = message_count - last_consolidated
-        if unconsolidated >= self.config.memory_threshold:
+        if unconsolidated >= self.memory_config.threshold:
             logger.info(f"[{chat_id}] Consolidating memory ({unconsolidated} messages)")
             try:
                 # Get messages to consolidate
