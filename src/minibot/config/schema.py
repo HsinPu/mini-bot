@@ -156,6 +156,7 @@ class Config:
                 "default": self.llm.default,
                 "temperature": self.llm.temperature,
                 "max_tokens": self.llm.max_tokens,
+            },
             "storage": {"type": self.storage.type, "path": self.storage.path},
             "channels": {
                 "telegram": {"enabled": self.channels.telegram.get("enabled", False), "token": self.channels.telegram.get("token", "")},
