@@ -36,9 +36,10 @@ class ChatMessage:
     """
     單筆對話訊息（給 LLM 用）
     """
-    role: str    # "system", "user", "assistant"
+    role: str    # "system", "user", "assistant", "tool"
     content: str # 訊息內容
     tool_call_id: str | None = None  # For tool results
+    tool_calls: list[dict] | None = None  # For assistant messages with tool calls
 
 
 @dataclass

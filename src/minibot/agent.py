@@ -242,9 +242,21 @@ class AgentLoop:
                 logger.info(f"[{chat_id}] LLM 請求執行 {len(response.tool_calls)} 個工具")
                 
                 # 記錄 assistant 訊息（包含 tool calls）
+                tool_calls_api = []
+                for tc in response.tool_calls:
+                    tool_calls_api.append({
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.name,
+                            "arguments": json.dumps(tc.arguments, ensure_ascii=False)
+                        }
+                    })
+                
                 chat_messages.append(ChatMessage(
                     role="assistant",
-                    content=response.content or ""
+                    content=response.content or "",
+                    tool_calls=tool_calls_api
                 ))
                 
                 # 執行每個 tool call
