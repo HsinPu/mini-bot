@@ -77,12 +77,12 @@ class Config:
             data = json.load(f)
         if not data:
             raise ValueError(f"設定檔是空的：{path}")
-        for section in ["llm", "agent", "storage", "channels"]:
+        for section in ["llm", "storage", "channels"]:
             if section not in data:
                 raise ValueError(f"設定檔缺少必要區塊：{section}")
         return cls(
             llm=LLMsConfig(**data["llm"]),
-            agent=AgentConfig(**data["agent"]),
+            agent=AgentConfig(**data["agent"]) if "agent" in data else None,
             storage=StorageConfig(**data["storage"]),
             channels=ChannelsConfig(**data["channels"]),
             log=LogConfig(**data["log"]) if "log" in data else None,
@@ -136,7 +136,6 @@ class Config:
                 "temperature": 0.7,
                 "max_tokens": 8192
             },
-            "agent": {"max_history": 50},
             "storage": {"type": "sqlite", "path": "~/.minibot/data/sessions.db"},
             "channels": {"telegram": {"enabled": False, "token": ""}, "console": {"enabled": True}},
             "log": {"enabled": True, "retention_days": 365, "level": "INFO"},
@@ -157,8 +156,6 @@ class Config:
                 "default": self.llm.default,
                 "temperature": self.llm.temperature,
                 "max_tokens": self.llm.max_tokens,
-            },
-            "agent": {"max_history": self.agent.max_history},
             "storage": {"type": self.storage.type, "path": self.storage.path},
             "channels": {
                 "telegram": {"enabled": self.channels.telegram.get("enabled", False), "token": self.channels.telegram.get("token", "")},
