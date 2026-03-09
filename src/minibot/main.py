@@ -47,9 +47,6 @@ def create_agent(config: Config):
     # 建立 Agent 設定
     agent_config = AgentConfig(
         system_prompt=config.agent.system_prompt,
-        model=config.llm.model,
-        temperature=config.llm.temperature,
-        max_tokens=config.llm.max_tokens,
         max_history=config.agent.max_history,
     )
     

@@ -198,9 +198,6 @@ class AgentLoop:
         logger.info(f"[{chat_id}] 呼叫 LLM...")
         response = await self.provider.chat(
             messages=chat_messages,
-            model=self.config.model,
-            temperature=self.config.temperature,
-            max_tokens=self.config.max_tokens
         )
         logger.info(f"[{chat_id}] 收到 LLM 回覆: {response.content[:50]}...")
         
