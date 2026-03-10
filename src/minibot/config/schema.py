@@ -43,14 +43,14 @@ class LogConfig(BaseModel):
     enabled: bool = True
     retention_days: int = 365
     level: str = "INFO"
+    log_prompt: bool = True  # 是否印出 system prompt
+    log_prompt_lines: int = 0  # 印出多少行，0 = 全部
 
 
 class ToolsConfig(BaseModel):
     """Tool configurations."""
     brave_api_key: str = ""
     max_tool_iterations: int = 10
-    log_prompt: bool = True  # 是否印出 system prompt
-    log_prompt_lines: int = 0  # 印出多少行，0 = 全部
 
 
 class MemoryConfig(BaseModel):
@@ -141,8 +141,8 @@ class Config:
             },
             "storage": {"type": "sqlite", "path": "~/.minibot/data/sessions.db"},
             "channels": {"telegram": {"enabled": False, "token": ""}, "console": {"enabled": True}},
-            "log": {"enabled": True, "retention_days": 365, "level": "INFO"},
-            "tools": {"brave_api_key": "", "max_tool_iterations": 10, "log_prompt": True, "log_prompt_lines": 0},
+            "log": {"enabled": True, "retention_days": 365, "level": "INFO", "log_prompt": True, "log_prompt_lines": 0},
+            "tools": {"brave_api_key": "", "max_tool_iterations": 10},
             "memory": {"max_history": 50, "threshold": 30}
         }
         with open(path, "w", encoding="utf-8") as f:
@@ -165,8 +165,8 @@ class Config:
                 "telegram": {"enabled": self.channels.telegram.get("enabled", False), "token": self.channels.telegram.get("token", "")},
                 "console": {"enabled": self.channels.console.get("enabled", True)},
             },
-            "log": {"enabled": self.log.enabled, "retention_days": self.log.retention_days, "level": self.log.level},
-            "tools": {"brave_api_key": self.tools.brave_api_key, "max_tool_iterations": self.tools.max_tool_iterations, "log_prompt": self.tools.log_prompt, "log_prompt_lines": self.tools.log_prompt_lines},
+            "log": {"enabled": self.log.enabled, "retention_days": self.log.retention_days, "level": self.log.level, "log_prompt": self.log.log_prompt, "log_prompt_lines": self.log.log_prompt_lines},
+            "tools": {"brave_api_key": self.tools.brave_api_key, "max_tool_iterations": self.tools.max_tool_iterations},
             "memory": {"max_history": self.memory.max_history, "threshold": self.memory.threshold},
         }
         with open(path, "w", encoding="utf-8") as f:

@@ -32,7 +32,7 @@ from minibot.context.builder import ContextBuilder
 from minibot.memory import MemoryStore, consolidate
 from minibot.tools import ToolRegistry, ReadFileTool, WriteFileTool, ListDirTool, EditFileTool, ExecTool, WebSearchTool, WebFetchTool
 from minibot.utils.log import logger
-from minibot.config import AgentConfig, MemoryConfig, ToolsConfig
+from minibot.config import AgentConfig, MemoryConfig, ToolsConfig, LogConfig
 
 
 class AgentLoop:
@@ -73,6 +73,7 @@ class AgentLoop:
         ...
         self.memory_config = memory_config or MemoryConfig()
         self.tools_config = tools_config or ToolsConfig()
+        self.log_config = log_config or LogConfig()
         self.brave_api_key = brave_api_key
         self.provider = provider
 
@@ -245,16 +246,16 @@ class AgentLoop:
         ]
 
         # Log prompt (if enabled)
-        if self.tools_config.log_prompt:
+        if self.log_config.log_prompt:
             try:
                 # 找出 system prompt
                 system_msg = next((m for m in full_messages if m.get("role") == "system"), None)
                 if system_msg:
                     content = system_msg.get('content', '')
-                    if self.tools_config.log_prompt_lines > 0:
+                    if self.log_config.log_prompt_lines > 0:
                         content_lines = content.split('\n')
-                        content = '\n'.join(content_lines[:self.tools_config.log_prompt_lines])
-                        content += f"\n... (truncated to {self.tools_config.log_prompt_lines} lines)"
+                        content = '\n'.join(content_lines[:self.log_config.log_prompt_lines])
+                        content += f"\n... (truncated to {self.log_config.log_prompt_lines} lines)"
                     
                     logger.info(f"[{chat_id}] === SYSTEM PROMPT ===")
                     logger.info(f"[{chat_id}] {content}")
