@@ -187,18 +187,19 @@ class AgentLoop:
         
         return chat_messages
 
-    async def _save_message(self, chat_id: str, role: str, content: str) -> None:
+    async def _save_message(self, chat_id: str, role: str, content: str, tool_name: str | None = None) -> None:
         """
         把訊息存到 Storage
 
         參數：
             chat_id: 聊天室 ID
-            role: user / assistant
+            role: user / assistant / tool
             content: 訊息內容
+            tool_name: 如果是 tool，記錄用了什麼工具
         """
         await self.storage.add_message(
             chat_id,
-            StoredMessage(role=role, content=content, timestamp=0)
+            StoredMessage(role=role, content=content, timestamp=0, tool_name=tool_name)
         )
 
     async def call_llm(
@@ -325,6 +326,9 @@ class AgentLoop:
                         content=result,
                         tool_call_id=tc.id
                     ))
+                    
+                    # 存到歷史訊息
+                    await self._save_message(chat_id, "tool", result, tool_name=tool_name)
                 
                 # 繼續迴圈，讓 LLM 根據 tool results 生成回覆
                 continue

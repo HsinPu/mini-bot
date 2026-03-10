@@ -18,9 +18,10 @@ class StoredMessage:
     """
     已儲存的訊息格式
     """
-    role: str      # "user" / "assistant"
+    role: str      # "user" / "assistant" / "tool"
     content: str   # 訊息內容
     timestamp: float  # 時間戳記
+    tool_name: str | None = None  # 如果是 tool，記錄用了什麼工具
 
 
 class StorageProvider(ABC):
