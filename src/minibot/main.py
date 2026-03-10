@@ -73,7 +73,6 @@ async def run():
     
     # 檢查 LLM 設定
     if not config.is_llm_configured:
-        logger.warning("請在 minibot.json 設定 LLM API Key")
         return
     
     # 建立 Agent + MessageQueue
