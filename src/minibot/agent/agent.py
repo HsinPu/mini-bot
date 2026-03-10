@@ -246,10 +246,14 @@ class AgentLoop:
         )
 
         # 轉換成 ChatMessage 格式
-        chat_messages = [
-            ChatMessage(role=m["role"], content=m.get("content", ""))
-            for m in full_messages
-        ]
+        chat_messages = []
+        for m in full_messages:
+            msg = ChatMessage(role=m["role"], content=m.get("content", ""))
+            if m.get("tool_call_id"):
+                msg.tool_call_id = m["tool_call_id"]
+            if m.get("tool_calls"):
+                msg.tool_calls = m["tool_calls"]
+            chat_messages.append(msg)
 
         # Log prompt (if enabled)
         if self.log_config.log_system_prompt:
