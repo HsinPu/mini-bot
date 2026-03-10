@@ -68,6 +68,7 @@ class AgentLoop:
         tools: ToolRegistry | None = None,
         memory_config: MemoryConfig | None = None,
         tools_config: ToolsConfig | None = None,
+        log_config: LogConfig | None = None,
         brave_api_key: str = "",
     ):
         ...
