@@ -134,7 +134,7 @@ class Config:
             "llm": {
                 "providers": {
                     "openrouter": {"api_key": "", "enabled": True, "model": "", "base_url": "https://openrouter.ai/api/v1"},
-                    "openai": {"api_key": "", "enabled": False, "model": "gpt-4o-mini", "base_url": "https://api.openai.com/v1"}
+                    "openai": {"api_key": "", "enabled": False, "model": "", "base_url": "https://api.openai.com/v1"}
                 },
                 "default": "openrouter",
                 "temperature": 0.7,
