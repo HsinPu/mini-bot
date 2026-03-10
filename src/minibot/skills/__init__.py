@@ -55,6 +55,19 @@ class SkillsLoader:
         """Get names of skills that should always be loaded."""
         return [s.name for s in self.get_skills() if s.always]
     
+    def build_skills_summary(self) -> str:
+        """Build a summary of all skills for the agent to know what's available."""
+        skills = self.get_skills()
+        if not skills:
+            return ""
+        
+        lines = ["Available skills:"]
+        for s in skills:
+            always = " (always on)" if s.always else ""
+            lines.append(f"- {s.name}: {s.description}{always}")
+        
+        return "\n".join(lines)
+    
     def load_skill_content(self, skill_name: str) -> str:
         """Load the full content of a skill's SKILL.md."""
         skill_file = self.skills_dir / skill_name / "SKILL.md"

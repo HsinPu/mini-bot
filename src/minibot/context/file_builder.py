@@ -58,6 +58,16 @@ class FileContextBuilder:
             if skill_contents:
                 parts.append(f"# Skills\n\n" + "\n\n".join(skill_contents))
         
+        # Add skills summary (so agent knows what other skills are available)
+        skills_summary = self.skills_loader.build_skills_summary()
+        if skills_summary:
+            parts.append(f"""# Available Skills
+
+To use a skill, read its SKILL.md file using the read_file tool.
+
+{skills_summary}
+""")
+        
         # Load per-chat memory
         memory = self.memory_store.read(chat_id)
         if memory:

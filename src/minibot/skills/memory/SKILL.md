@@ -1,23 +1,23 @@
 ---
 name: memory
-description: 雙層記憶系統，長期記憶會自動載入上下文。
+description: Two-layer memory system with automatic consolidation.
 always: true
 ---
 
-# 記憶
+# Memory
 
-## 結構
+## Structure
 
-- `memory/{chat_id}/MEMORY.md` — 長期事實（偏好、專案關係）。每次對話會自動載入。
-- `memory/{chat_id}/HISTORY.md` — 流水帳，不會載入。
+- `memory/{chat_id}/MEMORY.md` — Long-term facts (preferences, project context). Automatically loaded into context.
+- `memory/{chat_id}/HISTORY.md` — Event log, not loaded into context.
 
-## 什麼時候更新 MEMORY.md
+## When to Update MEMORY.md
 
-用 `edit_file` 或 `write_file` 立即寫入重要事實：
-- 用户偏好（「我偏好深色模式」）
-- 專案上下文（「API 使用 OAuth2」）
-- 重要資訊（記住用户告訴你的事情）
+Use `edit_file` or `write_file` to immediately save important facts:
+- User preferences ("I prefer dark mode")
+- Project context ("API uses OAuth2")
+- Important information (things the user tells you)
 
-## 自動整合
+## Auto-consolidation
 
-當對話超過 30 則訊息時，會自動摘要舊對話並寫入 MEMORY.md。
+When conversation exceeds 30 messages, old messages are automatically summarized and written to MEMORY.md.
