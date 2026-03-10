@@ -244,26 +244,33 @@ class AgentLoop:
             for m in full_messages
         ]
 
-        # Log 完整 prompt
-        try:
-            # 找出 system prompt
-            system_msg = next((m for m in full_messages if m.get("role") == "system"), None)
-            if system_msg:
-                logger.info(f"[{chat_id}] === SYSTEM PROMPT ===")
-                logger.info(f"[{chat_id}] {system_msg.get('content', '')}")
-                logger.info(f"[{chat_id}] ====================")
-            
-            # 其他訊息（完整印出）
-            logger.info(f"[{chat_id}] === MESSAGES ===")
-            for msg in full_messages:
-                role = msg.get('role', 'unknown')
-                if role == "system":
-                    continue
-                content = msg.get('content', '')  # 完整印出
-                logger.info(f"[{chat_id}] {role}: {content}")
-            logger.info(f"[{chat_id}] ==============")
-        except Exception as e:
-            logger.error(f"[{chat_id}] Log prompt error: {e}")
+        # Log prompt (if enabled)
+        if self.tools_config.log_prompt:
+            try:
+                # 找出 system prompt
+                system_msg = next((m for m in full_messages if m.get("role") == "system"), None)
+                if system_msg:
+                    content = system_msg.get('content', '')
+                    if self.tools_config.log_prompt_lines > 0:
+                        content_lines = content.split('\n')
+                        content = '\n'.join(content_lines[:self.tools_config.log_prompt_lines])
+                        content += f"\n... (truncated to {self.tools_config.log_prompt_lines} lines)"
+                    
+                    logger.info(f"[{chat_id}] === SYSTEM PROMPT ===")
+                    logger.info(f"[{chat_id}] {content}")
+                    logger.info(f"[{chat_id}] ====================")
+                
+                # 其他訊息
+                logger.info(f"[{chat_id}] === MESSAGES ===")
+                for msg in full_messages:
+                    role = msg.get('role', 'unknown')
+                    if role == "system":
+                        continue
+                    content = msg.get('content', '')
+                    logger.info(f"[{chat_id}] {role}: {content}")
+                logger.info(f"[{chat_id}] ==============")
+            except Exception as e:
+                logger.error(f"[{chat_id}] Log prompt error: {e}")
 
         # 準備 tools
         tools = None
