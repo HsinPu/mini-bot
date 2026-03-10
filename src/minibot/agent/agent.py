@@ -223,6 +223,14 @@ class AgentLoop:
         logger.info(f"[{chat_id}] 載入歷史訊息...")
         history_messages = await self._load_history(chat_id)
 
+        # 過濾掉 tool 訊息（tool results 只能在同一輪對話中使用）
+        filtered = []
+        for m in history_messages:
+            role = m.get("role", "?") if isinstance(m, dict) else getattr(m, "role", "?")
+            if role != "tool":
+                filtered.append(m)
+        history_messages = filtered
+
         # 轉換成 dict 格式（給 context builder 用）
         history_dicts = []
         for m in history_messages:
