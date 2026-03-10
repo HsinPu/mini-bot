@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 class ProviderConfig(BaseModel):
     api_key: str
-    model: str
+    model: str = ""
     base_url: str | None = None
 
 
