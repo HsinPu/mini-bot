@@ -246,16 +246,16 @@ class AgentLoop:
         ]
 
         # Log prompt (if enabled)
-        if self.log_config.log_prompt:
+        if self.log_config.log_system_prompt:
             try:
                 # 找出 system prompt
                 system_msg = next((m for m in full_messages if m.get("role") == "system"), None)
                 if system_msg:
                     content = system_msg.get('content', '')
-                    if self.log_config.log_prompt_lines > 0:
+                    if self.log_config.log_system_prompt_lines > 0:
                         content_lines = content.split('\n')
-                        content = '\n'.join(content_lines[:self.log_config.log_prompt_lines])
-                        content += f"\n... (truncated to {self.log_config.log_prompt_lines} lines)"
+                        content = '\n'.join(content_lines[:self.log_config.log_system_prompt_lines])
+                        content += f"\n... (truncated to {self.log_config.log_system_prompt_lines} lines)"
                     
                     logger.info(f"[{chat_id}] === SYSTEM PROMPT ===")
                     logger.info(f"[{chat_id}] {content}")
