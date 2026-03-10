@@ -227,9 +227,14 @@ class AgentLoop:
         history_dicts = []
         for m in history_messages:
             if isinstance(m, dict):
-                history_dicts.append({"role": m.get("role", "?"), "content": m.get("content", "")})
+                msg = {"role": m.get("role", "?"), "content": m.get("content", "")}
+                if m.get("tool_call_id"):
+                    msg["tool_call_id"] = m["tool_call_id"]
             else:
-                history_dicts.append({"role": m.role, "content": m.content})
+                msg = {"role": m.role, "content": m.content}
+                if getattr(m, "tool_call_id", None):
+                    msg["tool_call_id"] = m.tool_call_id
+            history_dicts.append(msg)
 
         # 用 context builder 組 messages
         logger.info(f"[{chat_id}] 使用 context builder")
