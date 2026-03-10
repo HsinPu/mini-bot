@@ -8,7 +8,7 @@ class ProviderConfig(BaseModel):
     api_key: str
     model: str = ""
     base_url: str | None = None
-    enabled: bool = True
+    enabled: bool = False
 
 
 class LLMsConfig(BaseModel):
@@ -41,7 +41,7 @@ class ChannelsConfig(BaseModel):
 
 
 class LogConfig(BaseModel):
-    enabled: bool = True
+    enabled: bool = False
     retention_days: int = 365
     level: str = "INFO"
     log_system_prompt: bool = True  # 是否印出 system prompt
