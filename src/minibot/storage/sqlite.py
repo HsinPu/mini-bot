@@ -77,7 +77,7 @@ class SQLiteStorage(StorageProvider):
         """加入訊息"""
         async with self._lock:
             conn = self._get_conn()
-            cur = conn.execute("SELECT messages, created_at FROM sessions WHERE chat_id = ?", (chat_id,))
+            cur = conn.execute("SELECT messages, created_at, consolidated_index FROM sessions WHERE chat_id = ?", (chat_id,))
             row = cur.fetchone()
 
             import time
@@ -86,9 +86,11 @@ class SQLiteStorage(StorageProvider):
             if row:
                 messages = json.loads(row[0])
                 created_at = row[1]
+                consolidated_index = row[2] if row[2] is not None else 0
             else:
                 messages = []
                 created_at = now
+                consolidated_index = 0
 
             messages.append({
                 "role": message.role,
@@ -97,8 +99,8 @@ class SQLiteStorage(StorageProvider):
             })
 
             conn.execute(
-                "INSERT OR REPLACE INTO sessions (chat_id, messages, created_at, updated_at) VALUES (?, ?, ?, ?)",
-                (chat_id, json.dumps(messages), created_at, now)
+                "INSERT OR REPLACE INTO sessions (chat_id, messages, created_at, updated_at, consolidated_index) VALUES (?, ?, ?, ?, ?)",
+                (chat_id, json.dumps(messages), created_at, now, consolidated_index)
             )
             conn.commit()
             conn.close()
