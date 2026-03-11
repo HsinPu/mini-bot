@@ -1,77 +1,74 @@
-# mini-bot 🤖
+# mini-bot
 
 超輕量個人 AI 助理框架
 
-## 特色
+## 簡介
 
-- **極簡核心**：模組化設計，易於擴充
-- **多 LLM 支援**：OpenAI、MiniMax、OpenRouter 透過統一介面
-- **多對話支援**：每個聊天室有獨立的對話歷史與記憶
-- **非同步處理**：訊息佇列、背景處理
-- **工具呼叫**：檔案操作、網頁搜尋、Shell 命令執行
-- **長期記憶**：支援記憶儲存與檢索
+mini-bot 是一個模組化的個人 AI 助理框架，提供統一的 LLM 介面、多頻道支援、工具呼叫與長期記憶功能。
 
-## 架構
+## 核心概念
+
+### 設計原則
+
+1. **依賴注入**：所有元件（LLM、Storage、ContextBuilder、Tools）皆可替換
+2. **統一訊息格式**：`UserMessage` 和 `AssistantMessage` 抽象化頻道差異
+3. **非同步優先**：基於 asyncio 的非阻塞操作
+4. **多對話支援**：每個聊天室擁有獨立的對話歷史
+5. **訊息佇列**：非同步處理，支援背景執行
+
+### 訊息流程
 
 ```
-src/minibot/
-├── agent/              # Agent 核心（AgentLoop）
-├── llms/               # LLM 實作（可替換）
-│   ├── base.py        # LLMProvider 介面
-│   ├── openai.py      # OpenAI
-│   ├── minimax.py     # MiniMax
-│   └── openrouter.py  # OpenRouter
-├── channels/           # 訊息來源（可擴充）
-│   └── telegram.py    # Telegram Adapter
-├── bus/                # 訊息匯流排
-│   ├── message.py     # 訊息結構
-│   ├── message_queue.py
-│   └── events.py
-├── storage/            # 儲存提供者
-│   ├── base.py        # StorageProvider 介面
-│   ├── memory.py      # 記憶體實作
-│   └── sqlite.py      # SQLite 實作
-├── context/            # Prompt 上下文建構
-│   ├── builder.py     # ContextBuilder 介面
-│   ├── file_builder.py
-│   └── workspace.py
-├── tools/              # 工具實作
-│   ├── filesystem.py  # 檔案操作
-│   ├── shell.py       # Shell 命令
-│   ├── web_search.py  # 網頁搜尋
-│   └── web_fetch.py   # 網頁抓取
-├── skills/             # 技能定義
-│   ├── memory/        # 記憶技能
-│   └── coding/        # 編碼技能
-├── config/             # 設定管理
-│   └── schema.py      # Pydantic Schema
-├── templates/          # System Prompt 範本
-└── main.py            # 入口點
+使用者 → Channel → MessageQueue → AgentLoop → LLM → Storage
+                                    ↓
+                                 Tools
+                                    ↓
+使用者 ← Channel ← MessageQueue ← Response
 ```
 
 ## 安裝
 
-```bash
-# Clone 後安裝
-cd mini-bot
-pip install -e .
+### 安裝依賴
 
-# 或只安裝依賴
+```bash
+cd mini-bot
 pip install -r requirements.txt
+```
+
+### 可編輯模式安裝（開發用）
+
+```bash
+pip install -e .
+```
+
+### 解除安裝
+
+```bash
+# 移除套件
+pip uninstall minibot
+
+# 清除配置檔與資料（可選）
+rm -rf ~/.minibot
+```
+
+### 啟動
+
+```bash
+# 直接執行
+python -m minibot.main
+
+# 或使用前景模式（Console）
+python -m minibot.main foreground
+
+# 背景模式
+python -m minibot.main start
 ```
 
 ## 快速開始
 
-### 1. 設定配置檔
+### 1. 配置
 
-首次執行會自動建立配置檔於 `~/.minibot/minibot.json`
-
-```bash
-# 編輯配置檔，填入 API Key
-# 位置：~/.minibot/minibot.json
-```
-
-配置範例：
+首次執行會自動建立 `~/.minibot/minibot.json`：
 
 ```json
 {
@@ -84,45 +81,56 @@ pip install -r requirements.txt
         "base_url": "https://openrouter.ai/api/v1"
       }
     },
-    "default": "openrouter"
+    "default": "openrouter",
+    "temperature": 0.7,
+    "max_tokens": 8192
+  },
+  "storage": {
+    "type": "sqlite",
+    "path": "~/.minibot/data/sessions.db"
   },
   "channels": {
     "console": {
       "enabled": true
     }
+  },
+  "tools": {
+    "brave_api_key": "",
+    "max_tool_iterations": 100
+  },
+  "memory": {
+    "max_history": 50,
+    "threshold": 30
   }
 }
 ```
 
-### 2. 執行（Console 模式）
+### 2. 執行
 
 ```bash
+# Console 模式
 python -m minibot.main
-```
 
-### 3. 輸入格式
-
-```
-你好              → 發送到 default 對話
-@123 你好        → 發送到 chat_id=123
-@123 /reset      → 清除 chat_id=123 的歷史
-/reset           → 清除所有歷史
-/exit            → 離開
-```
-
-## 執行模式
-
-```bash
-# 前景模式（Console）
+# 前景模式
 python -m minibot.main foreground
 
 # 背景模式
 python -m minibot.main start
 ```
 
+### 3. Console 指令
+
+| 指令 | 說明 |
+|------|------|
+| `你好` | 發送到 default 對話 |
+| `@123 你好` | 發送到 chat_id=123 |
+| `@123 /reset` | 清除 chat_id=123 的歷史 |
+| `/reset` | 清除所有歷史 |
+| `/exit` | 離開 |
+
 ## 使用方式
 
-### 基本使用
+### Python API
 
 ```python
 from minibot.agent import AgentLoop, AgentConfig
@@ -131,86 +139,149 @@ from minibot.storage import MemoryStorage
 from minibot.context import FileContextBuilder
 from minibot.message import UserMessage
 
-# 1. 建立 LLM
-llm = OpenAILLM(
-    api_key="sk-xxx",
-    base_url=None,
-    default_model="gpt-4o-mini"
-)
-
-# 2. 建立 Storage
+# 初始化
+llm = OpenAILLM(api_key="sk-xxx", default_model="gpt-4o-mini")
 storage = MemoryStorage()
-
-# 3. 建立 ContextBuilder
 context_builder = FileContextBuilder()
+agent = AgentLoop(AgentConfig(), llm, storage, context_builder)
 
-# 4. 建立 Agent
-config = AgentConfig(system_prompt="你是個簡潔的助理。")
-agent = AgentLoop(config, llm, storage, context_builder)
-
-# 5. 使用
+# 處理訊息
 user_msg = UserMessage(text="你好", chat_id="123")
 response = await agent.process(user_msg)
 print(response.text)
 ```
 
-### 使用 Telegram
+### Telegram
 
 ```python
-from minibot.agent import AgentLoop, AgentConfig
-from minibot.llms import OpenAILLM
 from minibot.channels.telegram import TelegramAdapter
 
-# 建立 Agent
-llm = OpenAILLM(api_key="your-key")
-agent = AgentLoop(AgentConfig(system_prompt="你是個助理。"), llm)
-
-# 建立 Telegram Adapter
-telegram = TelegramAdapter(bot_token="your-telegram-token")
-
-# 處理訊息
-async def handle(adapter, raw_update, user_msg):
-    response = await agent.process(user_msg)
-    await adapter.send(response)
-
-# 啟動
+telegram = TelegramAdapter(bot_token="your-token")
 asyncio.run(telegram.run(handle))
 ```
 
-## 可用工具
+## 架構
 
-| 工具 | 說明 |
+```
+src/minibot/
+├── agent/           # AgentLoop 核心
+├── llms/            # LLM Providers
+│   ├── base.py     # LLMProvider 介面
+│   ├── openai.py
+│   ├── minimax.py
+│   └── openrouter.py
+├── bus/             # Message Bus
+│   ├── message.py
+│   ├── message_queue.py
+│   └── events.py
+├── storage/         # Storage Providers
+│   ├── base.py
+│   ├── memory.py
+│   └── sqlite.py
+├── context/         # Context Builders
+│   ├── builder.py
+│   ├── file_builder.py
+│   └── workspace.py
+├── tools/           # Tool Implementations
+│   ├── filesystem.py
+│   ├── shell.py
+│   ├── web_search.py
+│   └── web_fetch.py
+├── memory/          # Long-term Memory
+├── skills/          # Skill Definitions
+├── config/          # Configuration
+├── channels/        # Channel Adapters
+├── templates/       # System Prompt Templates
+└── main.py         # Entry Point
+```
+
+## 元件說明
+
+### LLM Providers
+
+| Provider | 說明 |
+|----------|------|
+| OpenAI | OpenAI API |
+| MiniMax | MiniMax AI |
+| OpenRouter | 多模型聚合平台 |
+
+### Storage
+
+| Type | 說明 |
 |------|------|
-| `filesystem` | 讀取、寫入、編輯檔案，列出目錄 |
-| `shell` | 執行 Shell 命令 |
-| `web_search` | 網頁搜尋（需 Brave API Key） |
-| `web_fetch` | 抓取網頁內容 |
-| `memory` | 儲存長期記憶 |
+| Memory | 記憶體儲存 |
+| File | 檔案儲存 |
+| SQLite | SQLite 資料庫（預設） |
+
+### Channels
+
+| Channel | 說明 |
+|---------|------|
+| Console | 終端機介面 |
+| Telegram | Telegram Bot |
+
+### Tools
+
+| Tool | 說明 |
+|------|------|
+| ReadFile | 讀取檔案 |
+| WriteFile | 寫入檔案 |
+| EditFile | 編輯檔案 |
+| ListDir | 列出目錄 |
+| Exec | 執行 Shell 命令 |
+| WebSearch | 網頁搜尋（Brave API） |
+| WebFetch | 抓取網頁內容 |
+| SaveMemory | 儲存長期記憶 |
 
 ## 配置選項
 
-### LLM 提供者
+### LLM 設定
 
-| 提供者 | 說明 |
-|--------|------|
-| `openrouter` | OpenRouter（支援多種模型） |
-| `openai` | OpenAI API |
-| `minimax` | MiniMax AI |
+```json
+{
+  "llm": {
+    "providers": {
+      "openrouter": {
+        "api_key": "",
+        "model": "",
+        "base_url": "https://openrouter.ai/api/v1",
+        "enabled": false
+      }
+    },
+    "default": "openrouter",
+    "temperature": 0.7,
+    "max_tokens": 8192
+  }
+}
+```
 
-### 儲存類型
+### 記憶設定
 
-| 類型 | 說明 |
-|------|------|
-| `memory` | 記憶體儲存（揮發性） |
-| `file` | 檔案儲存 |
-| `sqlite` | SQLite 資料庫（預設） |
+```json
+{
+  "memory": {
+    "max_history": 50,
+    "threshold": 30
+  }
+}
+```
 
-### 頻道
+- `max_history`: 對話歷史最大訊息數
+- `threshold`: 觸發記憶 consolidation 的訊息數
 
-| 頻道 | 說明 |
-|------|------|
-| `console` | 終端機介面（預設啟用） |
-| `telegram` | Telegram Bot |
+### 日誌設定
+
+```json
+{
+  "log": {
+    "enabled": true,
+    "retention_days": 365,
+    "level": "INFO",
+    "log_system_prompt": true,
+    "log_system_prompt_lines": 0
+  }
+}
+```
 
 ## 依賴
 
@@ -221,6 +292,16 @@ python-daemon>=3.0.0
 aiohttp>=3.0.0
 python-telegram-bot>=20.0
 loguru>=0.7.0
+```
+
+## 開發
+
+```bash
+# 安裝開發依賴
+pip install -e ".[dev]"
+
+# 執行測試
+pytest
 ```
 
 ## 文件
