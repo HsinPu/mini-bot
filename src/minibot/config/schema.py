@@ -1,10 +1,13 @@
 """minibot/config/schema.py - 設定檔定義"""
 import json
 from pathlib import Path
+from typing import Any
 from pydantic import BaseModel, Field
 
 
 class ProviderConfig(BaseModel):
+    """LLM provider configuration."""
+    
     api_key: str
     model: str = ""
     base_url: str | None = None
@@ -12,6 +15,8 @@ class ProviderConfig(BaseModel):
 
 
 class LLMsConfig(BaseModel):
+    """LLM configuration with support for multiple providers."""
+    
     providers: dict[str, ProviderConfig] = {}
     default: str | None = None
     api_key: str = ""
@@ -21,23 +26,28 @@ class LLMsConfig(BaseModel):
     max_tokens: int
 
     def get_active(self) -> ProviderConfig:
+        """Get the active provider configuration."""
         if self.providers and self.default and self.default in self.providers:
             return self.providers[self.default]
         return ProviderConfig(api_key=self.api_key, model=self.model, base_url=self.base_url, enabled=True)
 
 
 class AgentConfig(BaseModel):
+    """Agent configuration."""
+    
     max_history: int = 50
 
 
 class StorageConfig(BaseModel):
+    """Storage configuration."""
+    
     type: str
     path: str
 
 
 class ChannelsConfig(BaseModel):
-    telegram: dict = Field(default_factory=lambda: {"enabled": False, "token": ""})
-    console: dict = Field(default_factory=lambda: {"enabled": True})
+    telegram: dict[str, Any] = Field(default_factory=lambda: {"enabled": False, "token": ""})
+    console: dict[str, Any] = Field(default_factory=lambda: {"enabled": True})
 
 
 class LogConfig(BaseModel):
@@ -78,7 +88,7 @@ class Config:
         if not path.exists():
             raise FileNotFoundError(f"設定檔不存在：{path}")
         with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+            data: dict[str, Any] = json.load(f)
         if not data:
             raise ValueError(f"設定檔是空的：{path}")
         for section in ["llm", "storage", "channels"]:
@@ -131,7 +141,7 @@ class Config:
         
         return path
 
-    def save(self, path: str | Path):
+    def save(self, path: str | Path) -> None:
         """Save config to JSON file."""
         path = Path(path)
         if path.suffix != ".json":
