@@ -20,7 +20,7 @@ class MiniMaxLLM(LLMProvider):
     def __init__(
         self, 
         api_key: str, 
-        default_model: str = "MiniMax-M2.1"
+        default_model: str = "MiniMax-M2.5"
     ):
         """
         初始化 MiniMax LLM
