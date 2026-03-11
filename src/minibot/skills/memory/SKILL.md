@@ -1,6 +1,6 @@
 ---
 name: memory
-description: Two-layer memory system with automatic consolidation.
+description: Persistent memory with auto-consolidation. Important facts are automatically saved and loaded across sessions.
 always: true
 ---
 
@@ -9,15 +9,23 @@ always: true
 ## Structure
 
 - `memory/{chat_id}/MEMORY.md` — Long-term facts (preferences, project context). Automatically loaded into context.
-- `memory/{chat_id}/HISTORY.md` — Event log, not loaded into context.
 
 ## When to Update MEMORY.md
 
-Use `edit_file` or `write_file` to immediately save important facts:
-- User preferences ("I prefer dark mode")
-- Project context ("API uses OAuth2")
-- Important information (things the user tells you)
+Use `edit_file` or `write_file` to immediately save:
 
-## Auto-consolidation
+**User Preferences**
+- Timezone, language, communication style
+- Tool/editor preferences ("uses VS Code", "prefers TypeScript")
+- Response format preferences
 
-When conversation exceeds 30 messages, old messages are automatically summarized and written to MEMORY.md.
+**Project Context**
+- Tech stack (frameworks, libraries, versions)
+- Architecture decisions
+- API endpoints, database schemas
+- Current goals and blockers
+
+**Important Facts**
+- Names, relationships, organizations
+- Deadlines, schedules, recurring events
+- Personal details the user shares
