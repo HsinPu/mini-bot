@@ -114,33 +114,18 @@ class TelegramAdapter(MessageAdapter):
     
     def _markdown_to_html(self, text: str) -> str:
         """將 Markdown 轉換為 Telegram HTML 格式"""
-        import re
+        import markdown
         
-        # 處理代碼塊
-        text = re.sub(r'```(\w*)\n(.*?)```', r'<code>\2</code>', text, flags=re.DOTALL)
-        text = re.sub(r'`([^`]+)`', r'<code>\1</code>', text)
+        # 轉換 markdown → HTML
+        html = markdown.markdown(text, extensions=['extra', 'codehilite'])
         
-        # 處理粗體
-        text = re.sub(r'\*\*([^*]+)\*\*', r'<b>\1</b>', text)
-        text = re.sub(r'__([^_]+)__', r'<b>\1</b>', text)
+        # Telegram HTML 標籤處理
+        html = html.replace('<strong>', '<b>').replace('</strong>', '</b>')
+        html = html.replace('<em>', '<i>').replace('</em>', '</i>')
+        html = html.replace('<code>', '<code>').replace('</code>', '</code>')
+        html = html.replace('<pre><code>', '<code>').replace('</code></pre>', '</code>')
         
-        # 處理斜體
-        text = re.sub(r'\*([^*]+)\*', r'<i>\1</i>', text)
-        text = re.sub(r'_([^_]+)_', r'<i>\1</i>', text)
-        
-        # 處理連結
-        text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', text)
-        
-        # 處理標題 (# → bold)
-        text = re.sub(r'^### (.+)$', r'<b>\1</b>', text, flags=re.MULTILINE)
-        text = re.sub(r'^## (.+)$', r'<b>\1</b>', text, flags=re.MULTILINE)
-        text = re.sub(r'^# (.+)$', r'<b>\1</b>', text, flags=re.MULTILINE)
-        
-        # 處理列表
-        text = re.sub(r'^- (.+)$', r'• \1', text, flags=re.MULTILINE)
-        text = re.sub(r'^\d+\. (.+)$', r'• \1', text, flags=re.MULTILINE)
-        
-        return text
+        return html
     
     async def _on_response(self, response: AssistantMessage, channel: str, chat_id: str) -> None:
         """
