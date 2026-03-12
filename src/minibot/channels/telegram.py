@@ -95,10 +95,52 @@ class TelegramAdapter(MessageAdapter):
         if len(text) > max_length:
             text = text[:max_length] + f"\n\n... (訊息太長，已截斷，共 {len(message.text)} 字)"
         
-        await self.app.bot.send_message(
-            chat_id=message.chat_id,
-            text=text
-        )
+        # 轉換 markdown 為 HTML
+        html_text = self._markdown_to_html(text)
+        
+        # 嘗試發送 HTML，失敗則用純文字
+        try:
+            await self.app.bot.send_message(
+                chat_id=message.chat_id,
+                text=html_text,
+                parse_mode="HTML"
+            )
+        except Exception:
+            # Fallback 到純文字
+            await self.app.bot.send_message(
+                chat_id=message.chat_id,
+                text=text
+            )
+    
+    def _markdown_to_html(self, text: str) -> str:
+        """將 Markdown 轉換為 Telegram HTML 格式"""
+        import re
+        
+        # 處理代碼塊
+        text = re.sub(r'```(\w*)\n(.*?)```', r'<code>\2</code>', text, flags=re.DOTALL)
+        text = re.sub(r'`([^`]+)`', r'<code>\1</code>', text)
+        
+        # 處理粗體
+        text = re.sub(r'\*\*([^*]+)\*\*', r'<b>\1</b>', text)
+        text = re.sub(r'__([^_]+)__', r'<b>\1</b>', text)
+        
+        # 處理斜體
+        text = re.sub(r'\*([^*]+)\*', r'<i>\1</i>', text)
+        text = re.sub(r'_([^_]+)_', r'<i>\1</i>', text)
+        
+        # 處理連結
+        text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', text)
+        
+        # 處理標題 (# → bold)
+        text = re.sub(r'^### (.+)$', r'<b>\1</b>', text, flags=re.MULTILINE)
+        text = re.sub(r'^## (.+)$', r'<b>\1</b>', text, flags=re.MULTILINE)
+        text = re.sub(r'^# (.+)$', r'<b>\1</b>', text, flags=re.MULTILINE)
+        
+        # 處理列表
+        text = re.sub(r'^- (.+)$', r'• \1', text, flags=re.MULTILINE)
+        text = re.sub(r'^\d+\. (.+)$', r'• \1', text, flags=re.MULTILINE)
+        
+        return text
     
     async def _on_response(self, response: AssistantMessage, channel: str, chat_id: str) -> None:
         """
