@@ -38,7 +38,7 @@ from minibot.tools import (
     EditFileTool,
     ExecTool,
     WebSearchTool,
-    WebFetchTool,
+    WebFetcher,
     ReadSkillTool,
 )
 from minibot.utils.log import logger
@@ -182,7 +182,7 @@ class AgentLoop:
         if hasattr(self.tools_config, 'web_search'):
             web_search_config = self.tools_config.web_search or {}
         self.tools.register(WebSearchTool(config=web_search_config))
-        self.tools.register(WebFetchTool(config=web_search_config))
+        self.tools.register(WebFetcher())
         
         logger.info(f"已註冊工具: {self.tools.tool_names}")
 
