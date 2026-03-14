@@ -179,10 +179,19 @@ class AgentLoop:
         
         # 網路工具
         web_search_config = {}
+        web_fetch_config = {}
         if hasattr(self.tools_config, 'web_search'):
             web_search_config = self.tools_config.web_search or {}
+        if hasattr(self.tools_config, 'web_fetch'):
+            web_fetch_config = self.tools_config.web_fetch or {}
+        
         self.tools.register(WebSearchTool(config=web_search_config))
-        self.tools.register(WebFetcher())
+        self.tools.register(WebFetcher(
+            max_chars=web_fetch_config.get("max_chars", 50000),
+            timeout=web_fetch_config.get("timeout", 30),
+            prefer_trafilatura=web_fetch_config.get("prefer_trafilatura", True),
+            firecrawl_api_key=web_fetch_config.get("firecrawl_api_key")
+        ))
         
         logger.info(f"已註冊工具: {self.tools.tool_names}")
 
