@@ -50,7 +50,8 @@
     "web_search": {
       "provider": "brave",
       "api_key": "",
-      "searxng_url": "https://searx.be"
+      "searxng_url": "https://searx.be",
+      "max_results": 10
     },
     "web_fetch": {
       "max_chars": 50000,
