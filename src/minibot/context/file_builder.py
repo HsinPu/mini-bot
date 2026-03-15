@@ -39,7 +39,7 @@ class FileContextBuilder:
     
     def build_system_prompt(self, chat_id: str = "default") -> str:
         """Build system prompt from workspace files."""
-        parts = [self._get_identity()]
+        parts = [self._get_identity(chat_id)]
         
         # Load bootstrap files
         bootstrap = load_bootstrap_files(self.workspace)
@@ -75,7 +75,7 @@ To use a skill, read its SKILL.md file using the read_file tool.
         
         return "\n\n---\n\n".join(parts)
     
-    def _get_identity(self) -> str:
+    def _get_identity(self, chat_id: str) -> str:
         """Get the core identity section."""
         workspace_path = str(self.workspace.expanduser().resolve())
         system = platform.system()
@@ -90,7 +90,7 @@ You are mini-bot, a helpful AI assistant.
 
 ## Workspace
 Your workspace is at: {workspace_path}
-- Long-term memory: {workspace_path}/memory/MEMORY.md (write important facts here)
+- Long-term memory: {workspace_path}/memory/{chat_id}/MEMORY.md (current chat memory file)
 
 ## Guidelines
 - Be helpful and concise.
@@ -101,7 +101,6 @@ Your workspace is at: {workspace_path}
     def _build_runtime_context(channel: str | None, chat_id: str | None) -> str:
         """Build untrusted runtime metadata block."""
         now = datetime.now().strftime("%Y-%m-%d %H:%M (%A)")
-        tz = platform.time() if hasattr(platform, 'time') else "Local"
         lines = [f"Current Time: {now}"]
         
         if channel and chat_id:
