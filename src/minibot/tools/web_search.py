@@ -1,22 +1,17 @@
-"""Web search and fetch tools - multi-provider support."""
+"""Web search tool - multi-provider support."""
 
 from __future__ import annotations
 
-import html
-import json
 import os
 import re
 from typing import Any
-from urllib.parse import urlparse
 
 import httpx
 from loguru import logger
 
 from minibot.tools.base import Tool
 
-# Shared constants
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36"
-MAX_REDIRECTS = 5
 
 
 def _strip_tags(text: str) -> str:
@@ -30,19 +25,6 @@ def _strip_tags(text: str) -> str:
 def _normalize(text: str) -> str:
     """Normalize whitespace."""
     return re.sub(r'\s+', ' ', text).strip()
-
-
-def _validate_url(url: str) -> tuple[bool, str]:
-    """Validate URL format."""
-    try:
-        result = urlparse(url)
-        if not result.scheme or not result.netloc:
-            return False, "Missing scheme or netloc"
-        if result.scheme not in ("http", "https"):
-            return False, f"Unsupported scheme: {result.scheme}"
-        return True, ""
-    except Exception as e:
-        return False, str(e)
 
 
 def _format_results(query: str, items: list[dict[str, Any]], n: int) -> str:
@@ -212,109 +194,3 @@ class WebSearchTool(Tool):
             return r.text
         except Exception as e:
             return f"Error: {e}"
-
-
-class WebFetchTool(Tool):
-    """Fetch and extract readable content from URLs."""
-
-    name = "web_fetch"
-    description = "Fetch a URL and extract readable content. Returns title, text, and metadata."
-
-    parameters = {
-        "type": "object",
-        "properties": {
-            "url": {"type": "string", "description": "URL to fetch"},
-            "max_chars": {"type": "integer", "description": "Max characters to return", "default": 5000}
-        },
-        "required": ["url"]
-    }
-
-    def __init__(self, config: dict | None = None, proxy: str | None = None):
-        self.config = config or {}
-        self.proxy = proxy or self.config.get("proxy", "")
-
-    async def execute(self, url: str, max_chars: int = 5000, **kwargs: Any) -> str:
-        is_valid, error_msg = _validate_url(url)
-        if not is_valid:
-            return json.dumps({"error": f"URL validation failed: {error_msg}", "url": url})
-
-        # Try Jina Reader first
-        result = await self._fetch_jina(url, max_chars)
-        if result is not None:
-            return result
-
-        # Fallback to readability
-        return await self._fetch_readability(url, max_chars)
-
-    async def _fetch_jina(self, url: str, max_chars: int) -> str | None:
-        """Try fetching via Jina Reader API."""
-        try:
-            headers = {"Accept": "application/json", "User-Agent": USER_AGENT}
-            jina_key = os.environ.get("JINA_API_KEY", "")
-            if jina_key:
-                headers["Authorization"] = f"Bearer {jina_key}"
-
-            async with httpx.AsyncClient(proxy=self.proxy, timeout=20.0) as client:
-                r = await client.get(f"https://r.jina.ai/{url}", headers=headers)
-                if r.status_code == 429:
-                    logger.debug("Jina Reader rate limited")
-                    return None
-                r.raise_for_status()
-
-            data = r.json().get("data", {})
-            title = data.get("title", "")
-            text = data.get("content", "")
-            if not text:
-                return None
-
-            if title:
-                text = f"# {title}\n\n{text}"
-
-            truncated = len(text) > max_chars
-            if truncated:
-                text = text[:max_chars]
-
-            return json.dumps({
-                "url": url, "finalUrl": data.get("url", url), "status": r.status_code,
-                "extractor": "jina", "truncated": truncated, "length": len(text), "text": text
-            }, ensure_ascii=False)
-        except Exception as e:
-            logger.debug("Jina Reader failed: {}", e)
-            return None
-
-    async def _fetch_readability(self, url: str, max_chars: int) -> str:
-        """Fallback using readability-lxml."""
-        from readability import Document
-
-        try:
-            async with httpx.AsyncClient(
-                follow_redirects=True,
-                max_redirects=MAX_REDIRECTS,
-                timeout=30.0,
-                proxy=self.proxy
-            ) as client:
-                r = await client.get(url, headers={"User-Agent": USER_AGENT})
-                r.raise_for_status()
-
-            ctype = r.headers.get("content-type", "")
-
-            if "application/json" in ctype:
-                text, extractor = json.dumps(r.json(), indent=2, ensure_ascii=False), "json"
-            elif "text/html" in ctype or r.text[:256].lower().startswith(("<!doctype", "<html")):
-                doc = Document(r.text)
-                content = _strip_tags(doc.summary())
-                text = f"# {doc.title()}\n\n{content}" if doc.title() else content
-                extractor = "readability"
-            else:
-                text, extractor = r.text[:max_chars], "raw"
-
-            truncated = len(text) > max_chars
-            if truncated:
-                text = text[:max_chars]
-
-            return json.dumps({
-                "url": url, "finalUrl": str(r.url), "status": r.status_code,
-                "extractor": extractor, "truncated": truncated, "length": len(text), "text": text
-            }, ensure_ascii=False)
-        except Exception as e:
-            return json.dumps({"error": str(e), "url": url})

@@ -168,10 +168,11 @@ pip install trafilatura html2text
 
 import json
 import re
-import sys
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 from html import unescape
+
+from minibot.tools.base import Tool
 
 # 嘗試引入 trafilatura
 try:
@@ -741,6 +742,63 @@ class WebFetcher:
         return result
 
 
+class WebFetchTool(Tool):
+    """Tool-compatible wrapper around WebFetcher."""
+
+    def __init__(
+        self,
+        max_chars: int = 50000,
+        timeout: int = 30,
+        prefer_trafilatura: bool = True,
+        firecrawl_api_key: str | None = None,
+    ):
+        self.fetcher = WebFetcher(
+            max_chars=max_chars,
+            timeout=timeout,
+            prefer_trafilatura=prefer_trafilatura,
+            firecrawl_api_key=firecrawl_api_key,
+        )
+
+    @property
+    def name(self) -> str:
+        return "web_fetch"
+
+    @property
+    def description(self) -> str:
+        return "Fetch and extract readable content from URLs. Returns title, text, and metadata."
+
+    @property
+    def parameters(self) -> dict:
+        return {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "URL to fetch"},
+                "max_chars": {"type": "integer", "description": "Max characters to return", "default": 50000},
+            },
+            "required": ["url"],
+        }
+
+    async def execute(self, url: str, max_chars: int = 50000, **kwargs) -> str:
+        result = WebFetcher(
+            max_chars=max_chars,
+            timeout=self.fetcher.timeout,
+            prefer_trafilatura=self.fetcher.prefer_trafilatura,
+            firecrawl_api_key=self.fetcher.firecrawl_api_key,
+        ).fetch(url)
+        return json.dumps(
+            {
+                "url": result.get("url"),
+                "finalUrl": result.get("finalUrl"),
+                "status": result.get("status"),
+                "title": result.get("title"),
+                "extractor": result.get("extractor"),
+                "truncated": result.get("truncated"),
+                "text": result.get("text"),
+            },
+            ensure_ascii=False,
+        )
+
+
 # ============================================
 # 便捷函式
 # ============================================
@@ -767,40 +825,3 @@ def fetch(url: str, max_chars: int = 50000, timeout: int = 30,
     ).fetch(url)
 
 
-# ============================================
-# 命令列入口
-# ============================================
-
-if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print(__doc__)
-        print(f"\n[資訊] Trafilatura: {'已安裝' if TRAFILATURA_AVAILABLE else '未安裝'}")
-        print(f"[資訊] html2text (Turndown): {'已安裝' if HTML2TEXT_AVAILABLE else '未安裝'}")
-        print(f"[資訊] 執行 'python {sys.argv[0]} <url>' 來擷取網頁")
-        sys.exit(1)
-    
-    url = sys.argv[1]
-    max_chars, mode = 50000, 'markdown'
-    
-    for i, arg in enumerate(sys.argv[2:], 2):
-        if arg == '--max-chars' and i + 1 < len(sys.argv):
-            max_chars = int(sys.argv[i + 1])
-        elif arg == '--mode' and i + 1 < len(sys.argv):
-            mode = sys.argv[i + 1]
-    
-    try:
-        result = WebFetcher(max_chars=max_chars).fetch(url, mode)
-        
-        print(f"URL: {result['url']}")
-        print(f"Status: {result['status']}")
-        print(f"Extractor: {result['extractor']}")
-        if result['title']:
-            print(f"Title: {result['title']}")
-        print(f"Truncated: {result['truncated']}")
-        print(f"Length: {len(result['text'])}")
-        print()
-        print(result['text'])
-        
-    except Exception as e:
-        print(f"錯誤: {e}", file=sys.stderr)
-        sys.exit(1)

@@ -6,7 +6,7 @@ from minibot.tools.filesystem import ReadFileTool, WriteFileTool, ListDirTool, E
 from minibot.tools.skill import ReadSkillTool
 from minibot.tools.shell import ExecTool
 from minibot.tools.web_search import WebSearchTool
-from minibot.tools.webfetch_tool import WebFetchTool
+from minibot.tools.webfetch import WebFetchTool
 
 __all__ = [
     "Tool",
