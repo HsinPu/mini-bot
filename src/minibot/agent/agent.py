@@ -434,6 +434,12 @@ class AgentLoop:
         """
         chat_id = user_message.chat_id or "default"
         channel = getattr(user_message, 'channel', None)
+
+        if ":" not in chat_id:
+            logger.warning(
+                "Received non-namespaced chat_id '{}' in Agent.process; this may mix sessions if MessageQueue is bypassed",
+                chat_id,
+            )
         
         logger.info(f"[{chat_id}] 收到訊息: {user_message.text[:50]}...")
 
