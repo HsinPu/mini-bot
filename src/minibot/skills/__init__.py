@@ -17,8 +17,8 @@ class SkillsLoader:
     """Load and manage skills from skills directories.
     
     Looks in two places:
-    - System default: ~/.minibot/skills/
-    - Agent custom: workspace/skills/
+    - Default user root: ~/.minibot/skills/
+    - Custom workspace override: <workspace>/skills/
     """
     
     def __init__(self, workspace: Path):
@@ -61,12 +61,15 @@ class SkillsLoader:
     def get_skills(self) -> list[Skill]:
         """Get all available skills from both system and custom directories."""
         skills = []
+        loaded_dirs: set[Path] = set()
         
         # Load from system default skills (~/.minibot/skills/)
-        skills.extend(self._load_skills_from_dir(self.default_skills_dir))
+        if self.default_skills_dir.exists():
+            skills.extend(self._load_skills_from_dir(self.default_skills_dir))
+            loaded_dirs.add(self.default_skills_dir.resolve())
         
         # Load from custom skills (workspace/skills/)
-        if self.custom_skills_dir.exists():
+        if self.custom_skills_dir.exists() and self.custom_skills_dir.resolve() not in loaded_dirs:
             for skill_dir in self.custom_skills_dir.iterdir():
                 if not skill_dir.is_dir():
                     continue
