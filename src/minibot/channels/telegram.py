@@ -65,6 +65,59 @@ class TelegramAdapter(MessageAdapter):
         """Read a boolean config value with sane defaults."""
         return bool(self.config.get(key, self.DEFAULT_CONFIG[key]))
 
+    def _mask_token(self) -> str:
+        """Return a safe token preview for logs."""
+        if not self.bot_token:
+            return "<empty>"
+        if len(self.bot_token) <= 10:
+            return f"{self.bot_token[:2]}***"
+        return f"{self.bot_token[:6]}...{self.bot_token[-4:]}"
+
+    def _describe_startup_config(self) -> str:
+        """Build a concise Telegram startup config summary for logs."""
+        parts = [
+            f"token={self._mask_token()}",
+            f"token_length={len(self.bot_token)}",
+            f"has_mq={self.mq is not None}",
+            f"connect_timeout={self._get_int('connect_timeout')}",
+            f"read_timeout={self._get_int('read_timeout')}",
+            f"write_timeout={self._get_int('write_timeout')}",
+            f"pool_timeout={self._get_int('pool_timeout')}",
+            f"get_updates_connect_timeout={self._get_int('get_updates_connect_timeout')}",
+            f"get_updates_read_timeout={self._get_int('get_updates_read_timeout')}",
+            f"get_updates_write_timeout={self._get_int('get_updates_write_timeout')}",
+            f"get_updates_pool_timeout={self._get_int('get_updates_pool_timeout')}",
+            f"poll_timeout={self._get_int('poll_timeout')}",
+            f"bootstrap_retries={self._get_int('bootstrap_retries')}",
+            f"drop_pending_updates={self._get_bool('drop_pending_updates')}",
+        ]
+        return ", ".join(parts)
+
+    def _log_request_timeouts(self) -> None:
+        """Log the applied Bot API request timeout values if available."""
+        if self.app is None:
+            return
+
+        try:
+            request_objects = getattr(self.app.bot, "_request", ())
+            if not isinstance(request_objects, tuple) or len(request_objects) != 2:
+                logger.info("Telegram internal request objects unavailable for timeout logging")
+                return
+
+            labels = ("get_updates", "bot_api")
+            for label, request_object in zip(labels, request_objects):
+                timeout = request_object._client_kwargs.get("timeout")
+                logger.info(
+                    "Telegram {} timeout config: connect={}, read={}, write={}, pool={}",
+                    label,
+                    getattr(timeout, "connect", None),
+                    getattr(timeout, "read", None),
+                    getattr(timeout, "write", None),
+                    getattr(timeout, "pool", None),
+                )
+        except Exception as exc:
+            logger.warning("Failed to inspect Telegram timeout config: {}", exc)
+
     def _build_application(self) -> Application:
         """Build the Telegram application with configured request timeouts."""
         builder = Application.builder().token(self.bot_token)
@@ -256,7 +309,14 @@ class TelegramAdapter(MessageAdapter):
         - 訊息會丟到 Queue 處理
         - 回覆會透過 _on_response 發送
         """
+        logger.info("Preparing Telegram adapter startup: {}", self._describe_startup_config())
+        if not self.bot_token:
+            logger.warning("Telegram token is empty before application build")
+        elif ":" not in self.bot_token:
+            logger.warning("Telegram token format looks unusual: {}", self._mask_token())
+
         self.app = self._build_application()
+        self._log_request_timeouts()
         
         # 註冊訊息 handler
         async def handle_update(update: Update, context):
@@ -290,12 +350,25 @@ class TelegramAdapter(MessageAdapter):
         self.mq.on_response = on_response
         
         # 初始化並啟動
+        stage = "initialize"
         try:
-            logger.info("Initializing Telegram app...")
+            logger.info("Initializing Telegram app (Bot API getMe)...")
             await self.app.initialize()
-            logger.info("Starting Telegram app...")
+            bot_name = getattr(self.app.bot, "username", None) or getattr(self.app.bot, "first_name", None) or "<unknown>"
+            logger.info("Telegram app initialized successfully for bot {}", bot_name)
+
+            stage = "start"
+            logger.info("Starting Telegram app runtime...")
             await self.app.start()
-            logger.info("Starting polling...")
+            logger.info("Telegram app runtime started")
+
+            stage = "start_polling"
+            logger.info(
+                "Starting Telegram polling with poll_timeout={}, bootstrap_retries={}, drop_pending_updates={}",
+                self._get_int("poll_timeout"),
+                self._get_int("bootstrap_retries"),
+                self._get_bool("drop_pending_updates"),
+            )
             if self.app.updater is None:
                 raise RuntimeError("Telegram updater is unavailable")
             await self.app.updater.start_polling(
@@ -305,12 +378,24 @@ class TelegramAdapter(MessageAdapter):
             )
             logger.info("Telegram polling started!")
         except (TimedOut, NetworkError) as exc:
+            logger.error(
+                "Telegram startup failed during {} with {}: {} | config={}",
+                stage,
+                type(exc).__name__,
+                exc,
+                self._describe_startup_config(),
+            )
             await self._shutdown_app()
             raise RuntimeError(
                 "Telegram startup timed out while contacting the Bot API. "
                 "Check network access to api.telegram.org or increase channels.telegram timeouts in ~/.minibot/minibot.json."
             ) from exc
         except Exception:
+            logger.exception(
+                "Telegram startup failed during {} with config={}",
+                stage,
+                self._describe_startup_config(),
+            )
             await self._shutdown_app()
             raise
         
