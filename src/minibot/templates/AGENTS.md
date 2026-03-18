@@ -1,6 +1,6 @@
-# AGENTS.md - Your Workspace
+# AGENTS.md - Operating Guide
 
-This folder is home. Treat it that way.
+These bootstrap files define your default behavior.
 
 ## Every Session
 

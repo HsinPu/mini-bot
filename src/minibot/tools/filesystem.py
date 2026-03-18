@@ -7,11 +7,33 @@ from minibot.skills import SkillsLoader
 from minibot.tools.base import Tool
 
 
+def _resolve_workspace_root(workspace: Path) -> Path:
+    """Resolve and ensure the workspace root directory exists."""
+    root = Path(workspace).expanduser().resolve(strict=False)
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _resolve_workspace_path(workspace: Path, path: str) -> Path | None:
+    """Resolve a user path and return it only when it stays inside workspace."""
+    candidate = Path(path).expanduser()
+    if not candidate.is_absolute():
+        candidate = workspace / candidate
+
+    candidate = candidate.resolve(strict=False)
+    try:
+        candidate.relative_to(workspace)
+    except ValueError:
+        return None
+
+    return candidate
+
+
 class ReadFileTool(Tool):
     """Tool to read file contents."""
 
     def __init__(self, workspace: Path, skills_loader: SkillsLoader | None = None):
-        self.workspace = workspace
+        self.workspace = _resolve_workspace_root(workspace)
         self.skills_loader = skills_loader
 
     @property
@@ -35,15 +57,11 @@ class ReadFileTool(Tool):
             "required": ["path"]
         }
 
-    async def execute(self, path: str, **kwargs: Any) -> str:
+    async def execute(self, **kwargs: Any) -> str:
         try:
-            file_path = Path(path)
-            # If relative path, prepend workspace
-            if not file_path.is_absolute():
-                file_path = self.workspace / file_path
-            
-            # Security: restrict to workspace
-            if not str(file_path).startswith(str(self.workspace)):
+            path = str(kwargs["path"])
+            file_path = _resolve_workspace_path(self.workspace, path)
+            if file_path is None:
                 return f"Error: Access denied. Path must be within workspace: {self.workspace}"
             
             # Check if reading a skill file -> redirect to read_skill
@@ -74,7 +92,7 @@ class WriteFileTool(Tool):
     """Tool to write content to a file."""
 
     def __init__(self, workspace: Path):
-        self.workspace = workspace
+        self.workspace = _resolve_workspace_root(workspace)
 
     @property
     def name(self) -> str:
@@ -101,15 +119,12 @@ class WriteFileTool(Tool):
             "required": ["path", "content"]
         }
 
-    async def execute(self, path: str, content: str, **kwargs: Any) -> str:
+    async def execute(self, **kwargs: Any) -> str:
         try:
-            file_path = Path(path)
-            # If relative path, prepend workspace
-            if not file_path.is_absolute():
-                file_path = self.workspace / file_path
-            
-            # Security: restrict to workspace
-            if not str(file_path).startswith(str(self.workspace)):
+            path = str(kwargs["path"])
+            content = str(kwargs["content"])
+            file_path = _resolve_workspace_path(self.workspace, path)
+            if file_path is None:
                 return f"Error: Access denied. Path must be within workspace: {self.workspace}"
             
             file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -123,7 +138,7 @@ class ListDirTool(Tool):
     """Tool to list directory contents."""
 
     def __init__(self, workspace: Path):
-        self.workspace = workspace
+        self.workspace = _resolve_workspace_root(workspace)
 
     @property
     def name(self) -> str:
@@ -145,14 +160,11 @@ class ListDirTool(Tool):
             }
         }
 
-    async def execute(self, path: str = ".", **kwargs: Any) -> str:
+    async def execute(self, **kwargs: Any) -> str:
         try:
-            dir_path = Path(path)
-            if not dir_path.is_absolute():
-                dir_path = self.workspace / dir_path
-            
-            # Security check
-            if not str(dir_path).startswith(str(self.workspace)):
+            path = str(kwargs.get("path", "."))
+            dir_path = _resolve_workspace_path(self.workspace, path)
+            if dir_path is None:
                 return f"Error: Access denied. Path must be within workspace: {self.workspace}"
             
             if not dir_path.exists():
@@ -175,7 +187,7 @@ class EditFileTool(Tool):
     """Tool to edit a file by replacing text."""
 
     def __init__(self, workspace: Path):
-        self.workspace = workspace
+        self.workspace = _resolve_workspace_root(workspace)
 
     @property
     def name(self) -> str:
@@ -197,15 +209,13 @@ class EditFileTool(Tool):
             "required": ["path", "old_text", "new_text"],
         }
 
-    async def execute(self, path: str, old_text: str, new_text: str, **kwargs: Any) -> str:
+    async def execute(self, **kwargs: Any) -> str:
         try:
-            file_path = Path(path)
-            # If relative path, prepend workspace
-            if not file_path.is_absolute():
-                file_path = self.workspace / file_path
-            
-            # Security: restrict to workspace
-            if not str(file_path).startswith(str(self.workspace)):
+            path = str(kwargs["path"])
+            old_text = str(kwargs["old_text"])
+            new_text = str(kwargs["new_text"])
+            file_path = _resolve_workspace_path(self.workspace, path)
+            if file_path is None:
                 return f"Error: Access denied. Path must be within workspace: {self.workspace}"
 
             if not file_path.exists():

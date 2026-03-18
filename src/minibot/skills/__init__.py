@@ -6,7 +6,7 @@ from typing import Any
 
 class Skill:
     """A skill that extends agent capabilities."""
-    
+
     def __init__(self, name: str, description: str, always: bool = False):
         self.name = name
         self.description = description
@@ -14,145 +14,165 @@ class Skill:
 
 
 class SkillsLoader:
-    """Load and manage skills from skills directories.
-    
+    """Load skills from default and optional workspace directories.
+
     Looks in two places:
-    - Default user root: ~/.minibot/skills/
-    - Custom workspace override: <workspace>/skills/
+    - Default user skills: ~/.minibot/skills/
+    - Optional workspace override: <workspace>/skills/
     """
-    
-    def __init__(self, workspace: Path):
-        self.workspace = workspace
-        # System default skills
-        self.default_skills_dir = Path.home() / ".minibot" / "skills"
-        # Agent custom skills
-        self.custom_skills_dir = workspace / "skills"
-    
+
+    def __init__(
+        self,
+        workspace: Path | None = None,
+        *,
+        default_skills_dir: Path | None = None,
+        custom_skills_dir: Path | None = None,
+    ):
+        self.workspace = Path(workspace).expanduser() if workspace else None
+        self.default_skills_dir = (
+            Path(default_skills_dir).expanduser()
+            if default_skills_dir is not None
+            else Path.home() / ".minibot" / "skills"
+        )
+        if custom_skills_dir is not None:
+            self.custom_skills_dir = Path(custom_skills_dir).expanduser()
+        elif self.workspace is not None:
+            self.custom_skills_dir = self.workspace / "skills"
+        else:
+            self.custom_skills_dir = None
+
     def _load_skills_from_dir(self, skills_dir: Path) -> list[Skill]:
         """Load skills from a directory."""
         skills = []
         if not skills_dir.exists():
             return skills
-        
+
         for skill_dir in skills_dir.iterdir():
             if not skill_dir.is_dir():
                 continue
-            
+
             skill_file = skill_dir / "SKILL.md"
             if not skill_file.exists():
                 continue
-            
-            # Parse SKILL.md frontmatter
+
             try:
                 content = skill_file.read_text(encoding="utf-8")
                 frontmatter = self._parse_frontmatter(content)
-                
-                skill = Skill(
-                    name=frontmatter.get("name", skill_dir.name),
-                    description=frontmatter.get("description", ""),
-                    always=frontmatter.get("always", False),
+                skills.append(
+                    Skill(
+                        name=frontmatter.get("name", skill_dir.name),
+                        description=frontmatter.get("description", ""),
+                        always=frontmatter.get("always", False),
+                    )
                 )
-                skills.append(skill)
             except Exception:
                 continue
-        
+
         return skills
-    
+
+    def _iter_skill_dirs(self) -> list[Path]:
+        """Return unique skill directories in priority order."""
+        candidates = [self.custom_skills_dir, self.default_skills_dir]
+        dirs: list[Path] = []
+        seen: set[Path] = set()
+
+        for candidate in candidates:
+            if candidate is None or not candidate.exists():
+                continue
+
+            resolved = candidate.resolve()
+            if resolved in seen:
+                continue
+
+            seen.add(resolved)
+            dirs.append(candidate)
+
+        return dirs
+
     def get_skills(self) -> list[Skill]:
-        """Get all available skills from both system and custom directories."""
-        skills = []
-        loaded_dirs: set[Path] = set()
-        
-        # Load from system default skills (~/.minibot/skills/)
-        if self.default_skills_dir.exists():
-            skills.extend(self._load_skills_from_dir(self.default_skills_dir))
-            loaded_dirs.add(self.default_skills_dir.resolve())
-        
-        # Load from custom skills (workspace/skills/)
-        if self.custom_skills_dir.exists() and self.custom_skills_dir.resolve() not in loaded_dirs:
-            for skill_dir in self.custom_skills_dir.iterdir():
-                if not skill_dir.is_dir():
+        """Get all available skills from custom then default directories."""
+        skills: list[Skill] = []
+        seen_names: set[str] = set()
+
+        for skills_dir in self._iter_skill_dirs():
+            for skill in self._load_skills_from_dir(skills_dir):
+                if skill.name in seen_names:
                     continue
-                # Skip if already loaded from default
-                if any(s.name == skill_dir.name for s in skills):
-                    continue
-                skills.extend(self._load_skills_from_dir(self.custom_skills_dir))
-        
+                seen_names.add(skill.name)
+                skills.append(skill)
+
         return skills
-    
+
     def get_always_skills(self) -> list[str]:
         """Get names of skills that should always be loaded."""
-        return [s.name for s in self.get_skills() if s.always]
-    
+        return [skill.name for skill in self.get_skills() if skill.always]
+
     def build_skills_summary(self) -> str:
-        """Build a summary of all skills for the agent to know what's available."""
+        """Build a summary of available skills."""
         skills = self.get_skills()
         if not skills:
             return ""
-        
+
         lines = ["Available skills (use read_skill tool to read instructions):"]
-        for s in skills:
-            always = " (always on)" if s.always else ""
-            lines.append(f"- {s.name}: {s.description}{always}")
-        
+        for skill in skills:
+            always = " (always on)" if skill.always else ""
+            lines.append(f"- {skill.name}: {skill.description}{always}")
+
         return "\n".join(lines)
-    
+
     def load_skill_content(self, skill_name: str) -> str:
         """Load the full content of a skill's SKILL.md."""
-        # Check custom skills first (user-defined takes priority)
-        for skills_dir in [self.custom_skills_dir, self.default_skills_dir]:
-            if not skills_dir.exists():
-                continue
+        for skills_dir in self._iter_skill_dirs():
             skill_file = skills_dir / skill_name / "SKILL.md"
-            if skill_file.exists():
-                content = skill_file.read_text(encoding="utf-8")
-                # Skip frontmatter
-                lines = content.split("\n")
-                start = 0
-                for i, line in enumerate(lines):
-                    if line == "---":
-                        start = i + 1
-                        break
-                return "\n".join(lines[start:]).strip()
+            if not skill_file.exists():
+                continue
+
+            content = skill_file.read_text(encoding="utf-8")
+            lines = content.split("\n")
+            start = 0
+            for index, line in enumerate(lines):
+                if line == "---":
+                    start = index + 1
+                    break
+            return "\n".join(lines[start:]).strip()
+
         return ""
-    
+
     def get_skill_path(self, skill_name: str) -> Path | None:
         """Get the file path for a skill's SKILL.md."""
-        for skills_dir in [self.custom_skills_dir, self.default_skills_dir]:
-            if not skills_dir.exists():
-                continue
+        for skills_dir in self._iter_skill_dirs():
             skill_file = skills_dir / skill_name / "SKILL.md"
             if skill_file.exists():
                 return skill_file.resolve()
         return None
-    
+
     def skill_exists(self, skill_name: str) -> bool:
         """Check if a skill exists."""
         return self.get_skill_path(skill_name) is not None
-    
+
     def get_valid_skill_names(self) -> list[str]:
-        """Get list of valid skill names for validation."""
-        return [s.name for s in self.get_skills()]
-    
+        """Get valid skill names for validation."""
+        return [skill.name for skill in self.get_skills()]
+
     def _parse_frontmatter(self, content: str) -> dict[str, Any]:
         """Parse YAML frontmatter from SKILL.md."""
         lines = content.split("\n")
         if len(lines) < 3 or lines[0] != "---":
             return {}
-        
-        frontmatter = {}
-        in_frontmatter = False
+
+        frontmatter: dict[str, Any] = {}
         for line in lines[1:]:
             if line == "---":
                 break
-            if ":" in line:
-                key, value = line.split(":", 1)
-                value = value.strip()
-                # Handle booleans
-                if value == "true":
-                    value = True
-                elif value == "false":
-                    value = False
-                frontmatter[key.strip()] = value
-        
+            if ":" not in line:
+                continue
+
+            key, value = line.split(":", 1)
+            parsed_value: Any = value.strip()
+            if parsed_value == "true":
+                parsed_value = True
+            elif parsed_value == "false":
+                parsed_value = False
+            frontmatter[key.strip()] = parsed_value
+
         return frontmatter

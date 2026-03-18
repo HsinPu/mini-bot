@@ -8,10 +8,15 @@ from minibot.memory.base import MemoryStorage
 class FileMemoryStorage(MemoryStorage):
     """
     File-based memory stored in memory/{chat_id}/MEMORY.md.
+
+    Accepts either the memory directory itself or an app-home style base path
+    that contains a `memory/` subdirectory.
     """
 
-    def __init__(self, workspace: Path):
-        self.memory_base = workspace / "memory"
+    def __init__(self, memory_dir: Path):
+        base_path = Path(memory_dir).expanduser()
+        self.memory_base = base_path if base_path.name == "memory" else base_path / "memory"
+        self.memory_base.mkdir(parents=True, exist_ok=True)
 
     def _get_memory_file(self, chat_id: str) -> Path:
         """Get memory file path for specific chat."""
@@ -24,6 +29,10 @@ class FileMemoryStorage(MemoryStorage):
         memory_file = self._get_memory_file(chat_id)
         if memory_file.exists():
             return memory_file.read_text(encoding="utf-8")
+        if chat_id == "default":
+            legacy_memory_file = self.memory_base / "MEMORY.md"
+            if legacy_memory_file.exists():
+                return legacy_memory_file.read_text(encoding="utf-8")
         return ""
 
     def write(self, chat_id: str, content: str) -> None:

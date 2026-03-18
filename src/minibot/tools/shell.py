@@ -29,7 +29,8 @@ class ExecTool(Tool):
         timeout: int = 60,
         deny_patterns: list[str] | None = None,
     ):
-        self.workspace = workspace
+        self.workspace = Path(workspace).expanduser().resolve(strict=False)
+        self.workspace.mkdir(parents=True, exist_ok=True)
         self.timeout = timeout
         self.deny_patterns = deny_patterns or self.DENY_PATTERNS
 
@@ -54,8 +55,9 @@ class ExecTool(Tool):
             "required": ["command"]
         }
 
-    async def execute(self, command: str, **kwargs: Any) -> str:
+    async def execute(self, **kwargs: Any) -> str:
         import re
+        command = str(kwargs["command"])
         
         # Check for dangerous patterns
         for pattern in self.deny_patterns:

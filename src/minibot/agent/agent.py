@@ -101,18 +101,31 @@ class AgentLoop:
             storage = MemoryStorage()
         self.storage = storage
 
-        # 如果沒給 context_builder，自動偵測 workspace 建立
+        self.app_home: Path | None = None
+        self.tool_workspace: Path | None = None
+
+        # 如果沒給 context_builder，自動建立 app home / bootstrap / workspace
         self._context_builder = context_builder
         if context_builder is None:
             try:
-                from minibot.context.workspace import get_workspace_path, sync_templates
+                from minibot.context.workspace import get_app_home, get_tool_workspace, sync_templates
                 from minibot.context import FileContextBuilder
-                workspace = get_workspace_path()
-                sync_templates(workspace)  # 同步範本（如果不存在會创建）
-                context_builder = FileContextBuilder(workspace)
+
+                self.app_home = get_app_home()
+                self.tool_workspace = get_tool_workspace(self.app_home)
+                sync_templates(self.app_home)
+                context_builder = FileContextBuilder(
+                    app_home=self.app_home,
+                    tool_workspace=self.tool_workspace,
+                )
                 self._context_builder = context_builder
             except Exception as e:
                 raise RuntimeError(f"無法建立 ContextBuilder: {e}")
+        else:
+            self.app_home = getattr(context_builder, "app_home", None)
+            self.tool_workspace = getattr(context_builder, "tool_workspace", None)
+            if self.tool_workspace is None:
+                self.tool_workspace = getattr(context_builder, "workspace", Path.cwd())
 
         # Tools
         self.tools = tools or ToolRegistry()
@@ -120,8 +133,8 @@ class AgentLoop:
             self._register_default_tools()
 
         # Memory store (long-term memory)
-        workspace = getattr(self._context_builder, 'workspace', Path.cwd())
-        self.memory = MemoryStore(workspace)
+        memory_dir = getattr(self._context_builder, "memory_dir", Path.cwd() / "memory")
+        self.memory = MemoryStore(memory_dir)
         # Register save_memory tool
         self._register_memory_tool()
 
@@ -165,8 +178,8 @@ class AgentLoop:
         註冊檔案系統工具、Shell 執行、網頁搜尋和網頁抓取。
         Registers filesystem tools, shell execution, web search, and web fetch.
         """
-        workspace = getattr(self._context_builder, 'workspace', Path.cwd())
-        skills_loader = getattr(self._context_builder, 'skills_loader', None)
+        workspace = self.tool_workspace or getattr(self._context_builder, "workspace", Path.cwd())
+        skills_loader = getattr(self._context_builder, "skills_loader", None)
         
         # 檔案工具
         self.tools.register(ReadFileTool(workspace=workspace, skills_loader=skills_loader))
