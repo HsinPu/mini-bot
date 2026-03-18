@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from minibot.context.workspace import (
+from minibot.context.paths import (
     get_app_home,
     get_bootstrap_dir,
     get_memory_dir,

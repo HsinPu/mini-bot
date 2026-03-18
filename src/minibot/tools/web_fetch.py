@@ -28,7 +28,7 @@ pip install trafilatura html2text requests --break-system-packages
 
 ### 最簡單用法 (推薦)
 ```python
-from webfetch import fetch
+from web_fetch import fetch
 
 # 一行就夠了！所有功能自動處理
 result = fetch("https://example.com")
@@ -63,7 +63,7 @@ result = {
 
 ### 進階用法
 ```python
-from webfetch import WebFetcher
+from web_fetch import WebFetcher
 
 # 自訂參數
 fetcher = WebFetcher(
@@ -76,7 +76,7 @@ fetcher = WebFetcher(
 result = fetcher.fetch("https://example.com", mode="markdown")  # 或 "text"
 
 # 或使用便捷函式
-from webfetch import fetch
+from web_fetch import fetch
 result = fetch(url, max_chars=10000)
 ```
 
@@ -115,16 +115,16 @@ result = fetch(url, max_chars=10000)
 
 ```bash
 # 基本用法
-python webfetch.py https://example.com
+python web_fetch.py https://example.com
 
 # 指定最大字數
-python webfetch.py https://example.com --max-chars 5000
+python web_fetch.py https://example.com --max-chars 5000
 
 # 輸出純文字
-python webfetch.py https://example.com --mode text
+python web_fetch.py https://example.com --mode text
 
 # 組合使用
-python webfetch.py https://example.com --max-chars 3000 --mode markdown
+python web_fetch.py https://example.com --max-chars 3000 --mode markdown
 ```
 
 ### 命令列參數

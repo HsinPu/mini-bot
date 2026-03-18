@@ -1,5 +1,5 @@
 """
-minibot/message_queue.py - 訊息排程中心
+minibot/bus/dispatcher.py - 訊息排程中心
 
 角色：訊息調度中心
 - 接收外面傳來的訊息，排隊交給 Agent 處理
@@ -348,7 +348,7 @@ import asyncio
 from minibot.agent import AgentLoop, AgentConfig
 from minibot.llms import OpenAILLM
 from minibot.storage import MemoryStorage
-from minibot.bus.message_queue import MessageQueue
+from minibot.bus.dispatcher import MessageQueue
 from minibot.bus.message import UserMessage
 
 async def main():

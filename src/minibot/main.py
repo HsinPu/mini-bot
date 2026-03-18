@@ -17,7 +17,7 @@ from minibot.config import AgentConfig
 from minibot.llms import create_llm
 from minibot.storage import MemoryStorage, StorageProvider
 from minibot.search import LanceDBSearchStore, SearchStore
-from minibot.bus.message_queue import MessageQueue
+from minibot.bus.dispatcher import MessageQueue
 from minibot.config import Config
 from minibot.utils.log import logger
 

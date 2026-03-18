@@ -1,5 +1,5 @@
 """
-minibot/context/workspace.py - Path helpers and template sync.
+minibot/context/paths.py - Path helpers and template sync.
 
 Path layout:
 - app home: ~/.minibot

@@ -218,7 +218,8 @@ src/minibot/
 │   └── openrouter.py
 ├── bus/             # Message Bus
 │   ├── message.py
-│   ├── message_queue.py
+│   ├── dispatcher.py
+│   ├── message_bus.py
 │   └── events.py
 ├── storage/         # Storage Providers
 │   ├── base.py
@@ -227,7 +228,7 @@ src/minibot/
 ├── context/         # Context Builders
 │   ├── builder.py
 │   ├── file_builder.py
-│   └── workspace.py
+│   └── paths.py
 ├── tools/           # Tool Implementations
 │   ├── filesystem.py
 │   ├── shell.py

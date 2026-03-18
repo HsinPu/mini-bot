@@ -1,5 +1,5 @@
 """
-minibot/bus/queue.py - 非同步訊息匯流排
+minibot/bus/message_bus.py - 非同步訊息匯流排
 
 實作 MessageBus 類別，擁有兩個 Queue：
 - inbound：從頻道到 Agent 的訊息

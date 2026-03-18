@@ -122,16 +122,17 @@
 ## 檔案對應關係
 
 ```
-workspace/                      src/minibot/
-┌─────────────────┐             ┌──────────────────────────┐
-│ AGENTS.md       │ ◀── load ──│ workspace.py             │
-│ SOUL.md         │             │ - load_bootstrap_files() │
-│ USER.md         │             │ - load_memory()         │
-│ IDENTITY.md     │             │ - sync_templates()      │
-│ TOOLS.md        │             └──────────────────────────┘
-│ memory/         │
-│   MEMORY.md     │
-└─────────────────┘
+~/.minibot/                      src/minibot/
+┌────────────────────┐           ┌──────────────────────────┐
+│ bootstrap/         │ ◀── load ─│ paths.py                 │
+│   AGENTS.md        │           │ - load_bootstrap_files() │
+│   SOUL.md          │           │ - load_memory()          │
+│   USER.md          │           │ - sync_templates()       │
+│   IDENTITY.md      │           └──────────────────────────┘
+│   TOOLS.md         │
+│ memory/{chat_id}/  │
+│   MEMORY.md        │
+└────────────────────┘
            │
            ▼
 ┌──────────────────────────────────────────┐
@@ -204,22 +205,24 @@ workspace/                      src/minibot/
 mini-bot/
 ├── src/minibot/
 │   ├── __init__.py           # 匯出主要類別
-│   ├── agent.py              # Agent Loop 核心
 │   ├── main.py               # 進入點（foreground/background）
-│   ├── message.py            # 統一訊息格式
-│   ├── queue.py              # 訊息佇列（Bus 版）
-│   ├── workspace.py           # 工作區輔助函式
+│   │
+│   ├── agent/                # Agent Loop 核心
+│   │   └── agent.py
 │   │
 │   ├── bus/                  # 訊息匯流排
+│   │   ├── dispatcher.py     # 訊息排程中心
 │   │   ├── events.py         # 訊息結構（Inbound/OutboundMessage）
-│   │   └── queue.py          # MessageBus 類別
+│   │   ├── message.py        # 統一訊息格式
+│   │   └── message_bus.py    # MessageBus 類別
 │   │
 │   ├── channels/              # 頻道適配器
 │   │   └── telegram.py       # Telegram Adapter
 │   │
 │   ├── context/              # Prompt 上下文建構
 │   │   ├── builder.py        # ContextBuilder 介面
-│   │   └── file_builder.py   # 檔案式實作
+│   │   ├── file_builder.py   # 檔案式實作
+│   │   └── paths.py          # 路徑與範本同步
 │   │
 │   ├── llms/                 # LLM 提供者
 │   │   ├── base.py          # LLMProvider 介面
@@ -258,11 +261,11 @@ from minibot.agent import AgentLoop, AgentConfig
 from minibot.llms import OpenAILLM
 from minibot.storage import MemoryStorage
 from minibot.context import FileContextBuilder
-from minibot.workspace import get_workspace_path
+from minibot.context.paths import get_tool_workspace
 
-# 1. 建立 ContextBuilder（從 workspace 讀檔案）
-workspace = get_workspace_path()
-context_builder = FileContextBuilder(workspace)
+# 1. 建立 ContextBuilder（從 .minibot/bootstrap 與 memory 讀檔）
+workspace = get_tool_workspace()
+context_builder = FileContextBuilder(tool_workspace=workspace)
 
 # 2. 建立 Storage
 storage = MemoryStorage()

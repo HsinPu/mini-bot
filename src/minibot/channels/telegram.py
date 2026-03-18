@@ -246,7 +246,7 @@ import asyncio
 from minibot.agent import AgentLoop, AgentConfig
 from minibot.llms import OpenAILLM
 from minibot.storage import MemoryStorage
-from minibot.bus.message_queue import MessageQueue
+from minibot.bus.dispatcher import MessageQueue
 from minibot.channels.telegram import TelegramAdapter
 
 async def main():

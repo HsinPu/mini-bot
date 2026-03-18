@@ -108,7 +108,7 @@ class AgentLoop:
         self._context_builder = context_builder
         if context_builder is None:
             try:
-                from minibot.context.workspace import get_app_home, get_tool_workspace, sync_templates
+                from minibot.context.paths import get_app_home, get_tool_workspace, sync_templates
                 from minibot.context import FileContextBuilder
 
                 self.app_home = get_app_home()
