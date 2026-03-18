@@ -15,8 +15,8 @@ from pathlib import Path
 from minibot.agent import AgentLoop
 from minibot.config import AgentConfig
 from minibot.llms import create_llm
+from minibot.search.base import SearchStore
 from minibot.storage import MemoryStorage, StorageProvider
-from minibot.search import LanceDBSearchStore, SearchStore
 from minibot.bus.dispatcher import MessageQueue
 from minibot.config import Config
 from minibot.utils.log import logger
@@ -78,6 +78,8 @@ def create_search_store(config: Config) -> SearchStore | None:
     provider = (config.search.provider or "lancedb").strip().lower()
     if provider != "lancedb":
         raise ValueError(f"Unsupported search provider: {provider}")
+
+    from minibot.search.lancedb_store import LanceDBSearchStore
 
     return LanceDBSearchStore(
         path=config.search.path,

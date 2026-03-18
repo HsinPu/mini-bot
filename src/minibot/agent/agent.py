@@ -31,7 +31,7 @@ from minibot.llms import LLMProvider, ChatMessage
 from minibot.storage import StorageProvider, StoredMessage
 from minibot.context.builder import ContextBuilder
 from minibot.memory import MemoryStore, consolidate
-from minibot.search import SearchStore
+from minibot.search.base import SearchStore
 from minibot.tools import (
     ToolRegistry,
     ReadFileTool,
