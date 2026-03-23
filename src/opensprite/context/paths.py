@@ -112,11 +112,6 @@ def get_memory_file(memory_dir: str | Path, chat_id: str = "default") -> Path:
     return Path(memory_dir).expanduser() / safe_chat_id / "MEMORY.md"
 
 
-def get_legacy_memory_file(memory_dir: str | Path, chat_id: str = "default") -> Path:
-    """Get the legacy raw memory file path used before chat ids were sanitized."""
-    return Path(memory_dir).expanduser() / chat_id / "MEMORY.md"
-
-
 def _relative_path(path: Path, root: Path) -> str:
     try:
         return str(path.relative_to(root))
@@ -273,14 +268,10 @@ def load_bootstrap_files(bootstrap_dir: str | Path) -> dict[str, str]:
 
 
 def load_memory(memory_dir: str | Path, chat_id: str = "default") -> str:
-    """Load long-term memory for a chat, with a fallback for legacy default memory."""
+    """Load long-term memory for a chat."""
     target = get_memory_file(memory_dir, chat_id)
     if target.exists():
         return target.read_text(encoding="utf-8")
-
-    legacy_target = get_legacy_memory_file(memory_dir, chat_id)
-    if legacy_target.exists():
-        return legacy_target.read_text(encoding="utf-8")
 
     if chat_id == "default":
         legacy_default = Path(memory_dir).expanduser() / "MEMORY.md"

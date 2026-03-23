@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from ..context.paths import get_legacy_memory_file, get_memory_file
+from ..context.paths import get_memory_file
 from .base import MemoryStorage
 
 
@@ -30,9 +30,6 @@ class FileMemoryStorage(MemoryStorage):
         memory_file = self._get_memory_file(chat_id)
         if memory_file.exists():
             return memory_file.read_text(encoding="utf-8")
-        legacy_memory_file = get_legacy_memory_file(self.memory_base, chat_id)
-        if legacy_memory_file.exists():
-            return legacy_memory_file.read_text(encoding="utf-8")
         if chat_id == "default":
             legacy_memory_file = self.memory_base / "MEMORY.md"
             if legacy_memory_file.exists():
