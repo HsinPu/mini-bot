@@ -19,7 +19,8 @@ This repository is now package-first.
 - Module entrypoint: `src/opensprite/__main__.py`
 - Service runtime: `src/opensprite/runtime.py`
 - Install command: `python -m pip install .`
-- Start command: `opensprite`
+- Default command: `opensprite` shows help
+- Start command: `opensprite run`
 - Runtime mode: foreground process; stop it with `Ctrl+C`
 
 ## Requirements
@@ -56,22 +57,22 @@ python -m pip install -e ".[dev]"
 
 ## Start
 
-After installation, run:
+After installation, show the CLI help with:
 
 ```bash
 opensprite
 ```
 
-You can also start it with:
+Start the service with:
 
 ```bash
 opensprite run
 ```
 
-or:
+Or via the module entrypoint:
 
 ```bash
-python -m opensprite
+python -m opensprite run
 ```
 
 The process stays attached to the current terminal and does not daemonize itself.
@@ -163,7 +164,7 @@ If you want to use Telegram, update the `channels.telegram` section:
 Then restart OpenSprite:
 
 ```bash
-opensprite
+opensprite run
 ```
 
 ## Storage Options
@@ -249,14 +250,14 @@ python -m pip install .
 # development install
 python -m pip install -e ".[dev]"
 
-# start service
+# show help
 opensprite
 
-# explicit CLI subcommand
+# start service
 opensprite run
 
 # module entrypoint
-python -m opensprite
+python -m opensprite run
 
 # uninstall from current environment
 python -m pip uninstall opensprite
@@ -264,7 +265,7 @@ python -m pip uninstall opensprite
 
 ## Notes
 
-- `opensprite` runs in the foreground
+- `opensprite run` runs in the foreground
 - the package install flow does not create a virtual environment for you; activate one before installing if you want isolation
 - the repository root no longer needs a separate launcher script
 

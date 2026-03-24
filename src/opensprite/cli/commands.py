@@ -9,7 +9,7 @@ from ..runtime import main as run_service
 
 app = typer.Typer(
     add_completion=False,
-    no_args_is_help=False,
+    no_args_is_help=True,
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 
@@ -21,9 +21,8 @@ def version_callback(value: bool) -> None:
         raise typer.Exit()
 
 
-@app.callback(invoke_without_command=True)
+@app.callback()
 def main(
-    ctx: typer.Context,
     version: bool = typer.Option(
         False,
         "--version",
@@ -34,10 +33,7 @@ def main(
     ),
 ) -> None:
     """OpenSprite CLI."""
-    if version:
-        return
-    if ctx.invoked_subcommand is None:
-        run_service()
+    return
 
 
 @app.command()
