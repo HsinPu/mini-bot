@@ -356,6 +356,69 @@ class TelegramAdapter(MessageAdapter):
 
         return escaped
 
+    def _format_inline_plain_text(self, text: str) -> str:
+        """Convert inline reply markup into plain text for code blocks."""
+        text = re.sub(
+            r"\[([^\]]+)\]\((https?://[^\s)]+)\)",
+            lambda m: f"{m.group(1)} ({m.group(2)})",
+            text,
+        )
+        replacements = [
+            (r"`([^`\n]+)`", r"\1"),
+            (r"\*\*(.+?)\*\*", r"\1"),
+            (r"__(.+?)__", r"\1"),
+            (r"~~(.+?)~~", r"\1"),
+            (r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"\1"),
+            (r"(?<!_)_(?!_)(.+?)(?<!_)_(?!_)", r"\1"),
+        ]
+        for pattern, replacement in replacements:
+            text = re.sub(pattern, replacement, text)
+        return re.sub(r"\s+", " ", text).strip()
+
+    @staticmethod
+    def _split_markdown_table_row(line: str) -> list[str] | None:
+        """Split a Markdown table row into cells."""
+        stripped = line.strip()
+        if "|" not in stripped:
+            return None
+
+        if stripped.startswith("|"):
+            stripped = stripped[1:]
+        if stripped.endswith("|"):
+            stripped = stripped[:-1]
+
+        parts = [part.replace("\\|", "|").strip() for part in re.split(r"(?<!\\)\|", stripped)]
+        if len(parts) < 2:
+            return None
+        return parts
+
+    def _is_markdown_table_separator(self, line: str, expected_columns: int) -> bool:
+        """Return True when the line is a Markdown table separator row."""
+        cells = self._split_markdown_table_row(line)
+        if not cells or len(cells) != expected_columns:
+            return False
+        return all(re.match(r"^:?-{3,}:?$", cell.replace(" ", "")) for cell in cells)
+
+    def _render_markdown_table(self, rows: list[list[str]]) -> str:
+        """Render a Markdown table as a Telegram-safe preformatted block."""
+        plain_rows = [
+            [self._format_inline_plain_text(cell) for cell in row]
+            for row in rows
+        ]
+        widths = [
+            max(len(row[index]) for row in plain_rows)
+            for index in range(len(plain_rows[0]))
+        ]
+
+        def render_row(row: list[str]) -> str:
+            return " | ".join(cell.ljust(widths[index]) for index, cell in enumerate(row))
+
+        header = render_row(plain_rows[0])
+        separator = "-+-".join("-" * width for width in widths)
+        body = [render_row(row) for row in plain_rows[1:]]
+        table_text = "\n".join([header, separator, *body])
+        return f"<pre><code>{html.escape(table_text)}</code></pre>"
+
     def _render_telegram_html(self, text: str) -> str:
         """Render replies into Telegram's supported HTML subset."""
         lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
@@ -377,7 +440,9 @@ class TelegramAdapter(MessageAdapter):
                 rendered.append(f"<pre><code>{html.escape(chr(10).join(code_lines))}</code></pre>")
             code_lines.clear()
 
-        for raw_line in lines:
+        index = 0
+        while index < len(lines):
+            raw_line = lines[index]
             stripped = raw_line.strip()
 
             if stripped.startswith("```"):
@@ -387,37 +452,62 @@ class TelegramAdapter(MessageAdapter):
                     in_code_block = False
                 else:
                     in_code_block = True
+                index += 1
                 continue
 
             if in_code_block:
                 code_lines.append(raw_line)
+                index += 1
                 continue
 
             if not stripped:
                 flush_paragraph()
                 if rendered and rendered[-1] != "":
                     rendered.append("")
+                index += 1
+                continue
+
+            header_cells = self._split_markdown_table_row(raw_line)
+            if (
+                header_cells
+                and index + 1 < len(lines)
+                and self._is_markdown_table_separator(lines[index + 1], len(header_cells))
+            ):
+                flush_paragraph()
+                table_rows = [header_cells]
+                index += 2
+                while index < len(lines):
+                    row_cells = self._split_markdown_table_row(lines[index])
+                    if not row_cells or len(row_cells) != len(header_cells):
+                        break
+                    table_rows.append(row_cells)
+                    index += 1
+                rendered.append(self._render_markdown_table(table_rows))
                 continue
 
             heading_match = re.match(r"^#{1,6}\s+(.*)$", stripped)
             if heading_match:
                 flush_paragraph()
                 rendered.append(f"<b>{self._format_inline_telegram_html(heading_match.group(1).strip())}</b>")
+                index += 1
                 continue
 
             bullet_match = re.match(r"^[-*]\s+(.*)$", stripped)
             if bullet_match:
                 flush_paragraph()
                 rendered.append(f"• {self._format_inline_telegram_html(bullet_match.group(1).strip())}")
+                index += 1
                 continue
 
             number_match = re.match(r"^(\d+)\.\s+(.*)$", stripped)
             if number_match:
                 flush_paragraph()
                 rendered.append(f"{number_match.group(1)}. {self._format_inline_telegram_html(number_match.group(2).strip())}")
+                index += 1
                 continue
 
             paragraph.append(raw_line)
+            index += 1
 
         flush_paragraph()
         if in_code_block:
