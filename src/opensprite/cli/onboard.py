@@ -9,6 +9,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+try:
+    import questionary
+except ModuleNotFoundError:  # pragma: no cover - exercised when dependency is absent
+    questionary = None
+
 from ..config import Config
 from ..context.paths import (
     BOOTSTRAP_DIRNAME,
@@ -106,74 +111,74 @@ def _write_json(path: Path, data: dict[str, Any]) -> None:
 
 
 def _prompt_choice(prompt: str, choices: list[str], default: str | None = None) -> str:
-    """Prompt the user to choose one item from a list."""
-    labels = [str(choice) for choice in choices]
-    mapping = {label.lower(): label for label in labels}
-
-    while True:
-        print(prompt)
-        for index, label in enumerate(labels, start=1):
-            marker = " (current)" if default == label else ""
-            print(f"  {index}. {label}{marker}")
-
-        suffix = f" [default: {default}]" if default else ""
-        raw = input(f"> Select an option by number or name{suffix}: ").strip()
-        if not raw and default:
-            return default
-        if raw.isdigit():
-            idx = int(raw)
-            if 1 <= idx <= len(labels):
-                return labels[idx - 1]
-        chosen = mapping.get(raw.lower())
-        if chosen:
-            return chosen
-        print("Please choose one of the listed options.\n")
+    """Prompt the user to choose one item from a select menu."""
+    q = _get_questionary()
+    answer = q.select(
+        prompt,
+        choices=list(choices),
+        default=default,
+        qmark=">",
+    ).ask()
+    if answer is None:
+        raise KeyboardInterrupt
+    return str(answer)
 
 
 def _prompt_text(prompt: str, default: str | None = None, *, allow_empty: bool = True) -> str:
     """Prompt for plain text input."""
+    q = _get_questionary()
     while True:
-        suffix = f" [{default}]" if default else ""
-        value = input(f"> {prompt}{suffix}: ").strip()
+        value = q.text(prompt, default=default or "", qmark=">").ask()
+        if value is None:
+            raise KeyboardInterrupt
+        value = value.strip()
         if value:
             return value
         if default is not None:
             return default
         if allow_empty:
             return ""
-        print("This value is required.\n")
 
 
 def _prompt_visible_value(prompt: str, current_value: str = "", *, required: bool = False) -> str:
     """Prompt for a visible value while allowing Enter to keep the current one."""
+    q = _get_questionary()
+    instruction = prompt
     if current_value:
-        print(f"{prompt}: currently configured. Press Enter to keep the current value.")
+        instruction = f"{prompt} (press Enter to keep current value)"
     elif not required:
-        print(f"{prompt}: press Enter to leave it unset for now.")
+        instruction = f"{prompt} (press Enter to skip)"
 
     while True:
-        value = input(f"> {prompt}: ").strip()
+        value = q.text(instruction, default="", qmark=">").ask()
+        if value is None:
+            raise KeyboardInterrupt
+        value = value.strip()
         if value:
             return value
         if current_value:
             return current_value
         if not required:
             return ""
-        print("This value is required.\n")
 
 
 def _prompt_yes_no(prompt: str, default: bool) -> bool:
     """Prompt for a yes/no answer."""
-    suffix = "[Y/n]" if default else "[y/N]"
-    while True:
-        value = input(f"> {prompt} {suffix}: ").strip().lower()
-        if not value:
-            return default
-        if value in {"y", "yes"}:
-            return True
-        if value in {"n", "no"}:
-            return False
-        print("Please answer yes or no.\n")
+    q = _get_questionary()
+    value = q.confirm(prompt, default=default, qmark=">").ask()
+    if value is None:
+        raise KeyboardInterrupt
+    return bool(value)
+
+
+def _get_questionary():
+    """Return questionary or raise a clear error when it's unavailable."""
+    if questionary is None:
+        raise RuntimeError(
+            "Interactive onboarding requires the `questionary` dependency. "
+            "Reinstall OpenSprite so interactive prompts are available, or run `opensprite onboard --no-input`."
+        )
+    return questionary
 
 
 def _require_tty() -> None:
