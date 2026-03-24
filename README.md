@@ -64,6 +64,12 @@ After installation, show the CLI help with:
 opensprite
 ```
 
+Initialize the default config and app directories with:
+
+```bash
+opensprite onboard
+```
+
 Start the gateway with:
 
 ```bash
@@ -82,7 +88,9 @@ The process stays attached to the current terminal and does not daemonize itself
 
 ## First Run
 
-On first start, OpenSprite creates its app home at `~/.opensprite/` and copies a default config to:
+Run `opensprite onboard` first to create or refresh the default config and app directories.
+
+OpenSprite stores its default config at:
 
 ```text
 ~/.opensprite/opensprite.json
@@ -256,6 +264,9 @@ python -m pip install -e ".[dev]"
 # show help
 opensprite
 
+# initialize config and app directories
+opensprite onboard
+
 # start gateway
 opensprite gateway
 
@@ -270,6 +281,9 @@ python -m opensprite gateway
 
 # compatibility alias
 opensprite run
+
+# alias for onboard
+opensprite init
 
 # uninstall from current environment
 python -m pip uninstall opensprite

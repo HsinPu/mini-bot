@@ -157,13 +157,26 @@ class Config:
         return bool(self.llm.api_key)
 
     @classmethod
+    def template_path(cls) -> Path:
+        """Return the packaged JSON config template path."""
+        return Path(__file__).parent / "opensprite.json.template"
+
+    @classmethod
+    def load_template_data(cls) -> dict[str, Any]:
+        """Load the packaged JSON config template."""
+        template_path = cls.template_path()
+        with open(template_path, "r", encoding="utf-8") as f:
+            data: dict[str, Any] = json.load(f)
+        return data
+
+    @classmethod
     def copy_template(cls, path: str | Path) -> Path:
         """Copy template config file from package."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         
         import shutil
-        template_path = Path(__file__).parent / "opensprite.json.template"
+        template_path = cls.template_path()
         
         if template_path.exists():
             shutil.copy2(template_path, path)

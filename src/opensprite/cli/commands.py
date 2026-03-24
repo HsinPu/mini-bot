@@ -9,6 +9,7 @@ import typer
 
 from .. import __version__
 from ..runtime import gateway as run_gateway
+from .onboard import run_onboard
 
 app = typer.Typer(
     name="opensprite",
@@ -125,6 +126,79 @@ def _emit_status(payload: dict[str, object], json_output: bool) -> None:
     )
 
 
+def _run_onboard(config: str | None = None, *, force: bool = False) -> None:
+    """Run the OpenSprite onboarding workflow and print next steps."""
+    try:
+        result = run_onboard(config_path=config, force=force)
+    except (FileNotFoundError, ValueError, json.JSONDecodeError) as exc:
+        typer.secho(f"Error: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo("OpenSprite onboarding complete.")
+    typer.echo(f"Config: {result.config_path}")
+    typer.echo(f"App Home: {result.app_home}")
+
+    if result.created_config:
+        typer.echo("Config status: created")
+    elif result.reset_config:
+        typer.echo("Config status: reset to defaults")
+    elif result.refreshed_config:
+        typer.echo("Config status: refreshed with missing defaults")
+    else:
+        typer.echo("Config status: unchanged")
+
+    if result.created_dirs:
+        typer.echo("Created directories:")
+        for path in result.created_dirs:
+            typer.echo(f"- {path}")
+
+    if result.template_files:
+        typer.echo("Added template files:")
+        for relative_path in result.template_files:
+            typer.echo(f"- {relative_path}")
+
+    typer.echo("Next steps:")
+    typer.echo(f"1. Edit {result.config_path} and add your API key")
+    typer.echo("2. Run `opensprite status` to verify the setup")
+    typer.echo("3. Start the service with `opensprite gateway`")
+
+
+@app.command()
+def onboard(
+    config: str | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to an OpenSprite JSON config file.",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Reset the config to the packaged defaults instead of refreshing missing fields.",
+    ),
+) -> None:
+    """Initialize or refresh the OpenSprite config and app directories."""
+    _run_onboard(config=config, force=force)
+
+
+@app.command(name="init")
+def init_command(
+    config: str | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to an OpenSprite JSON config file.",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Reset the config to the packaged defaults instead of refreshing missing fields.",
+    ),
+) -> None:
+    """Alias for `opensprite onboard`."""
+    _run_onboard(config=config, force=force)
+
+
 @app.command()
 def status(
     config: str | None = typer.Option(
@@ -159,7 +233,7 @@ def status(
     }
 
     if not config_path.exists():
-        payload["hint"] = "run `opensprite gateway` once to create the default config."
+        payload["hint"] = "run `opensprite onboard` to create the default config and app directories."
         _emit_status(payload, json_output)
         return
 
