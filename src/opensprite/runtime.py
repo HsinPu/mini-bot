@@ -1,6 +1,7 @@
-"""Service runtime for starting the OpenSprite process."""
+"""Service runtime for starting the OpenSprite gateway process."""
 
 import asyncio
+from pathlib import Path
 
 from .agent import AgentLoop
 from .config import AgentConfig
@@ -89,10 +90,10 @@ async def create_agent(config: Config):
 # 啟動服務
 # ============================================
 
-async def run():
-    """啟動服務"""
+async def run(config_path: str | Path | None = None) -> None:
+    """Start the OpenSprite gateway service."""
     # 讀取設定
-    config = Config.load()
+    config = Config.load(config_path)
     
     # 初始化日誌
     from .utils.log import setup_log
@@ -112,7 +113,7 @@ async def run():
     from .channels import start_channels
     await start_channels(mq, config.channels.telegram)
     
-    logger.info("OpenSprite 啟動完成！")
+    logger.info("OpenSprite gateway 啟動完成！")
     logger.info("按 Ctrl+C 停止")
     
     # 等待直到被中斷
@@ -131,8 +132,14 @@ async def run():
 # 主程式
 # ============================================
 
-def main() -> None:
-    asyncio.run(run())
+def gateway(config_path: str | Path | None = None) -> None:
+    """Run the foreground OpenSprite gateway."""
+    asyncio.run(run(config_path=config_path))
+
+
+def main(config_path: str | Path | None = None) -> None:
+    """Backward-compatible alias for the gateway entrypoint."""
+    gateway(config_path=config_path)
 
 
 if __name__ == "__main__":

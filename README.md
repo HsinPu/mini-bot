@@ -20,7 +20,8 @@ This repository is now package-first.
 - Service runtime: `src/opensprite/runtime.py`
 - Install command: `python -m pip install .`
 - Default command: `opensprite` shows help
-- Start command: `opensprite run`
+- Start command: `opensprite gateway`
+- Legacy alias: `opensprite run`
 - Runtime mode: foreground process; stop it with `Ctrl+C`
 
 ## Requirements
@@ -63,17 +64,19 @@ After installation, show the CLI help with:
 opensprite
 ```
 
-Start the service with:
+Start the gateway with:
 
 ```bash
-opensprite run
+opensprite gateway
 ```
 
 Or via the module entrypoint:
 
 ```bash
-python -m opensprite run
+python -m opensprite gateway
 ```
+
+`opensprite run` is still available as a compatibility alias.
 
 The process stays attached to the current terminal and does not daemonize itself.
 
@@ -164,7 +167,7 @@ If you want to use Telegram, update the `channels.telegram` section:
 Then restart OpenSprite:
 
 ```bash
-opensprite run
+opensprite gateway
 ```
 
 ## Storage Options
@@ -253,11 +256,20 @@ python -m pip install -e ".[dev]"
 # show help
 opensprite
 
-# start service
-opensprite run
+# start gateway
+opensprite gateway
+
+# inspect config/runtime status
+opensprite status
+
+# inspect status as JSON
+opensprite status --json
 
 # module entrypoint
-python -m opensprite run
+python -m opensprite gateway
+
+# compatibility alias
+opensprite run
 
 # uninstall from current environment
 python -m pip uninstall opensprite
@@ -265,7 +277,7 @@ python -m pip uninstall opensprite
 
 ## Notes
 
-- `opensprite run` runs in the foreground
+- `opensprite gateway` runs in the foreground
 - the package install flow does not create a virtual environment for you; activate one before installing if you want isolation
 - the repository root no longer needs a separate launcher script
 
