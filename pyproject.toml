@@ -38,6 +38,15 @@ opensprite = "opensprite.cli.commands:app"
 [tool.setuptools]
 package-dir = { "" = "src" }
 
+[tool.setuptools.package-data]
+opensprite = [
+    "config/*.template",
+    "templates/*.md",
+    "templates/memory/*.md",
+    "skills/*/*.md",
+    "skills/*/*.py",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["opensprite*"]
