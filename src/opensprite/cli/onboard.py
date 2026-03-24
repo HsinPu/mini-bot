@@ -6,7 +6,6 @@ import copy
 import json
 import sys
 from dataclasses import dataclass, field
-from getpass import getpass
 from pathlib import Path
 from typing import Any
 
@@ -21,11 +20,23 @@ from ..context.paths import (
 
 
 LOGS_DIRNAME = "logs"
-PROVIDER_CHOICES = ("openrouter", "openai", "minimax")
-PROVIDER_MODEL_SUGGESTIONS = {
-    "openrouter": "openai/gpt-4o-mini",
-    "openai": "gpt-4.1-mini",
-    "minimax": "MiniMax-M2.5",
+SKIP_CHOICE = "Skip"
+CUSTOM_MODEL_CHOICE = "Custom..."
+PROVIDER_ORDER = ("openrouter", "openai", "minimax")
+PROVIDER_MODEL_CHOICES = {
+    "openrouter": [
+        "openai/gpt-4o-mini",
+        "anthropic/claude-3.5-haiku",
+        "google/gemini-2.0-flash-001",
+    ],
+    "openai": [
+        "gpt-4.1-mini",
+        "gpt-4o-mini",
+        "gpt-4.1",
+    ],
+    "minimax": [
+        "MiniMax-M2.5",
+    ],
 }
 
 
@@ -44,8 +55,8 @@ class OnboardResult:
     llm_provider: str | None = None
     llm_model: str | None = None
     llm_api_key_configured: bool = False
-    telegram_enabled: bool = False
-    telegram_token_configured: bool = False
+    channel_name: str | None = None
+    channel_token_configured: bool = False
 
 
 def _resolve_config_path(config_path: str | Path | None = None) -> Path:
@@ -133,15 +144,15 @@ def _prompt_text(prompt: str, default: str | None = None, *, allow_empty: bool =
         print("This value is required.\n")
 
 
-def _prompt_secret(prompt: str, current_value: str = "", *, required: bool = False) -> str:
-    """Prompt for a secret value without echoing it."""
+def _prompt_visible_value(prompt: str, current_value: str = "", *, required: bool = False) -> str:
+    """Prompt for a visible value while allowing Enter to keep the current one."""
     if current_value:
         print(f"{prompt}: currently configured. Press Enter to keep the current value.")
     elif not required:
         print(f"{prompt}: press Enter to leave it unset for now.")
 
     while True:
-        value = getpass(f"> {prompt}: ").strip()
+        value = input(f"> {prompt}: ").strip()
         if value:
             return value
         if current_value:
@@ -201,11 +212,48 @@ def _get_selected_provider(config_data: dict[str, Any]) -> str | None:
     if isinstance(default, str) and default in providers:
         return default
 
-    for provider_name in PROVIDER_CHOICES:
+    for provider_name in PROVIDER_ORDER:
         provider = providers.get(provider_name, {})
         if isinstance(provider, dict) and (provider.get("enabled") or provider.get("api_key")):
             return provider_name
     return None
+
+
+def _get_provider_choices(config_data: dict[str, Any]) -> list[str]:
+    """Build the provider selection list with a stable order."""
+    providers = config_data.get("llm", {}).get("providers", {})
+    ordered = [name for name in PROVIDER_ORDER if name in providers]
+    extras = sorted(name for name in providers if name not in ordered)
+    return ordered + extras
+
+
+def _get_model_choices(provider_name: str, current_model: str | None) -> tuple[list[str], str | None]:
+    """Return model choices and the default selection for a provider."""
+    choices = list(PROVIDER_MODEL_CHOICES.get(provider_name, []))
+    if current_model and current_model not in choices:
+        choices.insert(0, current_model)
+    if CUSTOM_MODEL_CHOICE not in choices:
+        choices.append(CUSTOM_MODEL_CHOICE)
+    default = current_model or (choices[0] if choices else None)
+    return choices, default
+
+
+def _get_selected_channel(config_data: dict[str, Any]) -> str | None:
+    """Return the currently enabled external channel, if any."""
+    channels = config_data.get("channels", {})
+    for channel_name, channel_data in channels.items():
+        if channel_name == "console":
+            continue
+        if isinstance(channel_data, dict) and channel_data.get("enabled"):
+            return channel_name
+    return None
+
+
+def _get_channel_choices(config_data: dict[str, Any]) -> list[str]:
+    """Build the channel selection list with console excluded."""
+    channels = config_data.get("channels", {})
+    ordered = [name for name in channels if name != "console"]
+    return ordered
 
 
 def _show_summary(config_data: dict[str, Any]) -> None:
@@ -214,14 +262,16 @@ def _show_summary(config_data: dict[str, Any]) -> None:
     providers = llm.get("providers", {})
     provider_name = _get_selected_provider(config_data)
     provider = providers.get(provider_name, {}) if provider_name else {}
-    telegram = config_data.get("channels", {}).get("telegram", {})
+    channels = config_data.get("channels", {})
+    channel_name = _get_selected_channel(config_data)
+    channel = channels.get(channel_name, {}) if channel_name else {}
 
     print("\nOpenSprite configuration summary")
     print(f"- LLM provider: {provider_name or '<unset>'}")
     print(f"- Model: {provider.get('model') or '<unset>'}")
     print(f"- API key: {'configured' if provider.get('api_key') else 'not set'}")
-    print(f"- Telegram: {'enabled' if telegram.get('enabled') else 'disabled'}")
-    print(f"- Telegram token: {'configured' if telegram.get('token') else 'not set'}")
+    print(f"- Channel: {channel_name or '<unset>'}")
+    print(f"- Channel token: {'configured' if channel.get('token') else 'not set'}")
     print("")
 
 
@@ -230,42 +280,65 @@ def _run_interactive_setup(config_data: dict[str, Any]) -> dict[str, Any]:
     updated = copy.deepcopy(config_data)
     llm = updated.setdefault("llm", {})
     providers = llm.setdefault("providers", {})
-    for provider_name in PROVIDER_CHOICES:
+    for provider_name in PROVIDER_ORDER:
         providers.setdefault(provider_name, {})
 
     current_provider = _get_selected_provider(updated)
-    provider_name = _prompt_choice(
+    provider_choice = _prompt_choice(
         "Choose the LLM provider you want OpenSprite to use:",
-        list(PROVIDER_CHOICES),
+        _get_provider_choices(updated) + [SKIP_CHOICE],
         default=current_provider,
     )
 
-    llm["default"] = provider_name
-    for name, provider in providers.items():
-        if isinstance(provider, dict):
-            provider["enabled"] = name == provider_name
+    provider_name = current_provider
+    if provider_choice != SKIP_CHOICE:
+        provider_name = provider_choice
+        llm["default"] = provider_name
+        for name, provider in providers.items():
+            if isinstance(provider, dict):
+                provider["enabled"] = name == provider_name
 
-    selected = providers[provider_name]
-    if not isinstance(selected, dict):
-        raise ValueError(f"Invalid provider configuration for {provider_name}")
+        selected = providers[provider_name]
+        if not isinstance(selected, dict):
+            raise ValueError(f"Invalid provider configuration for {provider_name}")
 
-    default_model = selected.get("model") or PROVIDER_MODEL_SUGGESTIONS.get(provider_name)
-    selected["model"] = _prompt_text("Model", default=default_model, allow_empty=False)
-    selected["api_key"] = _prompt_secret("API key", str(selected.get("api_key", "")), required=True)
+        model_choices, default_model = _get_model_choices(provider_name, selected.get("model"))
+        model_choice = _prompt_choice(
+            f"Choose the model for {provider_name}:",
+            model_choices,
+            default=default_model,
+        )
+        if model_choice == CUSTOM_MODEL_CHOICE:
+            selected["model"] = _prompt_text("Custom model", default=selected.get("model"), allow_empty=False)
+        else:
+            selected["model"] = model_choice
+        selected["api_key"] = _prompt_visible_value(
+            "API key",
+            str(selected.get("api_key", "")),
+            required=False,
+        )
 
     channels = updated.setdefault("channels", {})
-    telegram = channels.setdefault("telegram", {})
-    enable_telegram = _prompt_yes_no(
-        "Enable Telegram integration now?",
-        bool(telegram.get("enabled", False)),
+    channel_default = _get_selected_channel(updated)
+    channel_choice = _prompt_choice(
+        "Choose the chat channel to configure:",
+        _get_channel_choices(updated) + [SKIP_CHOICE],
+        default=channel_default,
     )
-    telegram["enabled"] = enable_telegram
-    if enable_telegram:
-        telegram["token"] = _prompt_secret(
-            "Telegram bot token",
-            str(telegram.get("token", "")),
-            required=True,
-        )
+    if channel_choice != SKIP_CHOICE:
+        for name, channel in channels.items():
+            if name == "console" or not isinstance(channel, dict):
+                continue
+            channel["enabled"] = name == channel_choice
+
+        selected_channel = channels.get(channel_choice, {})
+        if isinstance(selected_channel, dict) and "token" in selected_channel:
+            token_label = f"{channel_choice.capitalize()} token"
+            selected_channel["token"] = _prompt_visible_value(
+                token_label,
+                str(selected_channel.get("token", "")),
+                required=False,
+            )
 
     _show_summary(updated)
     if not _prompt_yes_no("Save these settings?", True):
@@ -281,7 +354,7 @@ def _apply_result_snapshot(result: OnboardResult, config_data: dict[str, Any], i
     providers = llm.get("providers", {})
     provider_name = _get_selected_provider(config_data)
     provider = providers.get(provider_name, {}) if provider_name else {}
-    telegram = config_data.get("channels", {}).get("telegram", {})
+    channels = config_data.get("channels", {})
 
     result.interactive = interactive
     result.llm_provider = provider_name
@@ -290,8 +363,13 @@ def _apply_result_snapshot(result: OnboardResult, config_data: dict[str, Any], i
     else:
         result.llm_model = None
     result.llm_api_key_configured = bool(provider.get("api_key")) if isinstance(provider, dict) else False
-    result.telegram_enabled = bool(telegram.get("enabled")) if isinstance(telegram, dict) else False
-    result.telegram_token_configured = bool(telegram.get("token")) if isinstance(telegram, dict) else False
+    selected_channel = _get_selected_channel(config_data)
+    result.channel_name = selected_channel
+    selected_channel_data = channels.get(selected_channel, {}) if selected_channel else {}
+    if isinstance(selected_channel_data, dict):
+        result.channel_token_configured = bool(selected_channel_data.get("token"))
+    else:
+        result.channel_token_configured = False
 
 
 def run_onboard(

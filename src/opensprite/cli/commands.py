@@ -166,9 +166,7 @@ def _run_onboard(
         typer.echo("Interactive setup:")
         typer.echo(f"- LLM provider: {result.llm_provider or '<unset>'}")
         typer.echo(f"- Model: {result.llm_model or '<unset>'}")
-        typer.echo(
-            f"- Telegram: {'enabled' if result.telegram_enabled else 'disabled'}"
-        )
+        typer.echo(f"- Channel: {result.channel_name or '<unset>'}")
 
     typer.echo("Next steps:")
     if not result.llm_api_key_configured:

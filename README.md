@@ -91,7 +91,7 @@ The process stays attached to the current terminal and does not daemonize itself
 
 ## First Run
 
-Run `opensprite onboard` first. By default it creates the app directories and then asks for your LLM provider, model, API key, and optional Telegram token.
+Run `opensprite onboard` first. By default it creates the app directories and then walks you through provider, model, API key, and chat channel selection.
 
 If you need a non-interactive setup flow, use `opensprite onboard --no-input` and edit the config manually afterward.
 
