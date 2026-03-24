@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 from typing import Any
+from urllib.parse import parse_qs, unquote, urlparse
 
 import httpx
 from loguru import logger
@@ -35,6 +36,19 @@ def _normalize_proxy(proxy: Any) -> str | None:
         proxy = proxy.strip()
         return proxy or None
     return str(proxy)
+
+
+def _extract_duckduckgo_url(href: str) -> str:
+    """Extract the real result URL from a DuckDuckGo redirect link."""
+    if not href:
+        return ""
+
+    normalized = f"https:{href}" if href.startswith("//") else href
+    parsed = urlparse(normalized)
+    if parsed.netloc.endswith("duckduckgo.com") and parsed.path == "/l/":
+        target = parse_qs(parsed.query).get("uddg", [""])[0]
+        return unquote(target) if target else ""
+    return normalized
 
 
 def _format_results(query: str, items: list[dict[str, Any]], n: int) -> str:
@@ -133,24 +147,45 @@ class WebSearchTool(Tool):
 
     async def _search_duckduckgo(self, query: str, n: int) -> str:
         try:
-            async with httpx.AsyncClient(proxy=self.proxy) as client:
+            async with httpx.AsyncClient(
+                proxy=self.proxy,
+                headers={"User-Agent": USER_AGENT},
+                follow_redirects=True,
+            ) as client:
                 r = await client.get(
-                    "https://duckduckgo.com/",
-                    params={"q": query, "format": "json"},
+                    "https://lite.duckduckgo.com/lite/",
+                    params={"q": query},
                     timeout=10.0
                 )
-            # DuckDuckGo HTML parsing
+                r.raise_for_status()
+
+            # DuckDuckGo Lite HTML parsing
             from bs4 import BeautifulSoup
             soup = BeautifulSoup(r.text, "html.parser")
             results = []
-            for i, a in enumerate(soup.select("a.result__a")):
-                if i >= n:
-                    break
+            for a in soup.select("a.result-link"):
+                row = a.find_parent("tr")
+                snippet = ""
+                display_url = ""
+
+                if row is not None:
+                    sibling_rows = row.find_next_siblings("tr")
+                    if sibling_rows:
+                        snippet_cell = sibling_rows[0].select_one("td.result-snippet")
+                        if snippet_cell is not None:
+                            snippet = snippet_cell.get_text(" ", strip=True)
+                    if len(sibling_rows) > 1:
+                        url_cell = sibling_rows[1].select_one("span.link-text")
+                        if url_cell is not None:
+                            display_url = url_cell.get_text(" ", strip=True)
+
                 results.append({
                     "title": a.get_text(strip=True),
-                    "url": a.get("href", ""),
-                    "content": ""
+                    "url": _extract_duckduckgo_url(a.get("href", "")) or display_url,
+                    "content": snippet,
                 })
+                if len(results) >= n:
+                    break
             return _format_results(query, results, n)
         except Exception as e:
             return f"Error: {e}"
