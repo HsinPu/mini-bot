@@ -27,6 +27,16 @@ def _normalize(text: str) -> str:
     return re.sub(r'\s+', ' ', text).strip()
 
 
+def _normalize_proxy(proxy: Any) -> str | None:
+    """Normalize optional proxy config for httpx."""
+    if proxy is None:
+        return None
+    if isinstance(proxy, str):
+        proxy = proxy.strip()
+        return proxy or None
+    return str(proxy)
+
+
 def _format_results(query: str, items: list[dict[str, Any]], n: int) -> str:
     """Format search results into plaintext."""
     if not items:
@@ -58,7 +68,8 @@ class WebSearchTool(Tool):
 
     def __init__(self, config: dict | None = None, proxy: str | None = None):
         self.config = config or {}
-        self.proxy = proxy or self.config.get("proxy", "")
+        raw_proxy = proxy if proxy is not None else self.config.get("proxy")
+        self.proxy = _normalize_proxy(raw_proxy)
 
     @property
     def provider(self) -> str:

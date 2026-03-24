@@ -64,7 +64,7 @@
       "jina_api_key": "",
       "searxng_url": "https://searx.be",
       "max_results": 10,
-      "proxy": ""
+      "proxy": null
     },
     "web_fetch": {
       "max_chars": 50000,

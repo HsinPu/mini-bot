@@ -76,7 +76,7 @@ class ToolsConfig(BaseModel):
     """Tool configurations."""
     max_tool_iterations: int = 100
     # Web search config
-    web_search: dict = {}  # {"provider": "brave|duckduckgo|tavily|searxng|jina", "brave_api_key": "", "tavily_api_key": "", "jina_api_key": "", "searxng_url": "", "max_results": 10, "proxy": ""}
+    web_search: dict = {}  # {"provider": "brave|duckduckgo|tavily|searxng|jina", "brave_api_key": "", "tavily_api_key": "", "jina_api_key": "", "searxng_url": "", "max_results": 10, "proxy": null}
     # Web fetch config
     web_fetch: dict = {}  # {"max_chars": 50000, "timeout": 30, "prefer_trafilatura": true, "firecrawl_api_key": ""}
 
