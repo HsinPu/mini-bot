@@ -45,6 +45,7 @@ class TelegramAdapter(MessageAdapter):
         "bootstrap_retries": 3,
         "drop_pending_updates": False,
     }
+    EMPTY_MESSAGE_FALLBACK = "抱歉，我剛剛沒有產生可顯示的回覆，請再試一次。"
 
     def __init__(self, bot_token: str, mq=None, config: dict[str, Any] | None = None):
         """
@@ -278,7 +279,14 @@ class TelegramAdapter(MessageAdapter):
         if message.chat_id is None:
             raise ValueError("AssistantMessage 缺少 chat_id，無法發送")
         
-        text = message.text
+        text = message.text or ""
+        if not text.strip():
+            logger.warning(
+                "Telegram reply text is empty for chat {} session {}; sending fallback notice",
+                message.chat_id,
+                message.session_chat_id,
+            )
+            text = self.EMPTY_MESSAGE_FALLBACK
         max_length = 4000
         
         # 截斷過長的訊息
@@ -287,6 +295,13 @@ class TelegramAdapter(MessageAdapter):
         
         # 轉換為 Telegram 官方支援的 HTML 子集
         html_text = self._render_telegram_html(text)
+        if not html_text.strip():
+            logger.warning(
+                "Telegram HTML renderer produced empty output for chat {} session {}; using escaped plain text",
+                message.chat_id,
+                message.session_chat_id,
+            )
+            html_text = html.escape(text)
         
         # 嘗試發送 HTML，失敗則用純文字
         try:

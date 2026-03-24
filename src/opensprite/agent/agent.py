@@ -80,6 +80,7 @@ class AgentLoop:
     """
 
     MAX_TOOL_ITERATIONS = 10
+    EMPTY_RESPONSE_FALLBACK = "抱歉，我剛剛沒有產生可顯示的回覆，請再試一次。"
 
     @staticmethod
     def _sanitize_response_content(content: str) -> str:
@@ -504,6 +505,10 @@ class AgentLoop:
                 continue
             
             # 沒有 tool calls，回覆完成
+            if not response.content:
+                logger.warning(f"[{chat_id}] LLM returned an empty visible response; using fallback text")
+                return self.EMPTY_RESPONSE_FALLBACK
+
             logger.info(f"[{chat_id}] 收到 LLM 回覆: {response.content[:50]}...")
             return response.content
 
