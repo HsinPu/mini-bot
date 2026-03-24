@@ -413,7 +413,6 @@ beautifulsoup4>=4.0
 html2text>=2020.1.16
 lancedb>=0.29.0
 loguru>=0.7.0
-markdown>=3.0
 openai>=1.0.0
 python-daemon>=3.0.0
 python-dotenv>=1.0.0

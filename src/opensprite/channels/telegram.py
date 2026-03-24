@@ -12,6 +12,8 @@ opensprite/channels/telegram.py - Telegram 訊息 Adapter
 """
 
 import asyncio
+import html
+import re
 from typing import Any
 
 from telegram import Update
@@ -283,8 +285,8 @@ class TelegramAdapter(MessageAdapter):
         if len(text) > max_length:
             text = text[:max_length] + f"\n\n... (訊息太長，已截斷，共 {len(message.text)} 字)"
         
-        # 轉換 markdown 為 HTML
-        html_text = self._markdown_to_html(text)
+        # 轉換為 Telegram 官方支援的 HTML 子集
+        html_text = self._render_telegram_html(text)
         
         # 嘗試發送 HTML，失敗則用純文字
         try:
@@ -293,27 +295,123 @@ class TelegramAdapter(MessageAdapter):
                 text=html_text,
                 parse_mode="HTML"
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning("Telegram HTML send failed, falling back to plain text: {}", exc)
             # Fallback 到純文字
             await self.app.bot.send_message(
                 chat_id=message.chat_id,
                 text=text
             )
     
-    def _markdown_to_html(self, text: str) -> str:
-        """將 Markdown 轉換為 Telegram HTML 格式"""
-        import markdown
-        
-        # 轉換 markdown → HTML
-        html = markdown.markdown(text, extensions=['extra', 'codehilite'])
-        
-        # Telegram HTML 標籤處理
-        html = html.replace('<strong>', '<b>').replace('</strong>', '</b>')
-        html = html.replace('<em>', '<i>').replace('</em>', '</i>')
-        html = html.replace('<code>', '<code>').replace('</code>', '</code>')
-        html = html.replace('<pre><code>', '<code>').replace('</code></pre>', '</code>')
-        
-        return html
+    def _format_inline_telegram_html(self, text: str) -> str:
+        """Convert inline reply markup into Telegram-safe HTML."""
+        placeholders: dict[str, str] = {}
+
+        def stash(value: str) -> str:
+            key = f"@@TGPLACEHOLDER{len(placeholders)}@@"
+            placeholders[key] = value
+            return key
+
+        text = re.sub(
+            r"\[([^\]]+)\]\((https?://[^\s)]+)\)",
+            lambda m: stash(
+                f'<a href="{html.escape(m.group(2), quote=True)}">{html.escape(m.group(1))}</a>'
+            ),
+            text,
+        )
+        text = re.sub(
+            r"`([^`\n]+)`",
+            lambda m: stash(f"<code>{html.escape(m.group(1))}</code>"),
+            text,
+        )
+
+        escaped = html.escape(text)
+        patterns = [
+            (r"\*\*(.+?)\*\*", r"<b>\1</b>"),
+            (r"__(.+?)__", r"<b>\1</b>"),
+            (r"~~(.+?)~~", r"<s>\1</s>"),
+            (r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"<i>\1</i>"),
+            (r"(?<!_)_(?!_)(.+?)(?<!_)_(?!_)", r"<i>\1</i>"),
+        ]
+        for pattern, replacement in patterns:
+            escaped = re.sub(pattern, replacement, escaped)
+
+        for key, value in placeholders.items():
+            escaped = escaped.replace(key, value)
+
+        return escaped
+
+    def _render_telegram_html(self, text: str) -> str:
+        """Render replies into Telegram's supported HTML subset."""
+        lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        rendered: list[str] = []
+        paragraph: list[str] = []
+        code_lines: list[str] = []
+        in_code_block = False
+
+        def flush_paragraph() -> None:
+            if not paragraph:
+                return
+            rendered.append(self._format_inline_telegram_html(" ".join(part.strip() for part in paragraph if part.strip())))
+            paragraph.clear()
+
+        def flush_code_block() -> None:
+            if not code_lines:
+                rendered.append("<pre><code></code></pre>")
+            else:
+                rendered.append(f"<pre><code>{html.escape(chr(10).join(code_lines))}</code></pre>")
+            code_lines.clear()
+
+        for raw_line in lines:
+            stripped = raw_line.strip()
+
+            if stripped.startswith("```"):
+                flush_paragraph()
+                if in_code_block:
+                    flush_code_block()
+                    in_code_block = False
+                else:
+                    in_code_block = True
+                continue
+
+            if in_code_block:
+                code_lines.append(raw_line)
+                continue
+
+            if not stripped:
+                flush_paragraph()
+                if rendered and rendered[-1] != "":
+                    rendered.append("")
+                continue
+
+            heading_match = re.match(r"^#{1,6}\s+(.*)$", stripped)
+            if heading_match:
+                flush_paragraph()
+                rendered.append(f"<b>{self._format_inline_telegram_html(heading_match.group(1).strip())}</b>")
+                continue
+
+            bullet_match = re.match(r"^[-*]\s+(.*)$", stripped)
+            if bullet_match:
+                flush_paragraph()
+                rendered.append(f"• {self._format_inline_telegram_html(bullet_match.group(1).strip())}")
+                continue
+
+            number_match = re.match(r"^(\d+)\.\s+(.*)$", stripped)
+            if number_match:
+                flush_paragraph()
+                rendered.append(f"{number_match.group(1)}. {self._format_inline_telegram_html(number_match.group(2).strip())}")
+                continue
+
+            paragraph.append(raw_line)
+
+        flush_paragraph()
+        if in_code_block:
+            flush_code_block()
+
+        while rendered and rendered[-1] == "":
+            rendered.pop()
+
+        return "\n".join(rendered)
     
     async def _on_response(self, response: AssistantMessage, channel: str, chat_id: str) -> None:
         """
