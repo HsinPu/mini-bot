@@ -23,6 +23,7 @@ dependencies = [
     "python-daemon>=3.0.0",
     "python-dotenv>=1.0.0",
     "python-telegram-bot>=20.0",
+    "typer>=0.20.0,<1.0.0",
     "trafilatura>=2.0.0",
 ]
 
@@ -32,7 +33,7 @@ dev = [
 ]
 
 [project.scripts]
-opensprite = "opensprite.main:main"
+opensprite = "opensprite.cli.commands:app"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

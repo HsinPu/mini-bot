@@ -15,7 +15,9 @@ OpenSprite is a lightweight, self-hosted personal AI assistant for people who wa
 
 This repository is now package-first.
 
-- Main entrypoint: `src/opensprite/main.py`
+- CLI entrypoint: `src/opensprite/cli/commands.py`
+- Module entrypoint: `src/opensprite/__main__.py`
+- Service runtime: `src/opensprite/runtime.py`
 - Install command: `python -m pip install .`
 - Start command: `opensprite`
 - Runtime mode: foreground process; stop it with `Ctrl+C`
@@ -63,7 +65,13 @@ opensprite
 You can also start it with:
 
 ```bash
-python -m opensprite.main
+opensprite run
+```
+
+or:
+
+```bash
+python -m opensprite
 ```
 
 The process stays attached to the current terminal and does not daemonize itself.
@@ -216,6 +224,7 @@ The default agent registers tools for:
 
 ```text
 src/opensprite/
+├── cli/            # Typer CLI entrypoints
 ├── agent/          # Agent loop and tool orchestration
 ├── bus/            # Message queue and message models
 ├── channels/       # External channel adapters
@@ -227,7 +236,8 @@ src/opensprite/
 ├── storage/        # Memory and SQLite storage providers
 ├── tools/          # Built-in tool implementations
 ├── utils/          # Logging and shared helpers
-└── main.py         # Package entrypoint
+├── __main__.py     # python -m opensprite entrypoint
+└── runtime.py      # Service startup logic
 ```
 
 ## Useful Commands
@@ -242,8 +252,11 @@ python -m pip install -e ".[dev]"
 # start service
 opensprite
 
-# alternate start
-python -m opensprite.main
+# explicit CLI subcommand
+opensprite run
+
+# module entrypoint
+python -m opensprite
 
 # uninstall from current environment
 python -m pip uninstall opensprite

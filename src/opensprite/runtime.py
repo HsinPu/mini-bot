@@ -1,16 +1,6 @@
-"""
-opensprite/main.py - 入口點
-
-啟動服務：
-- 讀取設定檔
-- 建立 Agent + MessageQueue
-- 啟動所有頻道（Telegram 等）
-"""
+"""Service runtime for starting the OpenSprite process."""
 
 import asyncio
-import subprocess
-import sys
-from pathlib import Path
 
 from .agent import AgentLoop
 from .config import AgentConfig
@@ -20,34 +10,6 @@ from .storage import MemoryStorage, StorageProvider
 from .bus.dispatcher import MessageQueue
 from .config import Config
 from .utils.log import logger
-
-
-# ============================================
-# 檢查依賴
-# ============================================
-
-def check_and_install_dependencies():
-    """檢查並安裝必要套件"""
-    req_file = Path(__file__).parent.parent.parent / "requirements.txt"
-    
-    if not req_file.exists():
-        return
-    
-    with open(req_file, "r") as f:
-        requirements = [line.strip() for line in f if line.strip() and not line.startswith("#")]
-    
-    for req in requirements:
-        # 取出套件名稱（不含版本）
-        pkg_name = req.split(">=")[0].split("==")[0].split(">")[0].strip()
-        
-        try:
-            __import__(pkg_name)
-        except ImportError:
-            logger.info(f"安裝缺失套件：{pkg_name}")
-            try:
-                subprocess.check_call([sys.executable, "-m", "pip", "install", req])
-            except subprocess.CalledProcessError as e:
-                logger.error(f"安裝失敗：{pkg_name} - {e}")
 
 
 # ============================================
@@ -169,8 +131,7 @@ async def run():
 # 主程式
 # ============================================
 
-def main():
-    check_and_install_dependencies()
+def main() -> None:
     asyncio.run(run())
 
 
