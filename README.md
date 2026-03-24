@@ -63,10 +63,16 @@ After installation, show the CLI help with:
 opensprite
 ```
 
-Initialize the default config and app directories with:
+Initialize and configure OpenSprite interactively with:
 
 ```bash
 opensprite onboard
+```
+
+For automation or CI, skip prompts with:
+
+```bash
+opensprite onboard --no-input
 ```
 
 Start the gateway with:
@@ -85,7 +91,9 @@ The process stays attached to the current terminal and does not daemonize itself
 
 ## First Run
 
-Run `opensprite onboard` first to create or refresh the default config and app directories.
+Run `opensprite onboard` first. By default it creates the app directories and then asks for your LLM provider, model, API key, and optional Telegram token.
+
+If you need a non-interactive setup flow, use `opensprite onboard --no-input` and edit the config manually afterward.
 
 OpenSprite stores its default config at:
 
@@ -105,7 +113,7 @@ It also prepares these directories:
 
 ## Minimal Configuration
 
-Edit `~/.opensprite/opensprite.json`, enable one provider, and set `llm.default` to the provider you want to use.
+If you use `opensprite onboard --no-input`, edit `~/.opensprite/opensprite.json`, enable one provider, and set `llm.default` to the provider you want to use.
 
 Example using OpenRouter:
 
@@ -263,6 +271,9 @@ opensprite
 
 # initialize config and app directories
 opensprite onboard
+
+# initialize without prompts
+opensprite onboard --no-input
 
 # start gateway
 opensprite gateway

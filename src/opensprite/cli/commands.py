@@ -126,11 +126,16 @@ def _emit_status(payload: dict[str, object], json_output: bool) -> None:
     )
 
 
-def _run_onboard(config: str | None = None, *, force: bool = False) -> None:
+def _run_onboard(
+    config: str | None = None,
+    *,
+    force: bool = False,
+    no_input: bool = False,
+) -> None:
     """Run the OpenSprite onboarding workflow and print next steps."""
     try:
-        result = run_onboard(config_path=config, force=force)
-    except (FileNotFoundError, ValueError, json.JSONDecodeError) as exc:
+        result = run_onboard(config_path=config, force=force, interactive=not no_input)
+    except (FileNotFoundError, ValueError, RuntimeError, json.JSONDecodeError) as exc:
         typer.secho(f"Error: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from exc
 
@@ -157,10 +162,22 @@ def _run_onboard(config: str | None = None, *, force: bool = False) -> None:
         for relative_path in result.template_files:
             typer.echo(f"- {relative_path}")
 
+    if result.interactive:
+        typer.echo("Interactive setup:")
+        typer.echo(f"- LLM provider: {result.llm_provider or '<unset>'}")
+        typer.echo(f"- Model: {result.llm_model or '<unset>'}")
+        typer.echo(
+            f"- Telegram: {'enabled' if result.telegram_enabled else 'disabled'}"
+        )
+
     typer.echo("Next steps:")
-    typer.echo(f"1. Edit {result.config_path} and add your API key")
-    typer.echo("2. Run `opensprite status` to verify the setup")
-    typer.echo("3. Start the service with `opensprite gateway`")
+    if not result.llm_api_key_configured:
+        typer.echo(f"1. Edit {result.config_path} and add your API key")
+        typer.echo("2. Run `opensprite status` to verify the setup")
+        typer.echo("3. Start the service with `opensprite gateway`")
+    else:
+        typer.echo("1. Run `opensprite status` to verify the setup")
+        typer.echo("2. Start the service with `opensprite gateway`")
 
 
 @app.command()
@@ -176,9 +193,14 @@ def onboard(
         "--force",
         help="Reset the config to the packaged defaults instead of refreshing missing fields.",
     ),
+    no_input: bool = typer.Option(
+        False,
+        "--no-input",
+        help="Initialize files only and skip interactive prompts.",
+    ),
 ) -> None:
-    """Initialize or refresh the OpenSprite config and app directories."""
-    _run_onboard(config=config, force=force)
+    """Initialize or refresh OpenSprite and prompt for key settings by default."""
+    _run_onboard(config=config, force=force, no_input=no_input)
 
 
 @app.command()
