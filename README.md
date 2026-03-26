@@ -247,8 +247,8 @@ src/opensprite/
 ├── channels/       # External channel adapters
 ├── config/         # Config schema and default template
 ├── context/        # Bootstrap files, paths, workspace helpers
+├── documents/      # Managed markdown stores and consolidators
 ├── llms/           # LLM provider implementations
-├── memory/         # Long-term memory support
 ├── search/         # Optional LanceDB index
 ├── storage/        # Memory and SQLite storage providers
 ├── tools/          # Built-in tool implementations
