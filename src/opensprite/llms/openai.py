@@ -116,8 +116,22 @@ class OpenAILLM(LLMProvider):
             _safe_len(choices),
         )
 
+        if not choices:
+            logger.warning(
+                "OpenAI returned empty choices: response_id={}, model={}, object={}, usage={}",
+                getattr(response, "id", None),
+                getattr(response, "model", None),
+                getattr(response, "object", None),
+                getattr(response, "usage", None),
+            )
+            return LLMResponse(
+                content="",
+                model=getattr(response, "model", model or self.default_model),
+                tool_calls=[],
+            )
+
         try:
-            message = response.choices[0].message
+            message = choices[0].message
         except Exception:
             logger.exception(
                 "OpenAI response parse failed: response_type={}, model={}, choices_type={}, choices_len={}, choices_preview={}",
