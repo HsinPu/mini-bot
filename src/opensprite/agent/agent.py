@@ -82,30 +82,12 @@ class AgentLoop:
 
     MAX_TOOL_ITERATIONS = 10
     EMPTY_RESPONSE_FALLBACK = "抱歉，我剛剛沒有產生可顯示的回覆，請再試一次。"
-    EMPTY_RESPONSE_REPAIR_PROMPT = (
-        "Provide a concise user-facing answer based on the conversation and tool results above. "
-        "Do not call any tools. Do not omit the final answer."
-    )
 
     @staticmethod
     def _sanitize_response_content(content: str) -> str:
         """Remove provider-internal reasoning blocks from visible replies."""
         cleaned = PRIVATE_REASONING_RE.sub("", content or "")
         return cleaned.strip()
-
-    async def _repair_empty_response(self, chat_messages: list[ChatMessage], chat_id: str) -> str:
-        """Ask the model for a visible final answer when a tool-assisted turn ends empty."""
-        repair_messages = [
-            *chat_messages,
-            ChatMessage(role="user", content=self.EMPTY_RESPONSE_REPAIR_PROMPT),
-        ]
-        repair_response = await self.provider.chat(messages=repair_messages, tools=None)
-        repaired = self._sanitize_response_content(repair_response.content)
-        if repaired:
-            logger.info(f"[{chat_id}] Empty response repaired with a final no-tool pass")
-        else:
-            logger.warning(f"[{chat_id}] Empty response repair attempt also returned no visible content")
-        return repaired
 
     def __init__(
         self,
@@ -371,7 +353,6 @@ class AgentLoop:
     async def call_llm(
         self,
         chat_id: str,
-        current_message: str = "",
         channel: str | None = None,
         allow_tools: bool = True,
         user_images: list[str] | None = None,
@@ -411,15 +392,6 @@ class AgentLoop:
                 filtered.append(m)
         history_messages = filtered
 
-        # process() 會先把本輪 user message 寫入 storage；組 prompt 時改用 current_message
-        # 單獨附加，避免同一則訊息在 history 與目前回合重複出現。
-        if current_message and history_messages:
-            last_message = history_messages[-1]
-            last_role = last_message.get("role", "?") if isinstance(last_message, dict) else getattr(last_message, "role", "?")
-            last_content = last_message.get("content", "") if isinstance(last_message, dict) else getattr(last_message, "content", "")
-            if last_role == "user" and last_content == current_message:
-                history_messages = history_messages[:-1]
-
         # 轉換成 dict 格式（給 context builder 用）
         history_dicts = []
         for m in history_messages:
@@ -437,7 +409,7 @@ class AgentLoop:
         logger.info(f"[{chat_id}] 使用 context builder")
         full_messages = self._context_builder.build_messages(
             history=history_dicts,
-            current_message=current_message,
+            current_message="",  # 這裡不放 content，我們會用 user message
             current_images=user_images,
             channel=channel,
             chat_id=chat_id,
@@ -530,24 +502,23 @@ class AgentLoop:
                     logger.info(f"[{chat_id}] 執行工具: {tool_name}({tool_args})")
                     
                     result = await self.tools.execute(tool_name, tool_args)
-                    result_text = str(result) if result is not None else "Error: tool returned no result"
-                    logger.info(f"[{chat_id}] 工具結果: {result_text[:200]}...")
+                    logger.info(f"[{chat_id}] 工具結果: {result[:200]}...")
                     
                     # 記錄 tool 結果
-                    tool_results_history.append(f"{tool_name}: {result_text[:200]}")
+                    tool_results_history.append(f"{tool_name}: {result[:200]}")
                     
                     # 將 tool result 加入訊息
                     chat_messages.append(ChatMessage(
                         role="tool",
-                        content=result_text,
+                        content=result,
                         tool_call_id=tc.id
                     ))
                     
                     # 存到歷史訊息
-                    await self._save_message(chat_id, "tool", result_text, tool_name=tool_name)
+                    await self._save_message(chat_id, "tool", result, tool_name=tool_name)
                     if self.search_store is not None:
                         try:
-                            await self.search_store.index_tool_result(chat_id, tool_name, tool_args, result_text)
+                            await self.search_store.index_tool_result(chat_id, tool_name, tool_args, result)
                         except Exception as e:
                             logger.warning("[{}] Failed to index tool result for search: {}", chat_id, e)
                 
@@ -556,11 +527,6 @@ class AgentLoop:
             
             # 沒有 tool calls，回覆完成
             if not response.content:
-                if tool_results_history:
-                    logger.warning(f"[{chat_id}] LLM returned no visible response after tool use; attempting repair pass")
-                    repaired_response = await self._repair_empty_response(chat_messages, chat_id)
-                    if repaired_response:
-                        return repaired_response
                 logger.warning(f"[{chat_id}] LLM returned an empty visible response; using fallback text")
                 return self.EMPTY_RESPONSE_FALLBACK
 
@@ -617,7 +583,6 @@ class AgentLoop:
             logger.info(f"[{session_chat_id}] 處理中...")
             response = await self.call_llm(
                 session_chat_id,
-                current_message=user_message.text,
                 channel=channel,
                 user_images=user_message.images
             )
