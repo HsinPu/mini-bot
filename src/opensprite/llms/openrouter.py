@@ -7,6 +7,14 @@ OpenRouter 可以訪問多種 LLM 模型（OpenAI、Anthropic、Meta 等）
 from typing import Any
 
 from .base import LLMProvider, LLMResponse, ChatMessage, ToolCall
+from ..utils.log import logger
+
+
+def _safe_len(value: Any) -> str:
+    try:
+        return str(len(value))
+    except Exception:
+        return "n/a"
 
 
 class OpenRouterLLM(LLMProvider):
@@ -94,8 +102,26 @@ class OpenRouterLLM(LLMProvider):
         
         # 呼叫 API
         response = await self.client.chat.completions.create(**params)
-        
-        message = response.choices[0].message
+        choices = getattr(response, "choices", None)
+        logger.info(
+            "OpenRouter response summary: model={}, choices_type={}, choices_len={}",
+            getattr(response, "model", None),
+            type(choices).__name__,
+            _safe_len(choices),
+        )
+
+        try:
+            message = response.choices[0].message
+        except Exception:
+            logger.exception(
+                "OpenRouter response parse failed: response_type={}, model={}, choices_type={}, choices_len={}, choices_preview={}",
+                type(response).__name__,
+                getattr(response, "model", None),
+                type(choices).__name__,
+                _safe_len(choices),
+                repr(choices)[:500],
+            )
+            raise
         
         # 解析 tool calls
         tool_calls = []

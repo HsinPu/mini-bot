@@ -7,6 +7,14 @@ opensprite/llms/minimax.py - MiniMax LLM 實作
 from typing import Any
 
 from .base import LLMProvider, LLMResponse, ChatMessage, ToolCall
+from ..utils.log import logger
+
+
+def _safe_len(value: Any) -> str:
+    try:
+        return str(len(value))
+    except Exception:
+        return "n/a"
 
 
 class MiniMaxLLM(LLMProvider):
@@ -83,8 +91,26 @@ class MiniMaxLLM(LLMProvider):
         
         # 呼叫 API
         response = await self.client.chat.completions.create(**params)
-        
-        message = response.choices[0].message
+        choices = getattr(response, "choices", None)
+        logger.info(
+            "MiniMax response summary: model={}, choices_type={}, choices_len={}",
+            getattr(response, "model", None),
+            type(choices).__name__,
+            _safe_len(choices),
+        )
+
+        try:
+            message = response.choices[0].message
+        except Exception:
+            logger.exception(
+                "MiniMax response parse failed: response_type={}, model={}, choices_type={}, choices_len={}, choices_preview={}",
+                type(response).__name__,
+                getattr(response, "model", None),
+                type(choices).__name__,
+                _safe_len(choices),
+                repr(choices)[:500],
+            )
+            raise
         
         # 解析 tool calls
         tool_calls = []

@@ -89,6 +89,21 @@ class AgentLoop:
         cleaned = PRIVATE_REASONING_RE.sub("", content or "")
         return cleaned.strip()
 
+    @staticmethod
+    def _summarize_messages(messages: list[ChatMessage], tail: int = 4) -> str:
+        """Build a compact summary of the trailing chat messages for diagnostics."""
+        summary = []
+        for msg in messages[-tail:]:
+            content = getattr(msg, "content", "")
+            if isinstance(content, list):
+                content_kind = f"list[{len(content)}]"
+            else:
+                content_kind = f"str[{len(content or '')}]"
+            summary.append(
+                f"{getattr(msg, 'role', '?')}({content_kind},tool_id={'y' if getattr(msg, 'tool_call_id', None) else 'n'},tool_calls={len(getattr(msg, 'tool_calls', None) or [])})"
+            )
+        return ", ".join(summary) if summary else "<empty>"
+
     def __init__(
         self,
         config: AgentConfig,
@@ -466,11 +481,33 @@ class AgentLoop:
         for iteration in range(self.tools_config.max_tool_iterations):
             # 呼叫 Provider
             logger.info(f"[{chat_id}] 呼叫 LLM... (iteration {iteration + 1})")
-            response = await self.provider.chat(
-                messages=chat_messages,
-                tools=tools,
+            logger.info(
+                f"[{chat_id}] LLM iteration {iteration + 1} request summary: "
+                f"messages={len(chat_messages)}, tools_enabled={bool(tools)}, tail={self._summarize_messages(chat_messages)}"
             )
-            response.content = self._sanitize_response_content(response.content)
+            try:
+                response = await self.provider.chat(
+                    messages=chat_messages,
+                    tools=tools,
+                )
+            except Exception:
+                logger.exception(
+                    f"[{chat_id}] LLM iteration {iteration + 1} failed before response parsing; "
+                    f"messages={len(chat_messages)}, tools_enabled={bool(tools)}, tail={self._summarize_messages(chat_messages)}"
+                )
+                raise
+
+            raw_content = response.content or ""
+            response.content = self._sanitize_response_content(raw_content)
+            logger.info(
+                f"[{chat_id}] LLM iteration {iteration + 1} response summary: "
+                f"model={response.model}, raw_len={len(raw_content)}, visible_len={len(response.content)}, tool_calls={len(response.tool_calls or [])}"
+            )
+            if raw_content and not response.content:
+                logger.warning(
+                    f"[{chat_id}] LLM iteration {iteration + 1} response became empty after sanitization. "
+                    f"Raw preview: {raw_content[:300]}"
+                )
 
             # 檢查是否有 tool calls
             if response.tool_calls:
@@ -498,8 +535,13 @@ class AgentLoop:
                 for tc in response.tool_calls:
                     tool_name = tc.name
                     tool_args = tc.arguments
+                    tool_arg_keys = list(tool_args.keys()) if isinstance(tool_args, dict) else []
                     
                     logger.info(f"[{chat_id}] 執行工具: {tool_name}({tool_args})")
+                    logger.info(
+                        f"[{chat_id}] Tool call detail: id={tc.id}, name={tool_name}, "
+                        f"arg_type={type(tool_args).__name__}, arg_keys={tool_arg_keys}"
+                    )
                     
                     result = await self.tools.execute(tool_name, tool_args)
                     logger.info(f"[{chat_id}] 工具結果: {result[:200]}...")
@@ -610,6 +652,12 @@ class AgentLoop:
                 session_chat_id=session_chat_id,
                 metadata=assistant_metadata,
             )
+        except Exception:
+            logger.exception(
+                f"[{session_chat_id}] Agent.process failed: channel={channel}, "
+                f"text_len={len(user_message.text or '')}, images={len(user_message.images or [])}"
+            )
+            raise
         finally:
             self._current_chat_id.reset(token)
 

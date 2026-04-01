@@ -209,7 +209,7 @@ class MessageQueue:
             # Task 被取消時優雅退出
             pass
         except Exception as e:
-            logger.error(f"[{session_chat_id}] 處理訊息時發生錯誤: {e}")
+            logger.exception(f"[{session_chat_id}] 處理訊息時發生錯誤: {e}")
             # 發送錯誤訊息到 outbound
             outbound = OutboundMessage(
                 channel=inbound.channel,
@@ -249,7 +249,7 @@ class MessageQueue:
             except asyncio.TimeoutError:
                 continue
             except Exception as e:
-                logger.error(f"Outbound consumer 發生錯誤: {e}")
+                logger.exception(f"Outbound consumer 發生錯誤: {e}")
     
     async def process_queue(self) -> None:
         """
@@ -291,7 +291,7 @@ class MessageQueue:
                 )
                 
             except Exception as e:
-                logger.error(f"Inbound consumer 發生錯誤: {e}")
+                logger.exception(f"Inbound consumer 發生錯誤: {e}")
     
     async def cancel_chat(self, chat_id: str, channel: str | None = None) -> int:
         """
