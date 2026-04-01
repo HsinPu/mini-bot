@@ -274,6 +274,10 @@ class AgentLoop:
             firecrawl_api_key=web_fetch_config.get("firecrawl_api_key")
         ))
 
+        # Delegate Tool
+        from ..tools.delegate import DelegateTool
+        self.tools.register(DelegateTool(provider=self.provider))
+
         if self.search_store is not None:
             self.tools.register(
                 SearchHistoryTool(
