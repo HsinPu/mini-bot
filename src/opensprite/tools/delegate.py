@@ -39,13 +39,14 @@ class DelegateTool(Tool):
         "required": ["task"]
     }
 
-    def __init__(self, provider):
+    def __init__(self, provider, workspace_resolver=None):
         self.provider = provider
+        self.workspace_resolver = workspace_resolver or (lambda: WORKSPACE)
 
     async def execute(self, task: str, prompt_type: str = "writer", **kwargs: Any) -> str:
         # 組建 system prompt
         current_time = time.strftime("%Y-%m-%d %H:%M (%A)")
-        workspace = WORKSPACE
+        workspace = self.workspace_resolver()
 
         system_prompt = f"""# Subagent - {prompt_type}
 

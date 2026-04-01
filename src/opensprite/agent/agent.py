@@ -276,7 +276,7 @@ class AgentLoop:
 
         # Delegate Tool
         from ..tools.delegate import DelegateTool
-        self.tools.register(DelegateTool(provider=self.provider))
+        self.tools.register(DelegateTool(provider=self.provider, workspace_resolver=self._get_current_workspace))
 
         if self.search_store is not None:
             self.tools.register(
