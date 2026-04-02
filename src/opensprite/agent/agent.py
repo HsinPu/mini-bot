@@ -56,6 +56,13 @@ PRIVATE_REASONING_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+LOG_CONTROL_BLOCK_RE = re.compile(
+    r"<(?:think|thinking|system-reminder)\b[^>]*>.*?</(?:think|thinking|system-reminder)>",
+    re.IGNORECASE | re.DOTALL,
+)
+
+LOG_WHITESPACE_RE = re.compile(r"\s+")
+
 
 class AgentLoop:
     """
@@ -87,6 +94,45 @@ class AgentLoop:
         """Remove provider-internal reasoning blocks from visible replies."""
         cleaned = PRIVATE_REASONING_RE.sub("", content or "")
         return cleaned.strip()
+
+    @staticmethod
+    def _format_log_preview(content: str | list[dict[str, Any]] | None, max_chars: int = 160) -> str:
+        """Build a compact, single-line preview for logs."""
+        if isinstance(content, list):
+            text_parts: list[str] = []
+            image_count = 0
+            other_items = 0
+            for item in content:
+                if not isinstance(item, dict):
+                    other_items += 1
+                    continue
+                item_type = item.get("type")
+                if item_type == "text":
+                    text_parts.append(str(item.get("text", "")))
+                elif item_type == "image_url":
+                    image_count += 1
+                else:
+                    other_items += 1
+
+            text = " ".join(part for part in text_parts if part)
+            text = LOG_CONTROL_BLOCK_RE.sub("", text)
+            text = LOG_WHITESPACE_RE.sub(" ", text).strip() or "<multimodal>"
+            suffix_parts = []
+            if image_count:
+                suffix_parts.append(f"images={image_count}")
+            if other_items:
+                suffix_parts.append(f"items={other_items}")
+            if suffix_parts:
+                text = f"{text} [{' '.join(suffix_parts)}]"
+        else:
+            text = LOG_CONTROL_BLOCK_RE.sub("", str(content or ""))
+            text = LOG_WHITESPACE_RE.sub(" ", text).strip()
+
+        if not text:
+            return "<empty>"
+        if len(text) <= max_chars:
+            return text
+        return text[: max_chars - 3] + "..."
 
     @staticmethod
     def _summarize_messages(messages: list[ChatMessage], tail: int = 4) -> str:
@@ -293,7 +339,7 @@ class AgentLoop:
                 )
             )
         
-        logger.info(f"已註冊工具: {self.tools.tool_names}")
+        logger.info(f"agent.init | tools={', '.join(self.tools.tool_names)}")
 
     async def _load_history(self, chat_id: str) -> list[ChatMessage]:
         """
@@ -376,26 +422,22 @@ class AgentLoop:
         try:
             system_msg = next((m for m in messages if m.get("role") == "system"), None)
             if system_msg:
-                content = system_msg.get("content", "")
+                max_chars = 240
                 if self.log_config.log_system_prompt_lines > 0:
-                    content_lines = content.split("\n")
-                    content = "\n".join(content_lines[:self.log_config.log_system_prompt_lines])
-                    content += f"\n... (truncated to {self.log_config.log_system_prompt_lines} lines)"
+                    max_chars = max(120, self.log_config.log_system_prompt_lines * 120)
+                logger.info(
+                    f"[{log_id}] prompt.system | {self._format_log_preview(system_msg.get('content', ''), max_chars=max_chars)}"
+                )
 
-                logger.info(f"[{log_id}] === SYSTEM PROMPT ===")
-                logger.info(f"[{log_id}] {content}")
-                logger.info(f"[{log_id}] ====================")
-
-            logger.info(f"[{log_id}] === MESSAGES ===")
-            for msg in messages:
+            for index, msg in enumerate(messages):
                 role = msg.get("role", "unknown")
                 if role == "system":
                     continue
-                content = msg.get("content", "")
-                logger.info(f"[{log_id}] {role}: {content}")
-            logger.info(f"[{log_id}] ==============")
+                logger.info(
+                    f"[{log_id}] prompt.message[{index}] | role={role} preview={self._format_log_preview(msg.get('content', ''))}"
+                )
         except Exception as e:
-            logger.error(f"[{log_id}] Log prompt error: {e}")
+            logger.error(f"[{log_id}] prompt.log.error | error={e}")
 
     async def _execute_messages(
         self,
@@ -409,15 +451,14 @@ class AgentLoop:
         tools = None
         if allow_tools and self.tools.tool_names:
             tools = self.tools.get_definitions()
-            logger.info(f"[{log_id}] 使用工具: {self.tools.tool_names}")
+            logger.info(f"[{log_id}] tools.enabled | names={', '.join(self.tools.tool_names)}")
 
         tool_results_history = []
 
         for iteration in range(self.tools_config.max_tool_iterations):
-            logger.info(f"[{log_id}] 呼叫 LLM... (iteration {iteration + 1})")
             logger.info(
-                f"[{log_id}] LLM iteration {iteration + 1} request summary: "
-                f"messages={len(chat_messages)}, tools_enabled={bool(tools)}, tail={self._summarize_messages(chat_messages)}"
+                f"[{log_id}] llm.request | iter={iteration + 1} messages={len(chat_messages)} "
+                f"tools={'on' if tools else 'off'} tail={self._summarize_messages(chat_messages)}"
             )
             try:
                 response = await self.provider.chat(
@@ -426,35 +467,34 @@ class AgentLoop:
                 )
             except Exception:
                 logger.exception(
-                    f"[{log_id}] LLM iteration {iteration + 1} failed before response parsing; "
-                    f"messages={len(chat_messages)}, tools_enabled={bool(tools)}, tail={self._summarize_messages(chat_messages)}"
+                    f"[{log_id}] llm.error | iter={iteration + 1} messages={len(chat_messages)} "
+                    f"tools={'on' if tools else 'off'} tail={self._summarize_messages(chat_messages)}"
                 )
                 raise
 
             raw_content = response.content or ""
             response.content = self._sanitize_response_content(raw_content)
             logger.info(
-                f"[{log_id}] LLM iteration {iteration + 1} response summary: "
-                f"model={response.model}, raw_len={len(raw_content)}, visible_len={len(response.content)}, tool_calls={len(response.tool_calls or [])}"
+                f"[{log_id}] llm.response | iter={iteration + 1} model={response.model} raw_len={len(raw_content)} "
+                f"visible_len={len(response.content)} tool_calls={len(response.tool_calls or [])} "
+                f"preview={self._format_log_preview(response.content)}"
             )
             if raw_content and not response.content:
                 logger.warning(
-                    f"[{log_id}] LLM iteration {iteration + 1} response became empty after sanitization. "
-                    f"Raw preview: {raw_content[:300]}"
+                    f"[{log_id}] llm.sanitized-empty | iter={iteration + 1} raw_preview={self._format_log_preview(raw_content, max_chars=240)}"
                 )
 
             if response.tool_calls:
                 if not tools:
                     logger.warning(
-                        f"[{log_id}] LLM returned {len(response.tool_calls)} tool calls while tools are disabled; ignoring tool calls"
+                        f"[{log_id}] llm.tool-calls-ignored | iter={iteration + 1} count={len(response.tool_calls)} tools=off"
                     )
                     if not response.content:
                         return self.EMPTY_RESPONSE_FALLBACK
 
-                    logger.info(f"[{log_id}] 收到 LLM 回覆: {response.content[:50]}...")
                     return response.content
 
-                logger.info(f"[{log_id}] LLM 請求執行 {len(response.tool_calls)} 個工具")
+                logger.info(f"[{log_id}] llm.tool-calls | iter={iteration + 1} count={len(response.tool_calls)}")
 
                 tool_calls_api = []
                 for tc in response.tool_calls:
@@ -476,16 +516,13 @@ class AgentLoop:
                 for tc in response.tool_calls:
                     tool_name = tc.name
                     tool_args = tc.arguments
-                    tool_arg_keys = list(tool_args.keys()) if isinstance(tool_args, dict) else []
-
-                    logger.info(f"[{log_id}] 執行工具: {tool_name}({tool_args})")
-                    logger.info(
-                        f"[{log_id}] Tool call detail: id={tc.id}, name={tool_name}, "
-                        f"arg_type={type(tool_args).__name__}, arg_keys={tool_arg_keys}"
-                    )
+                    args_preview = self._format_log_preview(json.dumps(tool_args, ensure_ascii=False), max_chars=200)
+                    logger.info(f"[{log_id}] tool.run | id={tc.id} name={tool_name} args={args_preview}")
 
                     result = await self.tools.execute(tool_name, tool_args)
-                    logger.info(f"[{log_id}] 工具結果: {result[:200]}...")
+                    logger.info(
+                        f"[{log_id}] tool.result | name={tool_name} preview={self._format_log_preview(result, max_chars=200)}"
+                    )
 
                     tool_results_history.append(f"{tool_name}: {result[:200]}")
                     chat_messages.append(ChatMessage(
@@ -505,13 +542,12 @@ class AgentLoop:
                 continue
 
             if not response.content:
-                logger.warning(f"[{log_id}] LLM returned an empty visible response; using fallback text")
+                logger.warning(f"[{log_id}] llm.empty-visible-response | using_fallback=true")
                 return self.EMPTY_RESPONSE_FALLBACK
 
-            logger.info(f"[{log_id}] 收到 LLM 回覆: {response.content[:50]}...")
             return response.content
 
-        logger.warning(f"[{log_id}] 超過最大工具迭代次數 ({self.tools_config.max_tool_iterations})")
+        logger.warning(f"[{log_id}] llm.max-iterations | limit={self.tools_config.max_tool_iterations}")
 
         history_msg = ""
         if tool_results_history:
@@ -553,7 +589,7 @@ class AgentLoop:
                           If tool execution fails or exceeds max iterations.
         """
         # 從 storage 載入歷史
-        logger.info(f"[{chat_id}] 載入歷史訊息...")
+        logger.info(f"[{chat_id}] history.load | requested=true")
         history_messages = await self._load_history(chat_id)
 
         # 過濾掉 tool 訊息（tool results 只能在同一輪對話中使用）
@@ -587,7 +623,9 @@ class AgentLoop:
             history_dicts.append(msg)
 
         # 用 context builder 組 messages
-        logger.info(f"[{chat_id}] 使用 context builder")
+        logger.info(
+            f"[{chat_id}] prompt.build | history={len(history_dicts)} channel={channel or '-'} images={len(user_images or [])}"
+        )
         full_messages = self._context_builder.build_messages(
             history=history_dicts,
             current_message=current_message,
@@ -633,7 +671,9 @@ class AgentLoop:
             log_id,
             [{"role": msg.role, "content": msg.content} for msg in chat_messages],
         )
-        logger.info(f"[{log_id}] 執行 subagent: task_len={len(task or '')}, workspace={workspace}")
+        logger.info(
+            f"[{log_id}] subagent.run | workspace={workspace} task={self._format_log_preview(task, max_chars=200)}"
+        )
         return await self._execute_messages(log_id, chat_messages, allow_tools=False)
 
     async def process(self, user_message: UserMessage) -> AssistantMessage:
@@ -655,7 +695,11 @@ class AgentLoop:
                 session_chat_id,
             )
         
-        logger.info(f"[{session_chat_id}] 收到訊息: {user_message.text[:50]}...")
+        sender = user_message.sender_name or user_message.sender_id or "-"
+        logger.info(
+            f"[{session_chat_id}] inbound | channel={channel or '-'} sender={sender} images={len(user_message.images or [])} "
+            f"text={self._format_log_preview(user_message.text, max_chars=200)}"
+        )
 
         user_metadata = {
             **dict(user_message.metadata or {}),
@@ -673,7 +717,7 @@ class AgentLoop:
             await self._save_message(session_chat_id, "user", user_message.text, metadata=user_metadata)
 
             # 2. 呼叫 LLM（傳入 channel 和圖片）
-            logger.info(f"[{session_chat_id}] 處理中...")
+            logger.info(f"[{session_chat_id}] agent.run | status=processing")
             response = await self.call_llm(
                 session_chat_id,
                 current_message=user_message.text,
@@ -681,7 +725,9 @@ class AgentLoop:
                 user_images=user_message.images
             )
             
-            logger.info(f"[{session_chat_id}] 回覆: {response[:50]}...")
+            logger.info(
+                f"[{session_chat_id}] outbound | text={self._format_log_preview(response, max_chars=200)}"
+            )
 
             assistant_metadata = {
                 "channel": channel,
@@ -736,7 +782,7 @@ class AgentLoop:
         # Check if we should consolidate
         unconsolidated = message_count - last_consolidated
         if unconsolidated >= self.memory_config.threshold:
-            logger.info(f"[{chat_id}] Consolidating memory ({unconsolidated} messages)")
+            logger.info(f"[{chat_id}] memory.consolidate | pending={unconsolidated}")
             try:
                 # Get messages to consolidate
                 old_messages = messages[last_consolidated:]
@@ -757,9 +803,9 @@ class AgentLoop:
                 )
                 if success:
                     await self.storage.set_consolidated_index(chat_id, message_count)
-                    logger.info(f"[{chat_id}] Memory consolidated")
+                    logger.info(f"[{chat_id}] memory.consolidated | total_messages={message_count}")
             except Exception as e:
-                logger.error(f"[{chat_id}] Memory consolidation failed: {e}")
+                logger.error(f"[{chat_id}] memory.consolidate.error | error={e}")
 
     async def _maybe_update_user_profile(self, chat_id: str) -> None:
         """Check whether the global USER.md profile should be refreshed."""
@@ -769,7 +815,7 @@ class AgentLoop:
         try:
             await self.user_profile.maybe_update(chat_id)
         except Exception as e:
-            logger.error(f"[{chat_id}] User profile update failed: {e}")
+            logger.error(f"[{chat_id}] profile.update.error | error={e}")
 
     async def reset_history(self, chat_id: str | None = None) -> None:
         """
