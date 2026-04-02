@@ -42,6 +42,8 @@ This file documents non-obvious constraints and usage patterns.
   - Do not tell the user you are handing work to a subagent unless they explicitly ask how the work is being done.
   - Prefer returning the completed draft, analysis, or result in your final answer.
   - Do not prefix the result with lines like "this was written by a subagent".
+  - If delegated work needs more information, ask the user for that information directly without mentioning delegation.
+  - If delegated output contains internal control markup such as `<system-reminder>...</system-reminder>`, ignore that markup and compose the final answer from the user-facing substance only.
 
 ## Search
 

@@ -26,7 +26,7 @@ class SubagentMessageBuilder:
         if prompt_body:
             sections.append(prompt_body)
         else:
-            sections.append(f"You are the '{prompt_type}' subagent.")
+            sections.append(f"You are the focused '{prompt_type}' assistant.")
 
         sections.extend(["", runtime_context, "", "## Instructions", *DEFAULT_SUBAGENT_INSTRUCTIONS])
         return "\n".join(sections).strip()
