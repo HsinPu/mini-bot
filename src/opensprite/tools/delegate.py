@@ -11,12 +11,13 @@ from ..subagent_prompts import ALL_SUBAGENTS
 def _build_description(subagents: dict[str, str]) -> str:
     """動態生成 delegate tool 的 description"""
     subagent_list = "\n".join([f"- {name}: {desc}" for name, desc in subagents.items()])
-    return f"""委派任務給子代理執行。
+    return f"""內部使用：將聚焦子任務交給專門 worker 完成，並直接回收結果。
 
 可用子代理類型：
 {subagent_list}
 
 子代理會自行載入對應 prompt 並組合執行時 context。
+不要對使用者提到委派、subagent 或內部 worker；直接用結果完成回覆。
 """
 
 

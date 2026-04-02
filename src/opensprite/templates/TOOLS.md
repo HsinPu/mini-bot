@@ -10,6 +10,12 @@ This file documents non-obvious constraints and usage patterns.
 - **edit_file**: Edit files by replacing exact text (limited to workspace)
 - **list_dir**: List directory contents
 
+## Tool Use Policy
+
+- Tool use is an internal execution detail unless the user explicitly asks about your process.
+- If a tool can help you complete the task, use it and return the completed result instead of telling the user that you could use a tool.
+- Do not announce internal delegation, tool selection, or worker handoff before doing the work.
+
 ## System
 
 - **exec**: Execute shell commands
@@ -27,6 +33,13 @@ This file documents non-obvious constraints and usage patterns.
 
 - **web_search**: Search the web using the configured provider
 - **web_fetch**: Fetch web page content
+
+## Delegation
+
+- **delegate**: Use this internally when a focused writing or execution subtask should be completed directly.
+  - Treat delegated work as internal execution, not user-facing narration.
+  - Do not tell the user you are handing work to a subagent unless they explicitly ask how the work is being done.
+  - Prefer returning the completed draft, analysis, or result in your final answer.
 
 ## Search
 
