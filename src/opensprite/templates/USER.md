@@ -1,77 +1,13 @@
 # User Profile
 
-Use this file to describe the person you are helping.
-Keep it practical, short, and easy to update.
-Avoid storing secrets here unless you explicitly want them remembered.
+This file stores long-term user context so OpenSprite can respond with better continuity.
+The auto-managed block is updated gradually from conversation history to capture stable preferences and background context.
+Do not store passwords, API keys, or other secrets here.
 
 ## Auto-managed Profile
 
-This section is maintained by OpenSprite. Review it and edit the manual sections below if needed.
+This section is maintained by OpenSprite.
 
 <!-- OPENSPRITE:USER_PROFILE:START -->
 - No learned user profile details yet.
 <!-- OPENSPRITE:USER_PROFILE:END -->
-
-## Identity
-
-- Name:
-- Timezone:
-- Primary language:
-- Secondary language(s):
-
-## Communication Preferences
-
-- Tone: (for example: casual, professional, direct)
-- Response style: (for example: concise by default, detailed when needed)
-- Technical depth: (for example: beginner, intermediate, expert)
-- Ask vs act: (for example: act first when safe; ask only when blocked)
-- Formatting preferences: (for example: bullets, code-first, step-by-step)
-
-## Work Context
-
-- Primary role:
-- Current focus:
-- Main projects:
-- Typical tasks:
-- Tools and stack:
-- OS / environment:
-
-## Coding Preferences
-
-- Preferred languages:
-- Preferred frameworks:
-- Style expectations:
-- Testing expectations:
-- Git workflow preferences:
-
-## Constraints
-
-- Hard requirements:
-- Things to avoid:
-- Security or privacy expectations:
-- Time or quality tradeoffs:
-
-## Reusable Context
-
-- Repeated workflows:
-- Frequently used commands:
-- Important file paths or repos:
-- Known project conventions:
-
-## Topics of Interest
-
--
--
--
-
-## Special Instructions
-
--
-
----
-
-Tips:
-
-- Prefer explicit sentences over checklists.
-- Write only what helps the assistant make better decisions.
-- Update this file when your preferences or projects change.

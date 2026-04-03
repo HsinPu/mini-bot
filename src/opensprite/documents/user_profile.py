@@ -17,9 +17,7 @@ AUTO_PROFILE_HEADER = "## Auto-managed Profile"
 START_MARKER = "<!-- OPENSPRITE:USER_PROFILE:START -->"
 END_MARKER = "<!-- OPENSPRITE:USER_PROFILE:END -->"
 DEFAULT_MANAGED_CONTENT = "- No learned user profile details yet."
-AUTO_PROFILE_INTRO = (
-    "This section is maintained by OpenSprite. Review it and edit the manual sections below if needed."
-)
+AUTO_PROFILE_INTRO = "This section is maintained by OpenSprite."
 
 
 class UserProfileStore:
@@ -35,7 +33,7 @@ class UserProfileStore:
             default_content=DEFAULT_MANAGED_CONTENT,
             heading=AUTO_PROFILE_HEADER,
             intro=AUTO_PROFILE_INTRO,
-            anchor_heading="## Identity",
+            anchor_heading=None,
             bootstrap_text="# User Profile\n\n",
         )
 
@@ -125,6 +123,7 @@ Rules:
 - Do not store one-off tasks or temporary requests.
 - Prefer explicit facts and durable preferences over guesses.
 - Return concise markdown bullets or short sections suitable for USER.md.
+- Write in clear, concise English.
 - If nothing meaningful changed, return the current profile unchanged.
 """
 
@@ -135,6 +134,7 @@ Rules:
                     "role": "system",
                     "content": (
                         "You maintain the global USER.md profile for an assistant. "
+                        "Write in clear, concise English. "
                         "Call save_user_profile with the updated auto-managed block."
                     ),
                 },
