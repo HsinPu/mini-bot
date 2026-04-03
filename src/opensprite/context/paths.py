@@ -27,7 +27,7 @@ WORKSPACE_DIRNAME = "workspace"
 WORKSPACE_CHATS_DIRNAME = "chats"
 USER_PROFILE_STATE_FILENAME = ".user_profile_state.json"
 
-BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md", "IDENTITY.md", "TOOLS.md"]
+BOOTSTRAP_FILES = ["SOUL.md", "IDENTITY.md", "AGENTS.md", "USER.md", "TOOLS.md"]
 
 
 def ensure_dir(path: Path) -> Path:

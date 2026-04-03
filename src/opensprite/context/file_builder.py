@@ -29,7 +29,7 @@ from ..skills import SkillsLoader
 class FileContextBuilder:
     """Context builder backed by bootstrap files, skills, and memory."""
 
-    BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md", "IDENTITY.md", "TOOLS.md"]
+    BOOTSTRAP_FILES = ["SOUL.md", "IDENTITY.md", "AGENTS.md", "USER.md", "TOOLS.md"]
     _RUNTIME_CONTEXT_TAG = RUNTIME_CONTEXT_TAG
 
     def __init__(
@@ -66,12 +66,16 @@ class FileContextBuilder:
 
     def build_system_prompt(self, chat_id: str = "default") -> str:
         """Build the system prompt from bootstrap files, skills, and memory."""
-        parts = [self._get_identity(chat_id)]
+        parts = [self._build_session_context(chat_id)]
 
         bootstrap = load_bootstrap_files(self.bootstrap_dir)
         for key, content in bootstrap.items():
             if content:
-                parts.append(f"## {key}\n\n{content}")
+                section = content.strip()
+                if section.startswith("#"):
+                    parts.append(section)
+                else:
+                    parts.append(f"## {key}\n\n{section}")
 
         # Skills follow the on-demand model from OpenCode docs: list available
         # skill metadata in the main prompt, then load a full SKILL.md only when
@@ -91,8 +95,8 @@ To use a skill, read its SKILL.md file using the read_skill tool.
 
         return "\n\n---\n\n".join(parts)
 
-    def _get_identity(self, chat_id: str) -> str:
-        """Get the core identity section."""
+    def _build_session_context(self, chat_id: str) -> str:
+        """Build the runtime session context block."""
         app_home_path = str(self.app_home.expanduser().resolve())
         bootstrap_path = str(self.bootstrap_dir.expanduser().resolve())
         workspace_path = str(self.get_chat_workspace(chat_id).expanduser().resolve())
@@ -100,24 +104,20 @@ To use a skill, read its SKILL.md file using the read_skill tool.
         system = platform.system()
         runtime = f"{system} {platform.machine()}, Python {platform.python_version()}"
 
-        return f"""# OpenSprite
+        return f"""# Session Context
 
-You are OpenSprite, a helpful AI assistant.
+You are OpenSprite.
 
 ## Runtime
 {runtime}
 
-## App Home
-Your app home is at: {app_home_path}
+## App Paths
+- App home: {app_home_path}
 - Bootstrap files: {bootstrap_path}
 - Long-term memory: {memory_path}
 
-## Workspace
-Your file workspace is at: {workspace_path}
-
-## Guidelines
-- Be helpful and concise.
-- When in doubt, ask for clarification.
+## Active Workspace
+{workspace_path}
 """
 
     @staticmethod

@@ -1,40 +1,83 @@
-# Tool Usage Notes
+# TOOLS.md - Tool Contract
 
-Tool signatures are provided automatically via function calling.
-This file documents non-obvious constraints and usage patterns.
+Tool schemas and arguments are provided automatically by function calling.
+This file defines when to use tools, how to choose between them, and what constraints matter.
 
-## Files
+## General Rules
 
-- **read_file**: Read file content (limited to workspace)
-- **write_file**: Write/create files (limited to workspace)
-- **edit_file**: Edit files by replacing exact text (limited to workspace)
-- **list_dir**: List directory contents
+- Prefer using a tool over guessing when the tool can answer the question directly.
+- Prefer the narrowest tool that fits the job.
+- Stay within the active workspace unless the user clearly asks for something external.
+- Some tools are optional and only appear when enabled at runtime.
 
-## System
+## Workspace Tools
 
-- **exec**: Execute shell commands
-  - Timeout: 60 seconds
-  - Limited to workspace directory
-  - Dangerous commands are blocked:
-    - `rm -rf`, `del /f`, `rmdir /s`
-    - `format`, `mkfs`, `diskpart`
-    - `dd` (direct disk access)
-    - Writing to `/dev/sd*`
-    - `shutdown`, `reboot`, `poweroff`
-    - Fork bombs
+- `list_dir`
+  - Use to inspect directories before reading or editing.
+  - Good first step when the file location is unclear.
 
-## Web
+- `read_file`
+  - Use to inspect existing files inside the workspace.
+  - Prefer this before editing unless the exact target text is already known.
 
-- **web_search**: Search the web using the configured provider
-- **web_fetch**: Fetch web page content
+- `write_file`
+  - Use to create a new file or fully replace a file's contents.
+  - Do not use this for small in-place edits when `edit_file` is safer.
 
-## Search
+- `edit_file`
+  - Use for targeted replacements in existing files.
+  - It requires an exact unique `old_text` match.
+  - If the target text is ambiguous, read the file first and use a more specific replacement.
 
-- **search_history**: Search saved conversation history for the current chat only
-  - Use this when the user asks what was discussed before, references an earlier decision, or expects you to remember details that are not in the current visible context.
-  - Search before saying you cannot remember prior chat details.
-- **search_knowledge**: Search saved `web_search` and `web_fetch` results for the current chat only
-  - Use this when the user asks about previously researched external information, URLs, findings, or summaries from earlier web lookups.
-- **memory vs search**
-  - `memory/{chat_id}/MEMORY.md` is always loaded and should hold durable facts, preferences, and decisions.
-  - `search_history` and `search_knowledge` are on-demand tools for details that should not be injected into every prompt.
+## Command Tool
+
+- `exec`
+  - Runs shell commands inside the active workspace.
+  - Default timeout: 60 seconds.
+  - Use for verification, project inspection, builds, tests, and other command-line tasks.
+  - Dangerous commands and obvious destructive patterns are blocked.
+  - If a command could still cause irreversible or external side effects, ask first.
+
+## External Knowledge Tools
+
+- `web_search`
+  - Use to discover external sources, URLs, or recent information.
+  - Prefer this when you need candidate sources before reading one in detail.
+
+- `web_fetch`
+  - Use to retrieve and extract readable content from a specific URL.
+  - Prefer this after `web_search` or when the user already gave a URL.
+
+## Skill Tool
+
+- `read_skill`
+  - Use when a specialized skill is relevant to the task.
+  - Read the skill before following its workflow or conventions.
+
+## Memory And Retrieval Tools
+
+- `save_memory`
+  - Use to update durable chat-specific memory in `memory/{chat_id}/MEMORY.md`.
+  - Save only information likely to matter again later.
+  - Do not save secrets or one-turn noise.
+
+- `search_history`
+  - Use to retrieve prior conversation details from the current chat.
+  - Search before claiming you do not remember an earlier discussion.
+
+- `search_knowledge`
+  - Use to retrieve previously stored `web_search` and `web_fetch` results from the current chat.
+  - Prefer this when the user refers to earlier research rather than current local files.
+
+## Delegation
+
+- `delegate`
+  - Use to hand off a bounded task to a specialized subagent.
+  - Prefer this for focused subproblems that benefit from a dedicated prompt.
+  - Do not delegate trivial work that can be completed directly.
+
+## Scope Boundaries
+
+- `USER.md` stores durable user-wide context.
+- `memory/{chat_id}/MEMORY.md` stores durable chat-specific context.
+- `search_history` and `search_knowledge` are for on-demand retrieval, not always-on memory.
