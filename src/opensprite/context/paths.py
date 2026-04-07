@@ -219,9 +219,9 @@ def sync_templates(app_home: str | Path | None = None, silent: bool = False) -> 
     skills_dir = get_skills_dir(home)
     get_tool_workspace(home)
 
-    added: list[str] = []
-    added.extend(migrate_legacy_bootstrap(home, silent=True))
-    added.extend(migrate_legacy_memory(home, silent=True))
+    changed: list[str] = []
+    changed.extend(migrate_legacy_bootstrap(home, silent=True))
+    changed.extend(migrate_legacy_memory(home, silent=True))
 
     try:
         from importlib.resources import files as pkg_files
@@ -229,14 +229,18 @@ def sync_templates(app_home: str | Path | None = None, silent: bool = False) -> 
         templates_root = pkg_files("opensprite") / "templates"
         skills_root = pkg_files("opensprite") / "skills"
     except Exception:
-        return added
+        return changed
 
-    def _write(src, dest: Path) -> None:
+    def _write(src, dest: Path, *, overwrite: bool = False) -> None:
+        content = src.read_text(encoding="utf-8") if src else ""
         if dest.exists():
-            return
+            if not overwrite:
+                return
+            if dest.read_text(encoding="utf-8") == content:
+                return
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(src.read_text(encoding="utf-8") if src else "", encoding="utf-8")
-        added.append(_relative_path(dest, home))
+        dest.write_text(content, encoding="utf-8")
+        changed.append(_relative_path(dest, home))
 
     if templates_root.is_dir():
         for item in templates_root.iterdir():
@@ -260,12 +264,12 @@ def sync_templates(app_home: str | Path | None = None, silent: bool = False) -> 
             skill_dest.mkdir(parents=True, exist_ok=True)
             for item in skill_folder.iterdir():
                 if item.name.endswith((".md", ".py")):
-                    _write(item, skill_dest / item.name)
+                    _write(item, skill_dest / item.name, overwrite=True)
 
-    if added and not silent:
-        logger.info("Created template files: %s", added)
+    if changed and not silent:
+        logger.info("Synced template files: %s", changed)
 
-    return added
+    return changed
 
 
 def load_bootstrap_files(bootstrap_dir: str | Path) -> dict[str, str]:

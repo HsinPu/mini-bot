@@ -7,9 +7,10 @@ from typing import Any
 class Skill:
     """A skill that extends agent capabilities."""
 
-    def __init__(self, name: str, description: str):
+    def __init__(self, name: str, description: str, path: Path):
         self.name = name
         self.description = description
+        self.path = path
 
 
 class SkillsLoader:
@@ -65,6 +66,7 @@ class SkillsLoader:
                     Skill(
                         name=frontmatter.get("name", skill_dir.name),
                         description=frontmatter.get("description", ""),
+                        path=skill_file.resolve(),
                     )
                 )
             except Exception:
@@ -74,14 +76,14 @@ class SkillsLoader:
 
     def _split_frontmatter(self, content: str) -> tuple[dict[str, Any], str]:
         """Split YAML frontmatter from the markdown body."""
-        lines = content.split("\n")
-        if len(lines) < 3 or lines[0] != "---":
+        lines = content.splitlines()
+        if len(lines) < 3 or lines[0].strip() != "---":
             return {}, content
 
         frontmatter: dict[str, Any] = {}
         end_index = 0
         for index, line in enumerate(lines[1:], start=1):
-            if line == "---":
+            if line.strip() == "---":
                 end_index = index
                 break
             if ":" not in line:
@@ -150,30 +152,31 @@ class SkillsLoader:
 
         return "\n".join(lines)
 
+    def _get_skill(self, skill_name: str) -> Skill | None:
+        """Return the discovered skill metadata for a skill name."""
+        for skill in self.get_skills():
+            if skill.name == skill_name:
+                return skill
+        return None
+
     def load_skill_content(self, skill_name: str) -> str:
         """Load the full content of a skill's SKILL.md."""
-        for skills_dir in self._iter_skill_dirs():
-            skill_file = skills_dir / skill_name / "SKILL.md"
-            if not skill_file.exists():
-                continue
+        skill = self._get_skill(skill_name)
+        if skill is None:
+            return ""
 
-            content = skill_file.read_text(encoding="utf-8")
-            _, body = self._split_frontmatter(content)
-            return body
-
-        return ""
+        content = skill.path.read_text(encoding="utf-8")
+        _, body = self._split_frontmatter(content)
+        return body
 
     def get_skill_path(self, skill_name: str) -> Path | None:
         """Get the file path for a skill's SKILL.md."""
-        for skills_dir in self._iter_skill_dirs():
-            skill_file = skills_dir / skill_name / "SKILL.md"
-            if skill_file.exists():
-                return skill_file.resolve()
-        return None
+        skill = self._get_skill(skill_name)
+        return skill.path if skill is not None else None
 
     def skill_exists(self, skill_name: str) -> bool:
         """Check if a skill exists."""
-        return self.get_skill_path(skill_name) is not None
+        return self._get_skill(skill_name) is not None
 
     def get_valid_skill_names(self) -> list[str]:
         """Get valid skill names for validation."""
