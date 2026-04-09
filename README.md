@@ -300,8 +300,53 @@ The default agent registers tools for:
 - executing shell commands
 - web search
 - web fetch
+- scheduling per-session cron jobs
 - long-term memory save
 - search over indexed history and knowledge when LanceDB is enabled
+
+## Scheduling
+
+OpenSprite includes a per-session `cron` tool for scheduling future agent work.
+
+The first version supports three schedule types:
+
+- `at`: run once at a specific ISO datetime
+- `every`: run repeatedly at a fixed interval in seconds
+- `cron`: run on a cron expression, optionally with a timezone
+
+Scheduled jobs are stored inside the current session workspace:
+
+```text
+~/.opensprite/workspace/chats/<channel>/<chat_id>/cron/jobs.json
+```
+
+This means each session keeps its own schedule file and scheduled jobs do not mix across sessions.
+
+When a job triggers, OpenSprite runs a new agent turn using the stored job message. If the job was created with `deliver=true`, the result is sent back to the original chat channel.
+
+The gateway must be running for schedules to execute:
+
+```bash
+opensprite gateway
+```
+
+Or, on Linux, install the gateway as a user service:
+
+```bash
+opensprite service install
+```
+
+Typical `cron` tool usage patterns:
+
+- One-time reminder: `at="2026-04-10T09:00:00"`
+- Recurring interval: `every_seconds=1800`
+- Cron schedule: `cron_expr="0 9 * * 1-5", tz="Asia/Taipei"`
+
+Current actions exposed by the tool:
+
+- `add`
+- `list`
+- `remove`
 
 ## Project Layout
 
