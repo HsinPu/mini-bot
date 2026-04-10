@@ -1,6 +1,6 @@
 ---
 name: fact-checker
-description: 檢查文章或說法中的事實、數據、因果與推論是否有足夠支持；適用於文章完成前的查核與風險檢視。
+description: Check whether facts, numbers, causal claims, and inferences are sufficiently supported; useful for pre-publication verification and risk review.
 version: "1.0"
 scope: fact-checking
 language: zh-TW

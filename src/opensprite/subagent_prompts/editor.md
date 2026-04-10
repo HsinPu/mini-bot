@@ -1,6 +1,6 @@
 ---
 name: editor
-description: 針對既有文章草稿進行結構、語氣、清晰度與可讀性編修；適用於完成初稿後的潤稿與重寫。
+description: Improve an existing draft for structure, tone, clarity, and readability; useful for polishing or rewriting after the first draft is complete.
 version: "1.0"
 scope: editing
 language: zh-TW

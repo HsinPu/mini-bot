@@ -1,6 +1,6 @@
 ---
 name: writer
-description: 將已提供的主題、研究資料、大綱與寫作需求整合成最終可交付文章；專注於成稿，不負責主要研究、查核或後期編修流程。
+description: Turn the provided topic, research, outline, and writing requirements into a final deliverable article; focus on drafting rather than primary research, fact-checking, or post-editing.
 version: "1.1"
 scope: writing
 language: zh-TW
