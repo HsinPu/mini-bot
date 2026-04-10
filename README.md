@@ -373,6 +373,10 @@ opensprite cron add \
   --message "Remind me later" \
   --at 2026-04-10T09:00:00
 
+# pause and re-enable a job
+opensprite cron pause --session telegram:user-a --job-id abc12345
+opensprite cron enable --session telegram:user-a --job-id abc12345
+
 # remove a job
 opensprite cron remove --session telegram:user-a --job-id abc12345
 ```
@@ -386,6 +390,8 @@ Inside chat sessions, these immediate cron commands are also available:
 /cron add at <iso-datetime> <message>
 /cron add cron "<expr>" [--tz <timezone>] <message>
 /cron list
+/cron pause <job_id>
+/cron enable <job_id>
 /cron remove <job_id>
 ```
 
@@ -397,6 +403,8 @@ Examples:
 /cron add every 300 "Check weather and report back"
 /cron add at 2026-04-10T09:00:00 "Remind me later"
 /cron add cron "0 9 * * 1-5" --tz Asia/Taipei "Send weekday reminder"
+/cron pause abc12345
+/cron enable abc12345
 /cron remove abc12345
 ```
 

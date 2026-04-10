@@ -599,5 +599,45 @@ def cron_remove(
     typer.echo(f"Removed job {job_id}")
 
 
+@cron_app.command("pause")
+def cron_pause(
+    session: str = typer.Option(
+        ...,
+        "--session",
+        help="Session chat id, for example telegram:user-a.",
+    ),
+    job_id: str = typer.Option(
+        ...,
+        "--job-id",
+        help="The job id to pause.",
+    ),
+) -> None:
+    """Pause one scheduled job in a session without deleting it."""
+    service = _get_cron_service(session)
+    if not service.pause_job(job_id):
+        _handle_cron_error(f"job {job_id} not found or already paused")
+    typer.echo(f"Paused job {job_id}")
+
+
+@cron_app.command("enable")
+def cron_enable(
+    session: str = typer.Option(
+        ...,
+        "--session",
+        help="Session chat id, for example telegram:user-a.",
+    ),
+    job_id: str = typer.Option(
+        ...,
+        "--job-id",
+        help="The job id to re-enable.",
+    ),
+) -> None:
+    """Re-enable a paused scheduled job in a session."""
+    service = _get_cron_service(session)
+    if not service.enable_job(job_id):
+        _handle_cron_error(f"job {job_id} not found or already enabled")
+    typer.echo(f"Enabled job {job_id}")
+
+
 if __name__ == "__main__":
     app()

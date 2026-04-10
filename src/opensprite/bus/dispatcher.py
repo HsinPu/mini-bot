@@ -161,6 +161,8 @@ class MessageQueue:
             "/cron add at <iso-datetime> <message> [--no-deliver]\n"
             "/cron add cron \"<expr>\" [--tz <timezone>] <message> [--no-deliver]\n"
             "/cron list\n"
+            "/cron pause <job_id>\n"
+            "/cron enable <job_id>\n"
             "/cron remove <job_id>\n"
             "/cron help"
         )
@@ -313,6 +315,22 @@ class MessageQueue:
                     )
                 lines.append(line)
             return "Scheduled jobs:\n" + "\n".join(lines)
+
+        if action in {"pause", "disable"}:
+            if not args:
+                return "Error: job_id is required. Usage: /cron pause <job_id>"
+            job_id = args[0]
+            if service.pause_job(job_id):
+                return f"Paused job {job_id}"
+            return f"Job {job_id} not found or already paused"
+
+        if action in {"enable", "resume"}:
+            if not args:
+                return "Error: job_id is required. Usage: /cron enable <job_id>"
+            job_id = args[0]
+            if service.enable_job(job_id):
+                return f"Enabled job {job_id}"
+            return f"Job {job_id} not found or already enabled"
 
         if action in {"remove", "rm", "delete"}:
             if not args:

@@ -351,6 +351,30 @@ class CronService:
             self._arm_timer()
         return removed
 
+    def pause_job(self, job_id: str) -> bool:
+        """Disable a scheduled job without deleting it."""
+        job = self.get_job(job_id)
+        if job is None or not job.enabled:
+            return False
+        job.enabled = False
+        job.updated_at_ms = _now_ms()
+        job.state.next_run_at_ms = None
+        self._save_store()
+        self._arm_timer()
+        return True
+
+    def enable_job(self, job_id: str) -> bool:
+        """Re-enable a previously paused job."""
+        job = self.get_job(job_id)
+        if job is None or job.enabled:
+            return False
+        job.enabled = True
+        job.updated_at_ms = _now_ms()
+        job.state.next_run_at_ms = _compute_next_run(job.schedule, _now_ms())
+        self._save_store()
+        self._arm_timer()
+        return True
+
     async def run_job(self, job_id: str) -> bool:
         self._load_store()
         if self._store is None:

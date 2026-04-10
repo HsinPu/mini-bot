@@ -504,6 +504,62 @@ def test_cron_command_removes_job_for_current_session(tmp_path):
     assert remaining == []
 
 
+def test_cron_command_can_pause_and_enable_job_for_current_session(tmp_path):
+    class CronAgent(FakeAgent):
+        def __init__(self):
+            super().__init__()
+            self.cron_manager = None
+
+    async def on_job(session_chat_id: str, job: CronJob):
+        return "ok"
+
+    async def scenario():
+        agent = CronAgent()
+        agent.cron_manager = CronManager(workspace_root=tmp_path / "workspace", on_job=on_job)
+        service = await agent.cron_manager.get_or_create_service("telegram:same-chat")
+        job = service.add_job(
+            name="cleanup",
+            schedule=CronSchedule(kind="every", every_ms=60_000),
+            message="Cleanup",
+            deliver=True,
+            channel="telegram",
+            chat_id="same-chat",
+        )
+
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, chat_id):
+            responses.append((message.session_chat_id, message.text))
+            if len(responses) == 2:
+                event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content=f"/cron pause {job.id}", chat_id="same-chat", channel="telegram")
+            await queue.enqueue_raw(content=f"/cron enable {job.id}", chat_id="same-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+            refreshed = service.get_job(job.id)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+            await agent.cron_manager.stop()
+
+        return responses, refreshed
+
+    responses, refreshed = asyncio.run(scenario())
+
+    assert responses == [
+        ("telegram:same-chat", f"Paused job {refreshed.id}"),
+        ("telegram:same-chat", f"Enabled job {refreshed.id}"),
+    ]
+    assert refreshed is not None
+    assert refreshed.enabled is True
+    assert refreshed.state.next_run_at_ms is not None
+
+
 def test_cron_command_help_is_immediate():
     class CronAgent(FakeAgent):
         def __init__(self):
@@ -534,6 +590,8 @@ def test_cron_command_help_is_immediate():
 
     assert len(responses) == 1
     assert "/cron list" in responses[0][1]
+    assert "/cron pause <job_id>" in responses[0][1]
+    assert "/cron enable <job_id>" in responses[0][1]
     assert "/cron remove <job_id>" in responses[0][1]
 
 
