@@ -105,3 +105,30 @@ def test_cron_cli_can_pause_and_enable_job(monkeypatch, tmp_path):
     )
     assert enable_result.exit_code == 0
     assert f"Enabled job {job_id.group(1)}" in enable_result.stdout
+
+
+def test_cron_cli_can_run_job_immediately(monkeypatch, tmp_path):
+    monkeypatch.setattr("opensprite.cli.commands._resolve_workspace_root", lambda: tmp_path / "workspace")
+
+    add_result = runner.invoke(
+        app,
+        [
+            "cron",
+            "add",
+            "--session",
+            "telegram:user-a",
+            "--message",
+            "Check weather and report back",
+            "--every-seconds",
+            "300",
+        ],
+    )
+    job_id = re.search(r"id: ([a-f0-9]{8})", add_result.stdout)
+    assert job_id is not None
+
+    run_result = runner.invoke(
+        app,
+        ["cron", "run", "--session", "telegram:user-a", "--job-id", job_id.group(1)],
+    )
+    assert run_result.exit_code == 0
+    assert f"Ran job {job_id.group(1)}" in run_result.stdout

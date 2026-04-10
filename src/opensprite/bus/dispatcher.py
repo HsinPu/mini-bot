@@ -163,6 +163,7 @@ class MessageQueue:
             "/cron list\n"
             "/cron pause <job_id>\n"
             "/cron enable <job_id>\n"
+            "/cron run <job_id>\n"
             "/cron remove <job_id>\n"
             "/cron help"
         )
@@ -331,6 +332,14 @@ class MessageQueue:
             if service.enable_job(job_id):
                 return f"Enabled job {job_id}"
             return f"Job {job_id} not found or already enabled"
+
+        if action in {"run", "trigger"}:
+            if not args:
+                return "Error: job_id is required. Usage: /cron run <job_id>"
+            job_id = args[0]
+            if await service.run_job(job_id):
+                return f"Ran job {job_id}"
+            return f"Job {job_id} not found"
 
         if action in {"remove", "rm", "delete"}:
             if not args:

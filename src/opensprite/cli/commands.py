@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 import json
 from pathlib import Path
@@ -637,6 +638,26 @@ def cron_enable(
     if not service.enable_job(job_id):
         _handle_cron_error(f"job {job_id} not found or already enabled")
     typer.echo(f"Enabled job {job_id}")
+
+
+@cron_app.command("run")
+def cron_run(
+    session: str = typer.Option(
+        ...,
+        "--session",
+        help="Session chat id, for example telegram:user-a.",
+    ),
+    job_id: str = typer.Option(
+        ...,
+        "--job-id",
+        help="The job id to execute immediately.",
+    ),
+) -> None:
+    """Run one scheduled job immediately in a session."""
+    service = _get_cron_service(session)
+    if not asyncio.run(service.run_job(job_id)):
+        _handle_cron_error(f"job {job_id} not found")
+    typer.echo(f"Ran job {job_id}")
 
 
 if __name__ == "__main__":
