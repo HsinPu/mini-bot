@@ -382,11 +382,23 @@ Inside chat sessions, these immediate cron commands are also available:
 ```text
 /cron
 /cron help
+/cron add every <seconds> <message>
+/cron add at <iso-datetime> <message>
+/cron add cron "<expr>" [--tz <timezone>] <message>
 /cron list
 /cron remove <job_id>
 ```
 
 These commands are handled immediately by the queue layer, similar to `/stop` and `/reset`, so they do not wait behind the current session task queue.
+
+Examples:
+
+```text
+/cron add every 300 "Check weather and report back"
+/cron add at 2026-04-10T09:00:00 "Remind me later"
+/cron add cron "0 9 * * 1-5" --tz Asia/Taipei "Send weekday reminder"
+/cron remove abc12345
+```
 
 ## Project Layout
 

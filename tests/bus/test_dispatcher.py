@@ -359,6 +359,102 @@ def test_cron_command_lists_jobs_for_current_session(tmp_path):
     assert "weather-check" in responses[0][1]
 
 
+def test_cron_command_adds_interval_job_for_current_session(tmp_path):
+    class CronAgent(FakeAgent):
+        def __init__(self):
+            super().__init__()
+            self.cron_manager = None
+
+    async def on_job(session_chat_id: str, job: CronJob):
+        return "ok"
+
+    async def scenario():
+        agent = CronAgent()
+        agent.cron_manager = CronManager(workspace_root=tmp_path / "workspace", on_job=on_job)
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, chat_id):
+            responses.append((message.session_chat_id, message.text))
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(
+                content='/cron add every 300 "Check weather and report back"',
+                chat_id="same-chat",
+                channel="telegram",
+            )
+            await asyncio.wait_for(event.wait(), timeout=2)
+            service = await agent.cron_manager.get_or_create_service("telegram:same-chat")
+            jobs = service.list_jobs(include_disabled=True)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+            await agent.cron_manager.stop()
+
+        return responses, jobs
+
+    responses, jobs = asyncio.run(scenario())
+
+    assert len(responses) == 1
+    assert "Created job 'Check weather and report back'" in responses[0][1]
+    assert len(jobs) == 1
+    assert jobs[0].schedule.kind == "every"
+    assert jobs[0].schedule.every_ms == 300_000
+    assert jobs[0].payload.message == "Check weather and report back"
+
+
+def test_cron_command_adds_one_time_job_without_delivery_when_requested(tmp_path):
+    class CronAgent(FakeAgent):
+        def __init__(self):
+            super().__init__()
+            self.cron_manager = None
+
+    async def on_job(session_chat_id: str, job: CronJob):
+        return "ok"
+
+    async def scenario():
+        agent = CronAgent()
+        agent.cron_manager = CronManager(workspace_root=tmp_path / "workspace", on_job=on_job)
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, chat_id):
+            responses.append((message.session_chat_id, message.text))
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(
+                content='/cron add at 2026-04-10T09:00:00 --no-deliver "Remind me later"',
+                chat_id="same-chat",
+                channel="telegram",
+            )
+            await asyncio.wait_for(event.wait(), timeout=2)
+            service = await agent.cron_manager.get_or_create_service("telegram:same-chat")
+            jobs = service.list_jobs(include_disabled=True)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+            await agent.cron_manager.stop()
+
+        return responses, jobs
+
+    responses, jobs = asyncio.run(scenario())
+
+    assert len(responses) == 1
+    assert "Created job 'Remind me later'" in responses[0][1]
+    assert len(jobs) == 1
+    assert jobs[0].schedule.kind == "at"
+    assert jobs[0].payload.deliver is False
+    assert jobs[0].delete_after_run is True
+
+
 def test_cron_command_removes_job_for_current_session(tmp_path):
     class CronAgent(FakeAgent):
         def __init__(self):
@@ -439,3 +535,41 @@ def test_cron_command_help_is_immediate():
     assert len(responses) == 1
     assert "/cron list" in responses[0][1]
     assert "/cron remove <job_id>" in responses[0][1]
+
+
+def test_cron_command_reports_invalid_add_usage(tmp_path):
+    class CronAgent(FakeAgent):
+        def __init__(self):
+            super().__init__()
+            self.cron_manager = None
+
+    async def on_job(session_chat_id: str, job: CronJob):
+        return "ok"
+
+    async def scenario():
+        agent = CronAgent()
+        agent.cron_manager = CronManager(workspace_root=tmp_path / "workspace", on_job=on_job)
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, chat_id):
+            responses.append((message.session_chat_id, message.text))
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="/cron add every nope broken", chat_id="same-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+            await agent.cron_manager.stop()
+
+        return responses
+
+    responses = asyncio.run(scenario())
+
+    assert len(responses) == 1
+    assert "Error: every requires an integer number of seconds" in responses[0][1]

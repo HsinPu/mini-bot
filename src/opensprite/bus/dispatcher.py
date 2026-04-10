@@ -20,9 +20,11 @@ opensprite/bus/dispatcher.py - 訊息排程中心
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
+import shlex
 from typing import Any, Awaitable, Callable
 from . import MessageBus, InboundMessage, OutboundMessage
 from .message import UserMessage, AssistantMessage
+from ..cron.types import CronSchedule
 from ..utils.log import logger
 
 
@@ -139,7 +141,10 @@ class MessageQueue:
     @staticmethod
     def _parse_cron_command(text: str | None) -> tuple[str, list[str]]:
         """Parse the cron command into an action and remaining args."""
-        parts = (text or "").strip().split()
+        try:
+            parts = shlex.split((text or "").strip())
+        except ValueError:
+            return "error", ["Invalid quoting in /cron command"]
         if not parts:
             return "help", []
         args = parts[1:]
@@ -152,10 +157,82 @@ class MessageQueue:
         """Return the built-in cron command help text."""
         return (
             "排程命令:\n"
+            "/cron add every <seconds> <message> [--no-deliver]\n"
+            "/cron add at <iso-datetime> <message> [--no-deliver]\n"
+            "/cron add cron \"<expr>\" [--tz <timezone>] <message> [--no-deliver]\n"
             "/cron list\n"
             "/cron remove <job_id>\n"
             "/cron help"
         )
+
+    @staticmethod
+    def _extract_cron_options(args: list[str]) -> tuple[list[str], str | None, bool]:
+        """Split cron command arguments into positional args and flags."""
+        positional: list[str] = []
+        tz: str | None = None
+        deliver = True
+        i = 0
+        while i < len(args):
+            token = args[i]
+            if token == "--tz":
+                if i + 1 >= len(args):
+                    raise ValueError("--tz requires a timezone value")
+                tz = args[i + 1]
+                i += 2
+                continue
+            if token == "--no-deliver":
+                deliver = False
+                i += 1
+                continue
+            if token == "--deliver":
+                deliver = True
+                i += 1
+                continue
+            positional.append(token)
+            i += 1
+        return positional, tz, deliver
+
+    @staticmethod
+    def _parse_cron_add_schedule(args: list[str]) -> tuple[CronSchedule, str, bool]:
+        """Parse `/cron add ...` arguments into schedule and payload settings."""
+        positional, tz, deliver = MessageQueue._extract_cron_options(args)
+        if len(positional) < 3:
+            raise ValueError("Usage: /cron add every <seconds> <message>")
+
+        mode = positional[0].lower()
+        schedule_value = positional[1]
+        message = " ".join(positional[2:]).strip()
+        if not message:
+            raise ValueError("A non-empty message is required")
+
+        if mode == "every":
+            try:
+                every_seconds = int(schedule_value)
+            except ValueError as exc:
+                raise ValueError("every requires an integer number of seconds") from exc
+            if every_seconds <= 0:
+                raise ValueError("every requires a value greater than 0")
+            if tz is not None:
+                raise ValueError("--tz can only be used with cron schedules")
+            return CronSchedule(kind="every", every_ms=every_seconds * 1000), message, deliver
+
+        if mode == "at":
+            try:
+                dt = datetime.fromisoformat(schedule_value)
+            except ValueError as exc:
+                raise ValueError("at requires ISO format like 2026-04-10T09:00:00") from exc
+            if tz is not None:
+                raise ValueError("--tz can only be used with cron schedules")
+            if dt.tzinfo is None:
+                from zoneinfo import ZoneInfo
+
+                dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+            return CronSchedule(kind="at", at_ms=int(dt.timestamp() * 1000)), message, deliver
+
+        if mode == "cron":
+            return CronSchedule(kind="cron", expr=schedule_value, tz=tz or "UTC"), message, deliver
+
+        raise ValueError("Unknown schedule mode. Use every, at, or cron")
 
     @staticmethod
     def _format_cron_timestamp(ms: int, tz_name: str) -> str:
@@ -185,6 +262,8 @@ class MessageQueue:
     async def _handle_cron_command(self, session_chat_id: str, text: str | None) -> str:
         """Handle immediate cron management commands for the active session."""
         action, args = self._parse_cron_command(text)
+        if action == "error":
+            return f"Error: {args[0]}"
         if action in {"help", "--help", "-h"}:
             return self._cron_help_text()
 
@@ -193,6 +272,32 @@ class MessageQueue:
             return "排程功能目前不可用。"
 
         service = await cron_manager.get_or_create_service(session_chat_id)
+
+        if action == "add":
+            try:
+                schedule, message, deliver = self._parse_cron_add_schedule(args)
+            except ValueError as exc:
+                return f"Error: {exc}"
+
+            if ":" in session_chat_id:
+                channel, chat_id = session_chat_id.split(":", 1)
+            else:
+                channel, chat_id = "default", session_chat_id
+
+            delete_after = schedule.kind == "at"
+            try:
+                job = service.add_job(
+                    name=message[:30],
+                    schedule=schedule,
+                    message=message,
+                    deliver=deliver,
+                    channel=channel,
+                    chat_id=chat_id,
+                    delete_after_run=delete_after,
+                )
+            except ValueError as exc:
+                return f"Error: {exc}"
+            return f"Created job '{job.name}' (id: {job.id})"
 
         if action == "list":
             jobs = service.list_jobs(include_disabled=True)
