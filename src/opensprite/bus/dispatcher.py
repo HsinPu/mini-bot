@@ -19,6 +19,7 @@ opensprite/bus/dispatcher.py - 訊息排程中心
 
 import asyncio
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Awaitable, Callable
 from . import MessageBus, InboundMessage, OutboundMessage
 from .message import UserMessage, AssistantMessage
@@ -129,6 +130,95 @@ class MessageQueue:
         command = (text or "").strip().split(maxsplit=1)[0].lower()
         return command in {"/reset", "/reset@openspritebot"}
 
+    @staticmethod
+    def is_cron_command(text: str | None) -> bool:
+        """Return whether a message should use immediate cron command handling."""
+        command = (text or "").strip().split(maxsplit=1)[0].lower()
+        return command in {"/cron", "/cron@openspritebot"}
+
+    @staticmethod
+    def _parse_cron_command(text: str | None) -> tuple[str, list[str]]:
+        """Parse the cron command into an action and remaining args."""
+        parts = (text or "").strip().split()
+        if not parts:
+            return "help", []
+        args = parts[1:]
+        if not args:
+            return "help", []
+        return args[0].lower(), args[1:]
+
+    @staticmethod
+    def _cron_help_text() -> str:
+        """Return the built-in cron command help text."""
+        return (
+            "排程命令:\n"
+            "/cron list\n"
+            "/cron remove <job_id>\n"
+            "/cron help"
+        )
+
+    @staticmethod
+    def _format_cron_timestamp(ms: int, tz_name: str) -> str:
+        """Format a scheduled timestamp for chat output."""
+        from zoneinfo import ZoneInfo
+
+        dt = datetime.fromtimestamp(ms / 1000, tz=ZoneInfo(tz_name))
+        return f"{dt.isoformat()} ({tz_name})"
+
+    def _format_cron_timing(self, schedule: Any, default_timezone: str = "UTC") -> str:
+        """Format a cron schedule in the same style as the cron tool."""
+        if schedule.kind == "cron":
+            tz = f" ({schedule.tz})" if schedule.tz else ""
+            return f"cron: {schedule.expr}{tz}"
+        if schedule.kind == "every" and schedule.every_ms:
+            if schedule.every_ms % 3_600_000 == 0:
+                return f"every {schedule.every_ms // 3_600_000}h"
+            if schedule.every_ms % 60_000 == 0:
+                return f"every {schedule.every_ms // 60_000}m"
+            if schedule.every_ms % 1000 == 0:
+                return f"every {schedule.every_ms // 1000}s"
+            return f"every {schedule.every_ms}ms"
+        if schedule.kind == "at" and schedule.at_ms:
+            return f"at {self._format_cron_timestamp(schedule.at_ms, schedule.tz or default_timezone)}"
+        return schedule.kind
+
+    async def _handle_cron_command(self, session_chat_id: str, text: str | None) -> str:
+        """Handle immediate cron management commands for the active session."""
+        action, args = self._parse_cron_command(text)
+        if action in {"help", "--help", "-h"}:
+            return self._cron_help_text()
+
+        cron_manager = getattr(self.agent, "cron_manager", None)
+        if cron_manager is None:
+            return "排程功能目前不可用。"
+
+        service = await cron_manager.get_or_create_service(session_chat_id)
+
+        if action == "list":
+            jobs = service.list_jobs(include_disabled=True)
+            if not jobs:
+                return "No scheduled jobs."
+            lines = []
+            for job in jobs:
+                line = f"- {job.name} (id: {job.id}, {self._format_cron_timing(job.schedule)})"
+                if job.state.next_run_at_ms:
+                    line += (
+                        f"\n  Next run: "
+                        f"{self._format_cron_timestamp(job.state.next_run_at_ms, job.schedule.tz or 'UTC')}"
+                    )
+                lines.append(line)
+            return "Scheduled jobs:\n" + "\n".join(lines)
+
+        if action in {"remove", "rm", "delete"}:
+            if not args:
+                return "Error: job_id is required. Usage: /cron remove <job_id>"
+            job_id = args[0]
+            if service.remove_job(job_id):
+                return f"Removed job {job_id}"
+            return f"Job {job_id} not found"
+
+        return self._cron_help_text()
+
     async def _publish_stop_response(
         self,
         *,
@@ -160,6 +250,24 @@ class MessageQueue:
         content = "已重置目前這段對話。"
         if cancelled > 0:
             content += " 進行中的任務也已停止。"
+        await self.bus.publish_outbound(
+            OutboundMessage(
+                channel=channel,
+                chat_id=transport_chat_id,
+                session_chat_id=session_chat_id,
+                content=content,
+            )
+        )
+
+    async def _publish_cron_response(
+        self,
+        *,
+        channel: str,
+        transport_chat_id: str,
+        session_chat_id: str,
+        content: str,
+    ) -> None:
+        """Publish the acknowledgement for an immediate cron command."""
         await self.bus.publish_outbound(
             OutboundMessage(
                 channel=channel,
@@ -204,6 +312,16 @@ class MessageQueue:
                 transport_chat_id=transport_chat_id,
                 session_chat_id=session_chat_id,
                 cancelled=cancelled,
+            )
+            return
+
+        if self.is_cron_command(user_message.text):
+            response_text = await self._handle_cron_command(session_chat_id, user_message.text)
+            await self._publish_cron_response(
+                channel=channel,
+                transport_chat_id=transport_chat_id,
+                session_chat_id=session_chat_id,
+                content=response_text,
             )
             return
 

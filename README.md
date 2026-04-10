@@ -377,6 +377,17 @@ opensprite cron add \
 opensprite cron remove --session telegram:user-a --job-id abc12345
 ```
 
+Inside chat sessions, these immediate cron commands are also available:
+
+```text
+/cron
+/cron help
+/cron list
+/cron remove <job_id>
+```
+
+These commands are handled immediately by the queue layer, similar to `/stop` and `/reset`, so they do not wait behind the current session task queue.
+
 ## Project Layout
 
 ```text

@@ -2,6 +2,8 @@ import asyncio
 
 from opensprite.bus.dispatcher import MessageQueue
 from opensprite.bus.message import AssistantMessage
+from opensprite.cron.manager import CronManager
+from opensprite.cron.types import CronJob, CronSchedule
 
 
 class FakeAgent:
@@ -305,3 +307,135 @@ def test_reset_command_cancels_running_session_before_clearing_history():
 
     assert reset_calls == ["telegram:same-chat"]
     assert responses == [("telegram:same-chat", "已重置目前這段對話。 進行中的任務也已停止。")]
+
+
+def test_cron_command_lists_jobs_for_current_session(tmp_path):
+    class CronAgent(FakeAgent):
+        def __init__(self):
+            super().__init__()
+            self.cron_manager = None
+
+    async def on_job(session_chat_id: str, job: CronJob):
+        return "ok"
+
+    async def scenario():
+        agent = CronAgent()
+        agent.cron_manager = CronManager(workspace_root=tmp_path / "workspace", on_job=on_job)
+        service = await agent.cron_manager.get_or_create_service("telegram:same-chat")
+        service.add_job(
+            name="weather-check",
+            schedule=CronSchedule(kind="every", every_ms=300_000),
+            message="Check weather",
+            deliver=True,
+            channel="telegram",
+            chat_id="same-chat",
+        )
+
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, chat_id):
+            responses.append((message.session_chat_id, message.text))
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="/cron list", chat_id="same-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+            await agent.cron_manager.stop()
+
+        return responses
+
+    responses = asyncio.run(scenario())
+
+    assert len(responses) == 1
+    assert responses[0][0] == "telegram:same-chat"
+    assert "Scheduled jobs:" in responses[0][1]
+    assert "weather-check" in responses[0][1]
+
+
+def test_cron_command_removes_job_for_current_session(tmp_path):
+    class CronAgent(FakeAgent):
+        def __init__(self):
+            super().__init__()
+            self.cron_manager = None
+
+    async def on_job(session_chat_id: str, job: CronJob):
+        return "ok"
+
+    async def scenario():
+        agent = CronAgent()
+        agent.cron_manager = CronManager(workspace_root=tmp_path / "workspace", on_job=on_job)
+        service = await agent.cron_manager.get_or_create_service("telegram:same-chat")
+        job = service.add_job(
+            name="cleanup",
+            schedule=CronSchedule(kind="every", every_ms=60_000),
+            message="Cleanup",
+            deliver=True,
+            channel="telegram",
+            chat_id="same-chat",
+        )
+
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, chat_id):
+            responses.append((message.session_chat_id, message.text))
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content=f"/cron remove {job.id}", chat_id="same-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+            remaining = service.list_jobs(include_disabled=True)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+            await agent.cron_manager.stop()
+
+        return responses, remaining, job.id
+
+    responses, remaining, job_id = asyncio.run(scenario())
+
+    assert responses == [("telegram:same-chat", f"Removed job {job_id}")]
+    assert remaining == []
+
+
+def test_cron_command_help_is_immediate():
+    class CronAgent(FakeAgent):
+        def __init__(self):
+            super().__init__()
+            self.cron_manager = None
+
+    async def scenario():
+        queue = MessageQueue(CronAgent())
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, chat_id):
+            responses.append((message.session_chat_id, message.text))
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="/cron help", chat_id="same-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return responses
+
+    responses = asyncio.run(scenario())
+
+    assert len(responses) == 1
+    assert "/cron list" in responses[0][1]
+    assert "/cron remove <job_id>" in responses[0][1]
