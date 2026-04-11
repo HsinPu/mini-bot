@@ -81,7 +81,30 @@ def test_execution_engine_runs_tool_loop_and_persists_tool_result():
 
 
 def test_execution_engine_uses_empty_fallback_for_blank_visible_response():
-    provider = FakeProvider([LLMResponse(content="   ", model="fake-model")])
+    provider = FakeProvider(
+        [
+            LLMResponse(content="   ", model="fake-model"),
+            LLMResponse(content="retry ok", model="fake-model"),
+        ]
+    )
+    engine = _make_engine(provider, ToolRegistry(), [])
+
+    result = asyncio.run(
+        engine.execute_messages("chat-1", [ChatMessage(role="user", content="hi")], allow_tools=False)
+    )
+
+    assert result == "retry ok"
+    assert len(provider.calls) == 2
+    assert provider.calls[1]["messages"][-1].content == ExecutionEngine.EMPTY_RESPONSE_RETRY_MESSAGE
+
+
+def test_execution_engine_falls_back_after_second_blank_visible_response():
+    provider = FakeProvider(
+        [
+            LLMResponse(content="   ", model="fake-model"),
+            LLMResponse(content="", model="fake-model"),
+        ]
+    )
     engine = _make_engine(provider, ToolRegistry(), [])
 
     result = asyncio.run(
@@ -89,6 +112,7 @@ def test_execution_engine_uses_empty_fallback_for_blank_visible_response():
     )
 
     assert result == "EMPTY"
+    assert len(provider.calls) == 2
 
 
 def test_execution_engine_returns_max_iteration_message_when_tool_loop_never_finishes():

@@ -47,6 +47,11 @@ class ToolResultPersistence:
 class ExecutionEngine:
     """Run the LLM and tool-calling loop for prepared chat messages."""
 
+    EMPTY_RESPONSE_RETRY_MESSAGE = (
+        "Previous attempt produced no visible user-facing text. "
+        "Please answer again with a direct, displayable reply for the user."
+    )
+
     def __init__(
         self,
         *,
@@ -90,6 +95,7 @@ class ExecutionEngine:
             logger.info(f"[{log_id}] tools.enabled | names={', '.join(active_tools.tool_names)}")
 
         tool_results_history: list[str] = []
+        empty_response_retried = False
 
         for iteration in range(self.tools_config.max_tool_iterations):
             logger.info(
@@ -177,6 +183,17 @@ class ExecutionEngine:
                 continue
 
             if not response.content:
+                if not empty_response_retried:
+                    empty_response_retried = True
+                    logger.warning(f"[{log_id}] llm.empty-visible-response | retrying_once=true")
+                    chat_messages.append(
+                        ChatMessage(
+                            role="system",
+                            content=self.EMPTY_RESPONSE_RETRY_MESSAGE,
+                        )
+                    )
+                    continue
+
                 logger.warning(f"[{log_id}] llm.empty-visible-response | using_fallback=true")
                 return self.empty_response_fallback
 
