@@ -2,18 +2,25 @@ from pathlib import Path
 
 from ..context.runtime import build_runtime_context
 from ..llms import ChatMessage
+from ..skills import SkillsLoader
 from ..subagent_prompts import load_prompt
 
 
 class SubagentMessageBuilder:
     """Build prompt/messages for delegated subagent work."""
 
-    def __init__(self, prompt_loader=load_prompt):
+    def __init__(self, prompt_loader=load_prompt, skills_loader: SkillsLoader | None = None):
         self.prompt_loader = prompt_loader
+        self.skills_loader = skills_loader
 
     def build_system_prompt(self, prompt_type: str = "writer", workspace: str | Path | None = None) -> str:
         prompt_body = self.prompt_loader(prompt_type)
         runtime_context = build_runtime_context(workspace=workspace)
+        workspace_path = Path(workspace) if workspace is not None else None
+        skills_summary = ""
+        if self.skills_loader is not None:
+            personal_skills_dir = workspace_path / "skills" if workspace_path is not None else None
+            skills_summary = self.skills_loader.build_skills_summary(personal_skills_dir)
 
         sections = []
         if prompt_body:
@@ -35,6 +42,8 @@ class SubagentMessageBuilder:
                 "- 若資訊不足：列出需要補充的問題。"
             )
 
+        if skills_summary:
+            sections.extend(["", skills_summary])
         sections.extend(["", runtime_context])
         return "\n".join(sections).strip()
 

@@ -617,7 +617,9 @@ class AgentLoop:
         log_id = f"{parent_chat_id}:subagent:{prompt_type}"
         workspace = self._get_current_workspace()
 
-        subagent_builder = SubagentMessageBuilder()
+        subagent_builder = SubagentMessageBuilder(
+            skills_loader=getattr(self._context_builder, "skills_loader", None)
+        )
         chat_messages = subagent_builder.build_messages(task, prompt_type=prompt_type, workspace=workspace)
         self._log_prepared_messages(
             log_id,
