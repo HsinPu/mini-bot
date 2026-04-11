@@ -47,6 +47,7 @@ class ToolResultPersistence:
 class ExecutionEngine:
     """Run the LLM and tool-calling loop for prepared chat messages."""
 
+    REPEATED_TOOL_ERROR_LIMIT = 2
     EMPTY_RESPONSE_RETRY_MESSAGE = (
         "Previous attempt produced no visible user-facing text. "
         "Please answer again with a direct, displayable reply for the user."
@@ -78,6 +79,13 @@ class ExecutionEngine:
             search_store=search_store,
         )
 
+    @staticmethod
+    def _classify_tool_result(result: str) -> str | None:
+        """Classify tool-result errors that should trigger early stopping."""
+        if result.startswith("Error: Missing required argument"):
+            return result
+        return None
+
     async def execute_messages(
         self,
         log_id: str,
@@ -96,6 +104,8 @@ class ExecutionEngine:
 
         tool_results_history: list[str] = []
         empty_response_retried = False
+        repeated_tool_error_key: tuple[str, str] | None = None
+        repeated_tool_error_count = 0
 
         for iteration in range(self.tools_config.max_tool_iterations):
             logger.info(
@@ -165,6 +175,27 @@ class ExecutionEngine:
                     logger.info(
                         f"[{log_id}] tool.result | name={tool_name} preview={self.format_log_preview(result, max_chars=200)}"
                     )
+
+                    repeated_error_marker = self._classify_tool_result(result)
+                    if repeated_error_marker is not None:
+                        current_error_key = (tool_name, repeated_error_marker)
+                        if repeated_tool_error_key == current_error_key:
+                            repeated_tool_error_count += 1
+                        else:
+                            repeated_tool_error_key = current_error_key
+                            repeated_tool_error_count = 1
+
+                        if repeated_tool_error_count >= self.REPEATED_TOOL_ERROR_LIMIT:
+                            logger.warning(
+                                f"[{log_id}] tool.repeated-error | name={tool_name} count={repeated_tool_error_count} stopping_early=true"
+                            )
+                            return (
+                                "我重複嘗試呼叫工具，但仍然缺少必要參數而無法繼續。"
+                                f"最新錯誤：{result}"
+                            )
+                    else:
+                        repeated_tool_error_key = None
+                        repeated_tool_error_count = 0
 
                     tool_results_history.append(f"{tool_name}: {result[:200]}")
                     chat_messages.append(ChatMessage(

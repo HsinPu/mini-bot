@@ -135,3 +135,50 @@ def test_execution_engine_returns_max_iteration_message_when_tool_loop_never_fin
 
     assert "超過了最大迭代次數（1次）" in result
     assert "demo_tool: tool:abc" in result
+
+
+def test_execution_engine_stops_after_repeated_missing_required_tool_errors():
+    class MissingArgsTool(Tool):
+        @property
+        def name(self) -> str:
+            return "write_file"
+
+        @property
+        def description(self) -> str:
+            return "write_file"
+
+        @property
+        def parameters(self) -> dict:
+            return {"type": "object", "properties": {}}
+
+        async def execute(self, **kwargs) -> str:
+            return (
+                "Error: Missing required argument(s) for write_file: path, content. "
+                "Call write_file with both 'path' and 'content'."
+            )
+
+    registry = ToolRegistry()
+    registry.register(MissingArgsTool())
+    provider = FakeProvider(
+        [
+            LLMResponse(
+                content="",
+                model="fake-model",
+                tool_calls=[ToolCall(id="tc1", name="write_file", arguments={})],
+            ),
+            LLMResponse(
+                content="",
+                model="fake-model",
+                tool_calls=[ToolCall(id="tc2", name="write_file", arguments={})],
+            ),
+        ]
+    )
+    engine = _make_engine(provider, registry, [], tools_config=ToolsConfig(max_tool_iterations=10))
+
+    result = asyncio.run(
+        engine.execute_messages("chat-1", [ChatMessage(role="user", content="hi")], allow_tools=True)
+    )
+
+    assert "我重複嘗試呼叫工具，但仍然缺少必要參數而無法繼續。" in result
+    assert "Missing required argument(s) for write_file" in result
+    assert len(provider.calls) == 2
