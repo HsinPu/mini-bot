@@ -85,6 +85,8 @@ class AgentLoop:
     def _get_system_prompt_log_path(self, log_id: str) -> Path:
         """Return a unique file path for one full system prompt log entry."""
         logs_root = (self.app_home or Path.home() / ".opensprite") / "logs" / "system-prompts"
+        if ":subagent:" in log_id:
+            logs_root = logs_root / "subagents"
         dated_root = logs_root / time.strftime("%Y-%m-%d")
         dated_root.mkdir(parents=True, exist_ok=True)
         timestamp = time.strftime("%H-%M-%S")

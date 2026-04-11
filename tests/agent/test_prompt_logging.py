@@ -96,3 +96,30 @@ def test_system_prompt_logging_writes_one_file_per_prompt(tmp_path):
     assert len(log_files) == 2
     assert all("telegram-user-a" in file.name for file in log_files)
     assert log_files[0].read_text(encoding="utf-8") != log_files[1].read_text(encoding="utf-8")
+
+
+def test_subagent_system_prompt_logging_uses_separate_directory(tmp_path):
+    registry = ToolRegistry()
+    registry.register(DummyTool())
+    agent = AgentLoop(
+        config=AgentConfig(),
+        provider=FakeProvider(),
+        storage=FakeStorage(),
+        context_builder=FakeContextBuilder(tmp_path / "workspace"),
+        tools=registry,
+        memory_config=MemoryConfig(),
+        tools_config=ToolsConfig(),
+        log_config=LogConfig(),
+        search_config=SearchConfig(),
+        user_profile_config=UserProfileConfig(enabled=False),
+    )
+    agent.app_home = tmp_path / "home"
+
+    agent._write_full_system_prompt_log("telegram:user-a:subagent:implementer", "subagent prompt")
+
+    subagent_root = agent.app_home / "logs" / "system-prompts" / "subagents"
+    dated_dirs = list(subagent_root.iterdir())
+    assert len(dated_dirs) == 1
+    log_files = list(dated_dirs[0].glob("*.md"))
+    assert len(log_files) == 1
+    assert "subagent" in log_files[0].name
