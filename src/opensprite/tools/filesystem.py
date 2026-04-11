@@ -69,7 +69,10 @@ class ReadFileTool(Tool):
 
     @property
     def description(self) -> str:
-        return "Read the contents of a file from the filesystem."
+        return (
+            "Read the contents of one file inside the current workspace. "
+            "Always provide a non-empty 'path'. Use read_skill instead of reading SKILL.md files directly when possible."
+        )
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -78,7 +81,7 @@ class ReadFileTool(Tool):
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "The file path to read"
+                    "description": "Required. File path to read, relative to the current workspace unless already absolute inside it."
                 }
             },
             "required": ["path"]
@@ -137,7 +140,10 @@ class WriteFileTool(Tool):
 
     @property
     def description(self) -> str:
-        return "Write content to a file. Creates the file if it doesn't exist."
+        return (
+            "Write content to one file inside the current workspace. "
+            "Always provide both 'path' and 'content'. Creates parent directories and the file if needed."
+        )
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -146,11 +152,11 @@ class WriteFileTool(Tool):
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "The file path to write to"
+                    "description": "Required. Target file path inside the current workspace."
                 },
                 "content": {
                     "type": "string",
-                    "description": "The content to write"
+                    "description": "Required. Complete file contents to write at the target path."
                 }
             },
             "required": ["path", "content"]
@@ -257,16 +263,19 @@ class EditFileTool(Tool):
 
     @property
     def description(self) -> str:
-        return "Edit a file by replacing old_text with new_text. The old_text must exist exactly in the file."
+        return (
+            "Edit one file inside the current workspace by replacing 'old_text' with 'new_text'. "
+            "Always provide 'path', 'old_text', and 'new_text'. The old_text must match existing file content exactly."
+        )
 
     @property
     def parameters(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "The file path to edit"},
-                "old_text": {"type": "string", "description": "The exact text to find and replace"},
-                "new_text": {"type": "string", "description": "The text to replace with"},
+                "path": {"type": "string", "description": "Required. Target file path inside the current workspace."},
+                "old_text": {"type": "string", "description": "Required. Exact existing text to replace. It must appear exactly once or the tool will refuse the edit."},
+                "new_text": {"type": "string", "description": "Required. Replacement text for the matching old_text."},
             },
             "required": ["path", "old_text", "new_text"],
         }

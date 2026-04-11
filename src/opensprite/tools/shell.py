@@ -69,7 +69,10 @@ class ExecTool(Tool):
 
     @property
     def description(self) -> str:
-        return "Execute a shell command and return its output."
+        return (
+            "Execute one shell command inside the current workspace and return its output. "
+            "Always provide a non-empty 'command' string containing the full command to run."
+        )
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -78,7 +81,7 @@ class ExecTool(Tool):
             "properties": {
                 "command": {
                     "type": "string",
-                    "description": "The shell command to execute"
+                    "description": "Required. Full shell command to execute inside the current workspace."
                 }
             },
             "required": ["command"]

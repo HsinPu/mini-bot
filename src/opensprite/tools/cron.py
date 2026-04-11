@@ -34,7 +34,8 @@ class CronTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "Schedule reminders and recurring tasks. Actions: add, list, remove. "
+            "Manage scheduled reminders and recurring tasks for the current session. "
+            "Actions: add, list, remove, pause, enable, run. "
             f"If tz is omitted, cron expressions and naive ISO times default to {self._default_timezone}."
         )
 
@@ -45,42 +46,42 @@ class CronTool(Tool):
             "properties": {
                 "action": {
                     "type": "string",
-                    "description": "Action to perform",
-                    "enum": ["add", "list", "remove"],
+                    "description": "Required. Action to perform on the current session schedule.",
+                    "enum": ["add", "list", "remove", "pause", "enable", "run"],
                 },
                 "name": {
                     "type": "string",
-                    "description": "Optional short label for the scheduled job",
+                    "description": "Optional short label for the scheduled job created by add.",
                 },
                 "message": {
                     "type": "string",
-                    "description": "Instruction for the agent to execute when the job triggers",
+                    "description": "Required for add. Instruction the future agent run should execute when the job triggers.",
                 },
                 "every_seconds": {
                     "type": "integer",
                     "minimum": 1,
-                    "description": "Interval in seconds for recurring tasks",
+                    "description": "For add. Use this for fixed recurring intervals in seconds. Provide exactly one of every_seconds, cron_expr, or at.",
                 },
                 "cron_expr": {
                     "type": "string",
-                    "description": "Cron expression like '0 9 * * *'",
+                    "description": "For add. Cron expression like '0 9 * * *'. Provide exactly one of every_seconds, cron_expr, or at.",
                 },
                 "tz": {
                     "type": "string",
-                    "description": "Optional IANA timezone for cron expressions",
+                    "description": "Optional IANA timezone for cron_expr. Ignored for other schedule types.",
                 },
                 "at": {
                     "type": "string",
-                    "description": "ISO datetime for one-time execution, e.g. 2026-02-12T10:30:00",
+                    "description": "For add. ISO datetime for one-time execution, e.g. 2026-02-12T10:30:00. Provide exactly one of every_seconds, cron_expr, or at.",
                 },
                 "deliver": {
                     "type": "boolean",
-                    "description": "Whether to deliver the execution result back to the current channel",
+                    "description": "For add. Whether to send the future execution result back to the current chat.",
                     "default": True,
                 },
                 "job_id": {
                     "type": "string",
-                    "description": "Job ID for remove",
+                    "description": "Required for remove, pause, enable, and run. Target scheduled job ID.",
                 },
             },
             "required": ["action"],
@@ -105,6 +106,12 @@ class CronTool(Tool):
             return await self._list_jobs()
         if action == "remove":
             return await self._remove_job(job_id)
+        if action == "pause":
+            return await self._pause_job(job_id)
+        if action == "enable":
+            return await self._enable_job(job_id)
+        if action == "run":
+            return await self._run_job(job_id)
         return f"Unknown action: {action}"
 
     async def _get_service(self):
@@ -197,6 +204,33 @@ class CronTool(Tool):
             return error
         assert service is not None
         return f"Removed job {job_id}" if service.remove_job(job_id) else f"Job {job_id} not found"
+
+    async def _pause_job(self, job_id: str | None) -> str:
+        if not job_id:
+            return "Error: job_id is required for pause"
+        service, error = await self._get_service()
+        if error:
+            return error
+        assert service is not None
+        return f"Paused job {job_id}" if service.pause_job(job_id) else f"Job {job_id} not found or already paused"
+
+    async def _enable_job(self, job_id: str | None) -> str:
+        if not job_id:
+            return "Error: job_id is required for enable"
+        service, error = await self._get_service()
+        if error:
+            return error
+        assert service is not None
+        return f"Enabled job {job_id}" if service.enable_job(job_id) else f"Job {job_id} not found or already enabled"
+
+    async def _run_job(self, job_id: str | None) -> str:
+        if not job_id:
+            return "Error: job_id is required for run"
+        service, error = await self._get_service()
+        if error:
+            return error
+        assert service is not None
+        return f"Ran job {job_id}" if await service.run_job(job_id) else f"Job {job_id} not found"
 
     @staticmethod
     def _format_timestamp(ms: int, tz_name: str) -> str:
