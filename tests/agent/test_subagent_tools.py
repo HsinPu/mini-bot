@@ -93,6 +93,7 @@ def test_subagent_can_use_tools_but_not_delegate(tmp_path):
     registry = ToolRegistry()
     registry.register(DummyTool("demo_tool"))
     registry.register(DummyTool("delegate"))
+    registry.register(DummyTool("cron"))
     agent = AgentLoop(
         config=AgentConfig(),
         provider=provider,
@@ -114,4 +115,5 @@ def test_subagent_can_use_tools_but_not_delegate(tmp_path):
     tool_names = [tool["function"]["name"] for tool in provider.calls[0]["tools"]]
     assert "demo_tool" in tool_names
     assert "delegate" not in tool_names
+    assert "cron" not in tool_names
     assert storage.saved == [("telegram:user-a", "tool", "tool:abc", "demo_tool")]

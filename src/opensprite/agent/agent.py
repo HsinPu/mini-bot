@@ -507,7 +507,7 @@ class AgentLoop:
 
     def _build_subagent_tools(self) -> ToolRegistry:
         """Build the tool registry exposed to subagents."""
-        return self.tools.filtered(exclude_names={"delegate"})
+        return self.tools.filtered(exclude_names={"delegate", "cron"})
 
     async def call_llm(
         self,
