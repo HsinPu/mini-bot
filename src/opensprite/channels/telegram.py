@@ -251,6 +251,17 @@ class TelegramAdapter(MessageAdapter):
         if message.photo:
             images = await self._download_images(message.photo, raw_update.bot)
 
+        # 處理音訊 / 語音
+        audios = []
+        if message.voice:
+            audio = await self._download_audio(message.voice, raw_update.bot, default_mime_type="audio/ogg")
+            if audio:
+                audios.append(audio)
+        if message.audio:
+            audio = await self._download_audio(message.audio, raw_update.bot, default_mime_type="audio/mpeg")
+            if audio:
+                audios.append(audio)
+
         metadata = {
             "update_id": raw_update.update_id,
             "message_id": message.message_id,
@@ -266,6 +277,7 @@ class TelegramAdapter(MessageAdapter):
             sender_id=sender_id,
             sender_name=sender_name,
             images=images if images else None,
+            audios=audios if audios else None,
             metadata=metadata,
             raw=raw_update
         )
@@ -308,6 +320,20 @@ class TelegramAdapter(MessageAdapter):
             logger.warning(f"下載圖片失敗: {e}")
         
         return images
+
+    async def _download_audio(self, audio_obj, bot, default_mime_type: str) -> str | None:
+        """Download one Telegram audio-like object and return a base64 data URL."""
+        import base64
+
+        try:
+            file = await bot.get_file(audio_obj.file_id)
+            file_content = await file.download_as_bytearray()
+            b64 = base64.b64encode(bytes(file_content)).decode("utf-8")
+            mime_type = getattr(audio_obj, "mime_type", None) or default_mime_type
+            return f"data:{mime_type};base64,{b64}"
+        except Exception as e:
+            logger.warning(f"下載音訊失敗: {e}")
+            return None
     
     async def send(self, message: AssistantMessage) -> None:
         """
@@ -597,7 +623,7 @@ class TelegramAdapter(MessageAdapter):
             user_msg = await self.to_user_message(update)
             
             # 檢查是否是空訊息
-            if not user_msg.text and not user_msg.images:
+            if not user_msg.text and not user_msg.images and not user_msg.audios:
                 return
             
             if self.mq:

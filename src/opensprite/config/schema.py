@@ -95,6 +95,16 @@ class VisionConfig(BaseModel):
     base_url: str | None = None
 
 
+class SpeechConfig(BaseModel):
+    """Speech-to-text provider configuration."""
+
+    enabled: bool = False
+    provider: str = "openai"
+    api_key: str = ""
+    model: str = ""
+    base_url: str | None = None
+
+
 class ToolsConfig(BaseModel):
     """Tool configurations."""
     max_tool_iterations: int = 100
@@ -133,7 +143,8 @@ class Config:
     def __init__(self, llm: LLMsConfig, agent: AgentConfig, storage: StorageConfig,
                  channels: ChannelsConfig, log: LogConfig | None = None, tools: ToolsConfig | None = None,
                  memory: MemoryConfig | None = None, search: SearchConfig | None = None,
-                 user_profile: UserProfileConfig | None = None, vision: VisionConfig | None = None):
+                 user_profile: UserProfileConfig | None = None, vision: VisionConfig | None = None,
+                 speech: SpeechConfig | None = None):
         self.llm = llm
         self.agent = agent
         self.storage = storage
@@ -144,6 +155,7 @@ class Config:
         self.search = search or SearchConfig()
         self.user_profile = user_profile or UserProfileConfig()
         self.vision = vision or VisionConfig()
+        self.speech = speech or SpeechConfig()
 
     @classmethod
     def from_json(cls, path: str | Path) -> "Config":
@@ -168,6 +180,7 @@ class Config:
             search=SearchConfig(**data.get("search", {})) if "search" in data else None,
             user_profile=UserProfileConfig(**data.get("user_profile", {})) if "user_profile" in data else None,
             vision=VisionConfig(**data.get("vision", {})) if "vision" in data else None,
+            speech=SpeechConfig(**data.get("speech", {})) if "speech" in data else None,
         )
 
     @classmethod
@@ -266,6 +279,13 @@ class Config:
                 "api_key": self.vision.api_key,
                 "model": self.vision.model,
                 "base_url": self.vision.base_url,
+            },
+            "speech": {
+                "enabled": self.speech.enabled,
+                "provider": self.speech.provider,
+                "api_key": self.speech.api_key,
+                "model": self.speech.model,
+                "base_url": self.speech.base_url,
             },
         }
         with open(path, "w", encoding="utf-8") as f:

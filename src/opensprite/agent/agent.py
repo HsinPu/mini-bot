@@ -199,6 +199,7 @@ class AgentLoop:
         self.provider = provider
         self._current_chat_id: ContextVar[str | None] = ContextVar("current_chat_id", default=None)
         self._current_images: ContextVar[list[str] | None] = ContextVar("current_images", default=None)
+        self._current_audios: ContextVar[list[str] | None] = ContextVar("current_audios", default=None)
         self.app_home: Path | None = None
         self.tool_workspace: Path | None = None
         self._mcp_servers = dict(self.tools_config.mcp_servers)
@@ -390,6 +391,7 @@ class AgentLoop:
             cron_manager=self.cron_manager,
             media_router=self.media_router,
             get_current_images=self._get_current_images,
+            get_current_audios=self._get_current_audios,
         )
         
         logger.info(f"agent.init | tools={', '.join(self.tools.tool_names)}")
@@ -519,14 +521,29 @@ class AgentLoop:
         """Return images attached to the current active turn."""
         return self._current_images.get()
 
+    def _get_current_audios(self) -> list[str] | None:
+        """Return audios attached to the current active turn."""
+        return self._current_audios.get()
+
     @staticmethod
-    def _augment_message_for_images(current_message: str, user_images: list[str] | None) -> str:
-        """Add a lightweight prompt hint when the current turn includes images."""
-        if not user_images:
+    def _augment_message_for_media(
+        current_message: str,
+        user_images: list[str] | None,
+        user_audios: list[str] | None,
+    ) -> str:
+        """Add lightweight prompt hints when the current turn includes media."""
+        hints: list[str] = []
+        if user_images:
+            hints.append(
+                f"User attached {len(user_images)} image(s). Use analyze_image or ocr_image if visual understanding is needed."
+            )
+        if user_audios:
+            hints.append(
+                f"User attached {len(user_audios)} audio clip(s). Use transcribe_audio if spoken content is needed."
+            )
+        if not hints:
             return current_message
-        count = len(user_images)
-        suffix = f"\n\n[User attached {count} image(s). Use analyze_image if visual understanding is needed.]"
-        return f"{current_message}{suffix}"
+        return f"{current_message}\n\n[{ ' '.join(hints) }]"
 
     async def call_llm(
         self,
@@ -599,7 +616,8 @@ class AgentLoop:
         logger.info(
             f"[{chat_id}] prompt.build | history={len(history_dicts)} channel={channel or '-'} images={len(user_images or [])}"
         )
-        prompt_message = self._augment_message_for_images(current_message, user_images)
+        current_audios = self._get_current_audios()
+        prompt_message = self._augment_message_for_media(current_message, user_images, current_audios)
         full_messages = self._context_builder.build_messages(
             history=history_dicts,
             current_message=prompt_message,
@@ -691,11 +709,13 @@ class AgentLoop:
             "sender_id": user_message.sender_id,
             "sender_name": user_message.sender_name,
             "images_count": len(user_message.images or []),
+            "audios_count": len(user_message.audios or []),
         }
         user_metadata = {key: value for key, value in user_metadata.items() if value is not None}
 
         token = self._current_chat_id.set(session_chat_id)
         images_token = self._current_images.set(list(user_message.images or []))
+        audios_token = self._current_audios.set(list(user_message.audios or []))
         try:
             await self.connect_mcp()
 
@@ -743,6 +763,7 @@ class AgentLoop:
             )
             raise
         finally:
+            self._current_audios.reset(audios_token)
             self._current_images.reset(images_token)
             self._current_chat_id.reset(token)
 

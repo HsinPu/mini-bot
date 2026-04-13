@@ -465,6 +465,7 @@ class MessageQueue:
             session_chat_id=session_chat_id,
             content=user_message.text,
             images=list(user_message.images or []),
+            audios=list(user_message.audios or []),
             metadata=metadata,
             raw=user_message.raw,
         )
@@ -478,6 +479,7 @@ class MessageQueue:
         sender_id: str = "user",
         sender_name: str | None = None,
         images: list[str] | None = None,
+        audios: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         raw: Any = None,
         session_chat_id: str | None = None,
@@ -501,6 +503,7 @@ class MessageQueue:
                 sender_id=sender_id,
                 sender_name=sender_name,
                 images=images,
+                audios=audios,
                 metadata=dict(metadata or {}),
                 raw=raw,
             )
@@ -529,6 +532,7 @@ class MessageQueue:
                 sender_id=inbound.sender_id,
                 sender_name=inbound.sender_name,
                 images=inbound.images or None,
+                audios=inbound.audios or None,
                 metadata=dict(inbound.metadata),
                 raw=inbound.raw,
             )

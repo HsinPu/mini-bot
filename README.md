@@ -355,6 +355,40 @@ The current minimal image toolset is intentionally narrow:
 - it does not yet cover audio or video-specific media tools
 - it is designed so future media tools can follow the same tool + provider-adapter pattern
 
+## Audio
+
+OpenSprite now includes a minimal audio path built around the `transcribe_audio` tool.
+
+Telegram voice messages and audio attachments are downloaded into the current turn, but they are not forced into the normal text-model chat call. Instead, the agent sees that the turn contains audio and decides whether to call `transcribe_audio`.
+
+Minimal speech config:
+
+```json
+{
+  "speech": {
+    "enabled": true,
+    "provider": "openai",
+    "api_key": "YOUR_SPEECH_API_KEY",
+    "model": "gpt-4o-mini-transcribe",
+    "base_url": "https://api.openai.com/v1"
+  }
+}
+```
+
+If `speech.enabled` is false, the `transcribe_audio` tool still exists, but it returns a clear error explaining that no speech provider is configured.
+
+Typical uses for `transcribe_audio`:
+
+- transcribe a Telegram voice note into plain text
+- extract spoken content before summarizing or planning next steps
+- capture audio notes before feeding them into normal text reasoning
+
+The current minimal audio tool is intentionally narrow:
+
+- it focuses on speech-to-text only
+- it does not yet add audio understanding beyond transcription
+- it follows the same tool + provider-adapter pattern as image analysis
+
 ## Scheduling
 
 OpenSprite includes a per-session `cron` tool for scheduling future agent work.

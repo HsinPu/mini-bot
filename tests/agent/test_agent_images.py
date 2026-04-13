@@ -84,4 +84,44 @@ def test_call_llm_replaces_direct_image_payload_with_tool_hint(tmp_path):
     )
 
     assert result == "ok"
-    assert "User attached 1 image(s). Use analyze_image if visual understanding is needed." in captured["content"]
+    assert "User attached 1 image(s). Use analyze_image or ocr_image if visual understanding is needed." in captured["content"]
+
+
+def test_call_llm_adds_audio_tool_hint_to_prompt(tmp_path):
+    registry = ToolRegistry()
+    registry.register(DummyTool())
+    agent = AgentLoop(
+        config=AgentConfig(),
+        provider=FakeProvider(),
+        storage=None,
+        context_builder=FakeContextBuilder(tmp_path / "workspace"),
+        tools=registry,
+        memory_config=MemoryConfig(),
+        tools_config=ToolsConfig(),
+        log_config=LogConfig(),
+        search_config=SearchConfig(),
+        user_profile_config=UserProfileConfig(enabled=False),
+    )
+
+    captured = {}
+
+    async def fake_execute(log_id, chat_messages, *, allow_tools, tool_result_chat_id=None, tool_registry=None):
+        captured["content"] = chat_messages[0].content
+        return "ok"
+
+    agent._execute_messages = fake_execute  # type: ignore[method-assign]
+    audio_token = agent._current_audios.set(["aud-a"])
+    try:
+        result = asyncio.run(
+            agent.call_llm(
+                "telegram:user-a",
+                current_message="What did this person say?",
+                channel="telegram",
+                user_images=None,
+            )
+        )
+    finally:
+        agent._current_audios.reset(audio_token)
+
+    assert result == "ok"
+    assert "User attached 1 audio clip(s). Use transcribe_audio if spoken content is needed." in captured["content"]

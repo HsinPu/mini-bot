@@ -90,6 +90,13 @@
     "model": "",
     "base_url": null
   },
+  "speech": {
+    "enabled": false,
+    "provider": "openai",
+    "api_key": "",
+    "model": "",
+    "base_url": null
+  },
   "search": {
     "enabled": false,
     "provider": "lancedb",

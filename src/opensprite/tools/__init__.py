@@ -2,6 +2,7 @@
 
 from .base import Tool
 from .registry import ToolRegistry
+from .audio import TranscribeAudioTool
 from .filesystem import ReadFileTool, WriteFileTool, ListDirTool, EditFileTool
 from .skill import ReadSkillTool
 from .shell import ExecTool
@@ -15,6 +16,7 @@ from .image import AnalyzeImageTool, OCRImageTool
 __all__ = [
     "Tool",
     "ToolRegistry",
+    "TranscribeAudioTool",
     "ReadFileTool",
     "WriteFileTool",
     "ListDirTool",

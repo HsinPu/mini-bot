@@ -64,6 +64,15 @@ This file defines when to use tools, how to choose between them, and what constr
   - Use `image_index` when multiple images are attached.
   - Add an optional `instruction` only when you need OCR to focus on a specific section or formatting need.
 
+## Audio Tool
+
+- `transcribe_audio`
+  - Use when the current user turn includes voice or audio and the main need is the spoken content.
+  - Prefer this for voice messages, recorded notes, or audio clips that should be turned into text before reasoning further.
+  - Use `audio_index` when multiple audio clips are attached.
+  - Add `language` only when a language hint is actually helpful.
+  - If the user asks for summary, action items, or analysis of the audio, transcribe it first and then continue from the transcript.
+
 ## Skill Tool
 
 - `read_skill`
