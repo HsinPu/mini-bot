@@ -7,6 +7,7 @@ This file defines when to use tools, how to choose between them, and what constr
 
 - Prefer using a tool over guessing when the tool can answer the question directly.
 - Prefer the narrowest tool that fits the job.
+- Before non-trivial tool use, check whether a relevant skill exists. If it does, read the skill first so you can follow its workflow before using other tools.
 - Stay within the active workspace unless the user clearly asks for something external.
 - Some tools are optional and only appear when enabled at runtime.
 
@@ -87,6 +88,7 @@ This file defines when to use tools, how to choose between them, and what constr
 - `read_skill`
   - Use when a specialized skill is relevant to the task.
   - Read the skill before following its workflow or conventions.
+  - When a relevant skill exists for coding, editing, research, or multi-step work, load it before using other non-trivial tools.
 
 ## Memory And Retrieval Tools
 

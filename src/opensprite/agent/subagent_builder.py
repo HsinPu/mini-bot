@@ -43,7 +43,12 @@ class SubagentMessageBuilder:
             )
 
         if skills_summary:
-            sections.extend(["", skills_summary])
+            sections.extend([
+                "",
+                "If a listed skill is relevant, read it before using other non-trivial tools so you can follow its workflow first.",
+                "",
+                skills_summary,
+            ])
         sections.extend(["", runtime_context])
         return "\n".join(sections).strip()
 

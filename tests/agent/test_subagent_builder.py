@@ -24,6 +24,7 @@ def test_subagent_builder_includes_skill_summary_for_workspace(tmp_path):
     builder = SubagentMessageBuilder(skills_loader=SkillsLoader(default_skills_dir=global_dir))
     prompt = builder.build_system_prompt(prompt_type="implementer", workspace=workspace)
 
+    assert "If a listed skill is relevant, read it before using other non-trivial tools" in prompt
     assert "Available skills (use read_skill tool to read instructions):" in prompt
     assert "chat-skill: chat description" in prompt
     assert "global-skill: global description" in prompt
