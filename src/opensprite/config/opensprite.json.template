@@ -74,22 +74,26 @@
     },
     "mcp_servers": {}
   },
+  "agent": {
+    "max_history": 300,
+    "history_token_budget": 140000
+  },
   "memory": {
-    "max_history": 150,
-    "threshold": 30,
-    "token_threshold": 100000
+    "max_history": 300,
+    "threshold": 50,
+    "token_threshold": 120000
   },
   "user_profile": {
     "enabled": true,
-    "threshold": 30,
-    "lookback_messages": 50
+    "threshold": 40,
+    "lookback_messages": 80
   },
   "recent_summary": {
     "enabled": true,
-    "threshold": 12,
-    "token_threshold": 12000,
-    "lookback_messages": 80,
-    "keep_last_messages": 20
+    "threshold": 20,
+    "token_threshold": 30000,
+    "lookback_messages": 120,
+    "keep_last_messages": 40
   },
   "vision": {
     "enabled": false,

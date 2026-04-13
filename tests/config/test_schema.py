@@ -93,4 +93,4 @@ def test_config_load_defaults_agent_when_section_missing(tmp_path):
     config = Config.from_json(path)
 
     assert config.agent is not None
-    assert config.agent.history_token_budget == 80000
+    assert config.agent.history_token_budget == 140000

@@ -35,8 +35,8 @@ class LLMsConfig(BaseModel):
 class AgentConfig(BaseModel):
     """Agent configuration."""
     
-    max_history: int = 150
-    history_token_budget: int = 80000
+    max_history: int = 300
+    history_token_budget: int = 140000
 
 
 class StorageConfig(BaseModel):
@@ -152,27 +152,27 @@ class ToolsConfig(BaseModel):
 
 class MemoryConfig(BaseModel):
     """Memory configurations."""
-    max_history: int = 150
-    threshold: int = 30  # Trigger consolidation after this many messages
-    token_threshold: int = 100000
+    max_history: int = 300
+    threshold: int = 50  # Trigger consolidation after this many messages
+    token_threshold: int = 120000
 
 
 class UserProfileConfig(BaseModel):
     """Global USER.md profile update configuration."""
 
     enabled: bool = True
-    threshold: int = 30
-    lookback_messages: int = 50
+    threshold: int = 40
+    lookback_messages: int = 80
 
 
 class RecentSummaryConfig(BaseModel):
     """Per-chat RECENT_SUMMARY.md update configuration."""
 
     enabled: bool = True
-    threshold: int = 12
-    token_threshold: int = 12000
-    lookback_messages: int = 80
-    keep_last_messages: int = 20
+    threshold: int = 20
+    token_threshold: int = 30000
+    lookback_messages: int = 120
+    keep_last_messages: int = 40
 
 
 class SearchConfig(BaseModel):
