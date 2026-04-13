@@ -16,6 +16,7 @@ from .schema import (
     UserProfileConfig,
     VisionConfig,
     SpeechConfig,
+    VideoConfig,
 )
 
 __all__ = [
@@ -32,4 +33,5 @@ __all__ = [
     "UserProfileConfig",
     "VisionConfig",
     "SpeechConfig",
+    "VideoConfig",
 ]

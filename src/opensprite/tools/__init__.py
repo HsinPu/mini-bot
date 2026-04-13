@@ -3,6 +3,7 @@
 from .base import Tool
 from .registry import ToolRegistry
 from .audio import TranscribeAudioTool
+from .video import AnalyzeVideoTool
 from .filesystem import ReadFileTool, WriteFileTool, ListDirTool, EditFileTool
 from .skill import ReadSkillTool
 from .shell import ExecTool
@@ -17,6 +18,7 @@ __all__ = [
     "Tool",
     "ToolRegistry",
     "TranscribeAudioTool",
+    "AnalyzeVideoTool",
     "ReadFileTool",
     "WriteFileTool",
     "ListDirTool",

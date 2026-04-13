@@ -105,6 +105,16 @@ class SpeechConfig(BaseModel):
     base_url: str | None = None
 
 
+class VideoConfig(BaseModel):
+    """Video analysis provider configuration."""
+
+    enabled: bool = False
+    provider: str = "minimax"
+    api_key: str = ""
+    model: str = ""
+    base_url: str | None = None
+
+
 class ToolsConfig(BaseModel):
     """Tool configurations."""
     max_tool_iterations: int = 100
@@ -144,7 +154,7 @@ class Config:
                  channels: ChannelsConfig, log: LogConfig | None = None, tools: ToolsConfig | None = None,
                  memory: MemoryConfig | None = None, search: SearchConfig | None = None,
                  user_profile: UserProfileConfig | None = None, vision: VisionConfig | None = None,
-                 speech: SpeechConfig | None = None):
+                 speech: SpeechConfig | None = None, video: VideoConfig | None = None):
         self.llm = llm
         self.agent = agent
         self.storage = storage
@@ -156,6 +166,7 @@ class Config:
         self.user_profile = user_profile or UserProfileConfig()
         self.vision = vision or VisionConfig()
         self.speech = speech or SpeechConfig()
+        self.video = video or VideoConfig()
 
     @classmethod
     def from_json(cls, path: str | Path) -> "Config":
@@ -181,6 +192,7 @@ class Config:
             user_profile=UserProfileConfig(**data.get("user_profile", {})) if "user_profile" in data else None,
             vision=VisionConfig(**data.get("vision", {})) if "vision" in data else None,
             speech=SpeechConfig(**data.get("speech", {})) if "speech" in data else None,
+            video=VideoConfig(**data.get("video", {})) if "video" in data else None,
         )
 
     @classmethod
@@ -286,6 +298,13 @@ class Config:
                 "api_key": self.speech.api_key,
                 "model": self.speech.model,
                 "base_url": self.speech.base_url,
+            },
+            "video": {
+                "enabled": self.video.enabled,
+                "provider": self.video.provider,
+                "api_key": self.video.api_key,
+                "model": self.video.model,
+                "base_url": self.video.base_url,
             },
         }
         with open(path, "w", encoding="utf-8") as f:

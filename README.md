@@ -389,6 +389,40 @@ The current minimal audio tool is intentionally narrow:
 - it does not yet add audio understanding beyond transcription
 - it follows the same tool + provider-adapter pattern as image analysis
 
+## Video
+
+OpenSprite now includes a minimal video path built around the `analyze_video` tool.
+
+Telegram video messages, video notes, and animations are downloaded into the current turn, but they are not forced into the normal text-model chat call. Instead, the agent sees that the turn contains video and decides whether to call `analyze_video`.
+
+Minimal video config:
+
+```json
+{
+  "video": {
+    "enabled": true,
+    "provider": "minimax",
+    "api_key": "YOUR_VIDEO_API_KEY",
+    "model": "YOUR_MINIMAX_VIDEO_MODEL",
+    "base_url": "YOUR_MINIMAX_BASE_URL"
+  }
+}
+```
+
+If `video.enabled` is false, the `analyze_video` tool still exists, but it returns a clear error explaining that no video provider is configured.
+
+Typical uses for `analyze_video`:
+
+- inspect what happens in a short clip or screen recording
+- analyze a motion sequence or a visual step-by-step process
+- understand a video turn before deciding whether more detailed follow-up is needed
+
+The current minimal video tool is intentionally narrow:
+
+- it defines the video-analysis tool path and provider boundary
+- it does not yet add richer video-specific parsing or timeline segmentation
+- it follows the same tool + provider-adapter pattern as image and audio
+
 ## Scheduling
 
 OpenSprite includes a per-session `cron` tool for scheduling future agent work.

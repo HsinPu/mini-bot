@@ -200,6 +200,7 @@ class AgentLoop:
         self._current_chat_id: ContextVar[str | None] = ContextVar("current_chat_id", default=None)
         self._current_images: ContextVar[list[str] | None] = ContextVar("current_images", default=None)
         self._current_audios: ContextVar[list[str] | None] = ContextVar("current_audios", default=None)
+        self._current_videos: ContextVar[list[str] | None] = ContextVar("current_videos", default=None)
         self.app_home: Path | None = None
         self.tool_workspace: Path | None = None
         self._mcp_servers = dict(self.tools_config.mcp_servers)
@@ -392,6 +393,7 @@ class AgentLoop:
             media_router=self.media_router,
             get_current_images=self._get_current_images,
             get_current_audios=self._get_current_audios,
+            get_current_videos=self._get_current_videos,
         )
         
         logger.info(f"agent.init | tools={', '.join(self.tools.tool_names)}")
@@ -525,11 +527,16 @@ class AgentLoop:
         """Return audios attached to the current active turn."""
         return self._current_audios.get()
 
+    def _get_current_videos(self) -> list[str] | None:
+        """Return videos attached to the current active turn."""
+        return self._current_videos.get()
+
     @staticmethod
     def _augment_message_for_media(
         current_message: str,
         user_images: list[str] | None,
         user_audios: list[str] | None,
+        user_videos: list[str] | None,
     ) -> str:
         """Add lightweight prompt hints when the current turn includes media."""
         hints: list[str] = []
@@ -540,6 +547,10 @@ class AgentLoop:
         if user_audios:
             hints.append(
                 f"User attached {len(user_audios)} audio clip(s). Use transcribe_audio if spoken content is needed."
+            )
+        if user_videos:
+            hints.append(
+                f"User attached {len(user_videos)} video clip(s). Use analyze_video if understanding the video content is needed."
             )
         if not hints:
             return current_message
@@ -617,7 +628,8 @@ class AgentLoop:
             f"[{chat_id}] prompt.build | history={len(history_dicts)} channel={channel or '-'} images={len(user_images or [])}"
         )
         current_audios = self._get_current_audios()
-        prompt_message = self._augment_message_for_media(current_message, user_images, current_audios)
+        current_videos = self._get_current_videos()
+        prompt_message = self._augment_message_for_media(current_message, user_images, current_audios, current_videos)
         full_messages = self._context_builder.build_messages(
             history=history_dicts,
             current_message=prompt_message,
@@ -710,12 +722,14 @@ class AgentLoop:
             "sender_name": user_message.sender_name,
             "images_count": len(user_message.images or []),
             "audios_count": len(user_message.audios or []),
+            "videos_count": len(user_message.videos or []),
         }
         user_metadata = {key: value for key, value in user_metadata.items() if value is not None}
 
         token = self._current_chat_id.set(session_chat_id)
         images_token = self._current_images.set(list(user_message.images or []))
         audios_token = self._current_audios.set(list(user_message.audios or []))
+        videos_token = self._current_videos.set(list(user_message.videos or []))
         try:
             await self.connect_mcp()
 
@@ -759,10 +773,11 @@ class AgentLoop:
         except Exception:
             logger.exception(
                 f"[{session_chat_id}] Agent.process failed: channel={channel}, "
-                f"text_len={len(user_message.text or '')}, images={len(user_message.images or [])}"
+                f"text_len={len(user_message.text or '')}, images={len(user_message.images or [])}, audios={len(user_message.audios or [])}, videos={len(user_message.videos or [])}"
             )
             raise
         finally:
+            self._current_videos.reset(videos_token)
             self._current_audios.reset(audios_token)
             self._current_images.reset(images_token)
             self._current_chat_id.reset(token)

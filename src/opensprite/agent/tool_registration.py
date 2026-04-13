@@ -17,6 +17,7 @@ from ..tools import (
     OCRImageTool,
     CronTool,
     TranscribeAudioTool,
+    AnalyzeVideoTool,
     ReadFileTool,
     WriteFileTool,
     ListDirTool,
@@ -131,6 +132,7 @@ def register_media_tools(
     media_router: MediaRouter | None = None,
     get_current_images: Callable[[], list[str] | None],
     get_current_audios: Callable[[], list[str] | None],
+    get_current_videos: Callable[[], list[str] | None],
 ) -> None:
     """Register media-analysis tools."""
     registry.register(
@@ -149,6 +151,12 @@ def register_media_tools(
         TranscribeAudioTool(
             media_router or MediaRouter(),
             get_current_audios=get_current_audios,
+        )
+    )
+    registry.register(
+        AnalyzeVideoTool(
+            media_router or MediaRouter(),
+            get_current_videos=get_current_videos,
         )
     )
 
@@ -219,6 +227,7 @@ def register_default_tools(
     media_router: MediaRouter | None = None,
     get_current_images: Callable[[], list[str] | None] | None = None,
     get_current_audios: Callable[[], list[str] | None] | None = None,
+    get_current_videos: Callable[[], list[str] | None] | None = None,
 ) -> None:
     """Register the built-in tools used by AgentLoop."""
     register_filesystem_tools(
@@ -238,6 +247,7 @@ def register_default_tools(
         media_router=media_router,
         get_current_images=get_current_images or (lambda: None),
         get_current_audios=get_current_audios or (lambda: None),
+        get_current_videos=get_current_videos or (lambda: None),
     )
     register_delegate_tools(registry, run_subagent=run_subagent)
     register_search_tools(

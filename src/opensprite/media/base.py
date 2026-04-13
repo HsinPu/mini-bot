@@ -34,3 +34,19 @@ class SpeechToTextProvider(ABC):
     ) -> str:
         """Transcribe one audio payload and return text."""
         raise NotImplementedError
+
+
+class VideoAnalysisProvider(ABC):
+    """Provider interface for video understanding."""
+
+    @abstractmethod
+    async def analyze(
+        self,
+        instruction: str,
+        video_data_url: str,
+        *,
+        model: str | None = None,
+        max_tokens: int = 2048,
+    ) -> str:
+        """Analyze one video payload and return text."""
+        raise NotImplementedError

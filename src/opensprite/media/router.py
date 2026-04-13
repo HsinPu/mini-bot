@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .base import ImageAnalysisProvider, SpeechToTextProvider
+from .base import ImageAnalysisProvider, SpeechToTextProvider, VideoAnalysisProvider
 
 
 class MediaRouter:
@@ -14,15 +14,20 @@ class MediaRouter:
     SPEECH_PROVIDER_UNAVAILABLE = (
         "Error: audio transcription is unavailable because no speech provider is configured."
     )
+    VIDEO_PROVIDER_UNAVAILABLE = (
+        "Error: video analysis is unavailable because no video provider is configured."
+    )
 
     def __init__(
         self,
         *,
         image_provider: ImageAnalysisProvider | None = None,
         speech_provider: SpeechToTextProvider | None = None,
+        video_provider: VideoAnalysisProvider | None = None,
     ):
         self.image_provider = image_provider
         self.speech_provider = speech_provider
+        self.video_provider = video_provider
 
     async def analyze_image(
         self,
@@ -66,4 +71,27 @@ class MediaRouter:
             audios[audio_index],
             model=model,
             language=language,
+        )
+
+    async def analyze_video(
+        self,
+        instruction: str,
+        videos: list[str],
+        *,
+        video_index: int = 0,
+        model: str | None = None,
+        max_tokens: int = 2048,
+    ) -> str:
+        """Analyze one video clip from the current turn."""
+        if self.video_provider is None:
+            return self.VIDEO_PROVIDER_UNAVAILABLE
+        if not videos:
+            return "Error: no videos are available in the current turn."
+        if video_index < 0 or video_index >= len(videos):
+            return f"Error: video_index {video_index} is out of range for {len(videos)} video clip(s)."
+        return await self.video_provider.analyze(
+            instruction,
+            videos[video_index],
+            model=model,
+            max_tokens=max_tokens,
         )

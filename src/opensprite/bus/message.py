@@ -30,6 +30,7 @@ class UserMessage:
         sender_name: 顯示名稱或 username
         images: 圖片列表（base64 data URL）
         audios: 音訊列表（base64 data URL）
+        videos: 影片列表（base64 data URL）
         metadata: 跨 channel 通用的附加 metadata
         raw: （可選）原始訊息物件，保留給 adapter / debug 使用
     """
@@ -41,6 +42,7 @@ class UserMessage:
     sender_name: str | None = None
     images: list[str] | None = None  # base64 編碼的圖片列表
     audios: list[str] | None = None  # base64 編碼的音訊列表
+    videos: list[str] | None = None  # base64 編碼的影片列表
     metadata: dict[str, Any] = field(default_factory=dict)
     raw: Any = None  # 原始訊息物件，可選
 

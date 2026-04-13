@@ -73,6 +73,15 @@ This file defines when to use tools, how to choose between them, and what constr
   - Add `language` only when a language hint is actually helpful.
   - If the user asks for summary, action items, or analysis of the audio, transcribe it first and then continue from the transcript.
 
+## Video Tool
+
+- `analyze_video`
+  - Use when the current user turn includes a video and the task depends on understanding what happens in the clip.
+  - Prefer this for screen recordings, short visual demonstrations, or clips where motion or sequence matters.
+  - Always provide a clear `instruction` describing what to inspect in the video.
+  - Use `video_index` when multiple video clips are attached.
+  - If the main need is spoken content rather than visual sequence, prefer `transcribe_audio` first when an audio path is available.
+
 ## Skill Tool
 
 - `read_skill`

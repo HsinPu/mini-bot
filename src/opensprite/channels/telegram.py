@@ -248,19 +248,40 @@ class TelegramAdapter(MessageAdapter):
         
         # 處理圖片
         images = []
-        if message.photo:
-            images = await self._download_images(message.photo, raw_update.bot)
+        photos = getattr(message, "photo", None)
+        if photos:
+            images = await self._download_images(photos, raw_update.bot)
 
         # 處理音訊 / 語音
         audios = []
-        if message.voice:
-            audio = await self._download_audio(message.voice, raw_update.bot, default_mime_type="audio/ogg")
+        voice = getattr(message, "voice", None)
+        if voice:
+            audio = await self._download_audio(voice, raw_update.bot, default_mime_type="audio/ogg")
             if audio:
                 audios.append(audio)
-        if message.audio:
-            audio = await self._download_audio(message.audio, raw_update.bot, default_mime_type="audio/mpeg")
+        audio_message = getattr(message, "audio", None)
+        if audio_message:
+            audio = await self._download_audio(audio_message, raw_update.bot, default_mime_type="audio/mpeg")
             if audio:
                 audios.append(audio)
+
+        # 處理影片
+        videos = []
+        video_message = getattr(message, "video", None)
+        if video_message:
+            video = await self._download_media_blob(video_message, raw_update.bot, default_mime_type="video/mp4")
+            if video:
+                videos.append(video)
+        video_note = getattr(message, "video_note", None)
+        if video_note:
+            video = await self._download_media_blob(video_note, raw_update.bot, default_mime_type="video/mp4")
+            if video:
+                videos.append(video)
+        animation = getattr(message, "animation", None)
+        if animation:
+            video = await self._download_media_blob(animation, raw_update.bot, default_mime_type="video/mp4")
+            if video:
+                videos.append(video)
 
         metadata = {
             "update_id": raw_update.update_id,
@@ -278,6 +299,7 @@ class TelegramAdapter(MessageAdapter):
             sender_name=sender_name,
             images=images if images else None,
             audios=audios if audios else None,
+            videos=videos if videos else None,
             metadata=metadata,
             raw=raw_update
         )
@@ -323,16 +345,20 @@ class TelegramAdapter(MessageAdapter):
 
     async def _download_audio(self, audio_obj, bot, default_mime_type: str) -> str | None:
         """Download one Telegram audio-like object and return a base64 data URL."""
+        return await self._download_media_blob(audio_obj, bot, default_mime_type=default_mime_type)
+
+    async def _download_media_blob(self, media_obj, bot, default_mime_type: str) -> str | None:
+        """Download one Telegram media object and return a base64 data URL."""
         import base64
 
         try:
-            file = await bot.get_file(audio_obj.file_id)
+            file = await bot.get_file(media_obj.file_id)
             file_content = await file.download_as_bytearray()
             b64 = base64.b64encode(bytes(file_content)).decode("utf-8")
-            mime_type = getattr(audio_obj, "mime_type", None) or default_mime_type
+            mime_type = getattr(media_obj, "mime_type", None) or default_mime_type
             return f"data:{mime_type};base64,{b64}"
         except Exception as e:
-            logger.warning(f"下載音訊失敗: {e}")
+            logger.warning(f"下載媒體失敗: {e}")
             return None
     
     async def send(self, message: AssistantMessage) -> None:
@@ -623,7 +649,7 @@ class TelegramAdapter(MessageAdapter):
             user_msg = await self.to_user_message(update)
             
             # 檢查是否是空訊息
-            if not user_msg.text and not user_msg.images and not user_msg.audios:
+            if not user_msg.text and not user_msg.images and not user_msg.audios and not user_msg.videos:
                 return
             
             if self.mq:

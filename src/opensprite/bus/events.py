@@ -24,6 +24,7 @@ class InboundMessage:
     timestamp: datetime = field(default_factory=datetime.now)
     images: list[str] = field(default_factory=list)  # base64 image data URLs
     audios: list[str] = field(default_factory=list)  # base64 audio data URLs
+    videos: list[str] = field(default_factory=list)  # base64 video data URLs
     metadata: dict[str, Any] = field(default_factory=dict)  # Channel-specific data
     raw: Any = None
 

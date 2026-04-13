@@ -125,3 +125,43 @@ def test_call_llm_adds_audio_tool_hint_to_prompt(tmp_path):
 
     assert result == "ok"
     assert "User attached 1 audio clip(s). Use transcribe_audio if spoken content is needed." in captured["content"]
+
+
+def test_call_llm_adds_video_tool_hint_to_prompt(tmp_path):
+    registry = ToolRegistry()
+    registry.register(DummyTool())
+    agent = AgentLoop(
+        config=AgentConfig(),
+        provider=FakeProvider(),
+        storage=None,
+        context_builder=FakeContextBuilder(tmp_path / "workspace"),
+        tools=registry,
+        memory_config=MemoryConfig(),
+        tools_config=ToolsConfig(),
+        log_config=LogConfig(),
+        search_config=SearchConfig(),
+        user_profile_config=UserProfileConfig(enabled=False),
+    )
+
+    captured = {}
+
+    async def fake_execute(log_id, chat_messages, *, allow_tools, tool_result_chat_id=None, tool_registry=None):
+        captured["content"] = chat_messages[0].content
+        return "ok"
+
+    agent._execute_messages = fake_execute  # type: ignore[method-assign]
+    video_token = agent._current_videos.set(["vid-a"])
+    try:
+        result = asyncio.run(
+            agent.call_llm(
+                "telegram:user-a",
+                current_message="What happens in this clip?",
+                channel="telegram",
+                user_images=None,
+            )
+        )
+    finally:
+        agent._current_videos.reset(video_token)
+
+    assert result == "ok"
+    assert "User attached 1 video clip(s). Use analyze_video if understanding the video content is needed." in captured["content"]

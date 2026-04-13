@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from opensprite.config.schema import MCPServerConfig, SpeechConfig, StorageConfig, ToolsConfig, VisionConfig
+from opensprite.config.schema import MCPServerConfig, SpeechConfig, StorageConfig, ToolsConfig, VideoConfig, VisionConfig
 
 
 def test_storage_config_accepts_supported_types():
@@ -46,6 +46,14 @@ def test_vision_config_defaults_to_disabled_provider():
 
 def test_speech_config_defaults_to_disabled_provider():
     config = SpeechConfig()
+
+    assert config.enabled is False
+    assert config.provider == "minimax"
+    assert config.api_key == ""
+
+
+def test_video_config_defaults_to_disabled_provider():
+    config = VideoConfig()
 
     assert config.enabled is False
     assert config.provider == "minimax"
