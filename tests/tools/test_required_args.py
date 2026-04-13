@@ -1,6 +1,8 @@
 import asyncio
 from pathlib import Path
 
+import pytest
+
 from opensprite.tools.filesystem import WriteFileTool
 from opensprite.tools.shell import ExecTool
 
@@ -22,3 +24,34 @@ def test_exec_reports_missing_command_argument(tmp_path):
     result = asyncio.run(tool.execute())
 
     assert result == "Error: Missing required argument for exec: command. Call exec with a 'command' string."
+
+
+def test_exec_rejects_blank_command(tmp_path):
+    tool = ExecTool(workspace=Path(tmp_path))
+
+    result = asyncio.run(tool.execute(command="   "))
+
+    assert result == "Error: Command for exec must be a non-empty string."
+
+
+def test_exec_blocks_powershell_recursive_delete(tmp_path):
+    tool = ExecTool(workspace=Path(tmp_path))
+
+    result = asyncio.run(tool.execute(command="powershell -Command \"Remove-Item foo -Recurse -Force\""))
+
+    assert result == "Error: Command blocked by safety guard (dangerous pattern detected)"
+
+
+def test_exec_rejects_overlong_command(tmp_path):
+    tool = ExecTool(workspace=Path(tmp_path))
+
+    result = asyncio.run(tool.execute(command="a" * 2001))
+
+    assert result == "Error: Command too long for exec (max 2000 chars). Please run a shorter command."
+
+
+def test_exec_requires_existing_workspace(tmp_path):
+    missing_workspace = Path(tmp_path) / "missing"
+
+    with pytest.raises(FileNotFoundError, match="Workspace does not exist"):
+        ExecTool(workspace=missing_workspace)

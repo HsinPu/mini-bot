@@ -1,6 +1,7 @@
 """Shell execution tool."""
 
 import asyncio
+import re
 from pathlib import Path
 from typing import Any, Callable
 
@@ -13,7 +14,10 @@ WorkspaceResolver = Callable[[], Path]
 def _resolve_workspace_root(workspace: Path) -> Path:
     """Resolve and ensure the workspace root directory exists."""
     root = Path(workspace).expanduser().resolve(strict=False)
-    root.mkdir(parents=True, exist_ok=True)
+    if not root.exists():
+        raise FileNotFoundError(f"Workspace does not exist: {root}")
+    if not root.is_dir():
+        raise NotADirectoryError(f"Workspace is not a directory: {root}")
     return root
 
 
@@ -35,11 +39,17 @@ def _build_workspace_resolver(
 class ExecTool(Tool):
     """Tool to execute shell commands."""
 
+    MAX_COMMAND_LENGTH = 2000
+
     # Dangerous command patterns that are blocked
     DENY_PATTERNS = [
         r"\brm\s+-[rf]{1,2}\b",          # rm -r, rm -rf, rm -fr
         r"\bdel\s+/[fq]\b",              # del /f, del /q
+        r"\berase\s+/(?:[fq]|qf)\b",     # erase /f, erase /q
         r"\brmdir\s+/s\b",               # rmdir /s
+        r"\bremove-item\b.*(?:-recurse|-force)",  # powershell recursive delete
+        r"\bgit\s+clean\b(?:[^\n]*\s)?-[^-\n]*f",  # git clean -f / -fd / -fdx
+        r"\bgit\s+reset\s+--hard\b",    # destructive git reset
         r"(?:^|[;&|]\s*)format\b",       # format
         r"\b(mkfs|diskpart)\b",          # disk operations
         r"\bdd\s+if=",                   # dd
@@ -88,10 +98,18 @@ class ExecTool(Tool):
         }
 
     async def execute(self, **kwargs: Any) -> str:
-        import re
         if "command" not in kwargs:
             return "Error: Missing required argument for exec: command. Call exec with a 'command' string."
-        command = str(kwargs["command"])
+        command = str(kwargs["command"]).strip()
+
+        if not command:
+            return "Error: Command for exec must be a non-empty string."
+
+        if len(command) > self.MAX_COMMAND_LENGTH:
+            return (
+                f"Error: Command too long for exec (max {self.MAX_COMMAND_LENGTH} chars). "
+                "Please run a shorter command."
+            )
         
         # Check for dangerous patterns
         for pattern in self.deny_patterns:
@@ -105,6 +123,7 @@ class ExecTool(Tool):
                 command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                stdin=asyncio.subprocess.DEVNULL,
                 cwd=str(workspace)
             )
             
@@ -115,6 +134,7 @@ class ExecTool(Tool):
                 )
             except asyncio.TimeoutError:
                 process.kill()
+                await process.wait()
                 return f"Error: Command timed out after {self.timeout}s"
             
             result = []
