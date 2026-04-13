@@ -33,14 +33,15 @@ from ..llms import LLMProvider, ChatMessage
 from ..storage import StorageProvider, StoredMessage
 from ..context.builder import ContextBuilder
 from ..documents.memory import MemoryStore
+from ..documents.recent_summary import RecentSummaryConsolidator, RecentSummaryStore
 from ..media import MediaRouter
 from ..documents.user_profile import UserProfileConsolidator, UserProfileStore
 from ..search.base import SearchStore
 from ..tools import ToolRegistry
 from ..utils import count_messages_tokens
 from ..utils.log import logger
-from ..config import AgentConfig, MemoryConfig, ToolsConfig, LogConfig, SearchConfig, UserProfileConfig
-from .consolidation import MemoryConsolidationService, UserProfileUpdateService
+from ..config import AgentConfig, MemoryConfig, ToolsConfig, LogConfig, SearchConfig, UserProfileConfig, RecentSummaryConfig
+from .consolidation import MemoryConsolidationService, RecentSummaryUpdateService, UserProfileUpdateService
 from .execution import ExecutionEngine
 from .tool_registration import register_default_tools, register_memory_tool
 
@@ -185,6 +186,7 @@ class AgentLoop:
         search_store: SearchStore | None = None,
         search_config: SearchConfig | None = None,
         user_profile_config: UserProfileConfig | None = None,
+        recent_summary_config: RecentSummaryConfig | None = None,
         cron_manager: Any | None = None,
         media_router: MediaRouter | None = None,
     ):
@@ -195,6 +197,7 @@ class AgentLoop:
         self.log_config = log_config or LogConfig()
         self.search_config = search_config or SearchConfig()
         self.user_profile_config = user_profile_config or UserProfileConfig()
+        self.recent_summary_config = recent_summary_config or RecentSummaryConfig()
         self.search_store = search_store
         self.cron_manager = cron_manager
         self.media_router = media_router
@@ -219,6 +222,7 @@ class AgentLoop:
         self._register_memory_tool()
         self.execution_engine = self._setup_execution_engine()
         self.user_profile_update = self._setup_user_profile_update()
+        self.recent_summary_update = self._setup_recent_summary_update()
 
     def _trim_history_to_token_budget(
         self,
@@ -361,6 +365,26 @@ class AgentLoop:
             )
 
         return UserProfileUpdateService(consolidator)
+
+    def _setup_recent_summary_update(self) -> RecentSummaryUpdateService:
+        """Create the optional RECENT_SUMMARY.md update service."""
+        memory_dir = getattr(self._context_builder, "memory_dir", None)
+        if memory_dir is None:
+            return RecentSummaryUpdateService(None)
+
+        summary_store = RecentSummaryStore(memory_dir)
+        consolidator = RecentSummaryConsolidator(
+            storage=self.storage,
+            provider=self.provider,
+            model=self.provider.get_default_model(),
+            summary_store=summary_store,
+            threshold=self.recent_summary_config.threshold,
+            token_threshold=self.recent_summary_config.token_threshold,
+            lookback_messages=self.recent_summary_config.lookback_messages,
+            keep_last_messages=self.recent_summary_config.keep_last_messages,
+            enabled=self.recent_summary_config.enabled,
+        )
+        return RecentSummaryUpdateService(consolidator)
 
     def _register_memory_tool(self) -> None:
         """Register the save_memory tool."""
@@ -823,6 +847,7 @@ class AgentLoop:
 
             # 4. 檢查是否需要 consolidation
             await self._maybe_consolidate_memory(session_chat_id)
+            await self._maybe_update_recent_summary(session_chat_id)
             await self._maybe_update_user_profile(session_chat_id)
 
             # 5. 回傳
@@ -863,6 +888,10 @@ class AgentLoop:
     async def _maybe_update_user_profile(self, chat_id: str) -> None:
         """Check whether the global USER.md profile should be refreshed."""
         await self.user_profile_update.maybe_update(chat_id)
+
+    async def _maybe_update_recent_summary(self, chat_id: str) -> None:
+        """Check whether RECENT_SUMMARY.md should be refreshed."""
+        await self.recent_summary_update.maybe_update(chat_id)
 
     async def reset_history(self, chat_id: str | None = None) -> None:
         """

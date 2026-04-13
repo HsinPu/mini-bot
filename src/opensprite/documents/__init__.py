@@ -3,6 +3,7 @@
 from .base import ConversationConsolidator, ConversationDocumentStore, IncrementalStateStore
 from .managed import ManagedMarkdownDocument
 from .memory import MemoryDocumentStore, MemoryStore, FileMemoryStorage, consolidate
+from .recent_summary import RecentSummaryConsolidator, RecentSummaryStore, consolidate_recent_summary
 from .state import JsonProgressStore
 from .user_profile import (
     AUTO_PROFILE_HEADER,
@@ -26,9 +27,12 @@ __all__ = [
     "ManagedMarkdownDocument",
     "MemoryDocumentStore",
     "MemoryStore",
+    "RecentSummaryConsolidator",
+    "RecentSummaryStore",
     "START_MARKER",
     "UserProfileConsolidator",
     "UserProfileStore",
     "consolidate",
+    "consolidate_recent_summary",
     "consolidate_user_profile",
 ]

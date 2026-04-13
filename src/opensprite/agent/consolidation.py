@@ -96,3 +96,19 @@ class UserProfileUpdateService:
             await self.consolidator.maybe_update(chat_id)
         except Exception as exc:
             logger.error(f"[{chat_id}] profile.update.error | error={exc}")
+
+
+class RecentSummaryUpdateService:
+    """Wrap optional RECENT_SUMMARY.md updates behind a stable interface."""
+
+    def __init__(self, consolidator: Any | None = None):
+        self.consolidator = consolidator
+
+    async def maybe_update(self, chat_id: str) -> None:
+        if self.consolidator is None:
+            return
+
+        try:
+            await self.consolidator.maybe_update(chat_id)
+        except Exception as exc:
+            logger.error(f"[{chat_id}] recent_summary.update.error | error={exc}")

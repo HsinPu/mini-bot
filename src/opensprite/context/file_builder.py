@@ -24,6 +24,7 @@ from .paths import (
 )
 from .runtime import RUNTIME_CONTEXT_TAG, build_runtime_context
 from ..documents.memory import MemoryStore
+from ..documents.recent_summary import RecentSummaryStore
 from ..skills import SkillsLoader
 
 
@@ -56,6 +57,7 @@ class FileContextBuilder:
         )
         self.workspace = self.tool_workspace
         self.memory_store = MemoryStore(self.memory_dir)
+        self.recent_summary_store = RecentSummaryStore(self.memory_dir)
         self.skills_loader = skills_loader or SkillsLoader(
             default_skills_dir=default_skills_dir or get_skills_dir(self.app_home),
             personal_skills_dir=personal_skills_dir,
@@ -100,6 +102,10 @@ To use a skill, read its SKILL.md file using the read_skill tool.
         memory = self.memory_store.read(chat_id)
         if memory:
             parts.append(f"# Memory\n\n{memory}")
+
+        recent_summary = self.recent_summary_store.read(chat_id)
+        if recent_summary:
+            parts.append(f"# Recent Summary\n\n{recent_summary}")
 
         return "\n\n---\n\n".join(parts)
 

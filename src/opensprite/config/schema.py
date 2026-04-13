@@ -165,6 +165,16 @@ class UserProfileConfig(BaseModel):
     lookback_messages: int = 50
 
 
+class RecentSummaryConfig(BaseModel):
+    """Per-chat RECENT_SUMMARY.md update configuration."""
+
+    enabled: bool = True
+    threshold: int = 12
+    token_threshold: int = 12000
+    lookback_messages: int = 80
+    keep_last_messages: int = 20
+
+
 class SearchConfig(BaseModel):
     """Search index configuration."""
 
@@ -180,7 +190,8 @@ class Config:
                  channels: ChannelsConfig, log: LogConfig | None = None, tools: ToolsConfig | None = None,
                  memory: MemoryConfig | None = None, search: SearchConfig | None = None,
                  user_profile: UserProfileConfig | None = None, vision: VisionConfig | None = None,
-                 speech: SpeechConfig | None = None, video: VideoConfig | None = None):
+                 speech: SpeechConfig | None = None, video: VideoConfig | None = None,
+                 recent_summary: RecentSummaryConfig | None = None):
         self.llm = llm
         self.agent = agent
         self.storage = storage
@@ -190,6 +201,7 @@ class Config:
         self.memory = memory or MemoryConfig()
         self.search = search or SearchConfig()
         self.user_profile = user_profile or UserProfileConfig()
+        self.recent_summary = recent_summary or RecentSummaryConfig()
         self.vision = vision or VisionConfig()
         self.speech = speech or SpeechConfig()
         self.video = video or VideoConfig()
@@ -216,6 +228,7 @@ class Config:
             memory=MemoryConfig(**data.get("memory", {})) if "memory" in data else None,
             search=SearchConfig(**data.get("search", {})) if "search" in data else None,
             user_profile=UserProfileConfig(**data.get("user_profile", {})) if "user_profile" in data else None,
+            recent_summary=RecentSummaryConfig(**data.get("recent_summary", {})) if "recent_summary" in data else None,
             vision=VisionConfig(**data.get("vision", {})) if "vision" in data else None,
             speech=SpeechConfig(**data.get("speech", {})) if "speech" in data else None,
             video=VideoConfig(**data.get("video", {})) if "video" in data else None,
@@ -318,6 +331,13 @@ class Config:
                 "enabled": self.user_profile.enabled,
                 "threshold": self.user_profile.threshold,
                 "lookback_messages": self.user_profile.lookback_messages,
+            },
+            "recent_summary": {
+                "enabled": self.recent_summary.enabled,
+                "threshold": self.recent_summary.threshold,
+                "token_threshold": self.recent_summary.token_threshold,
+                "lookback_messages": self.recent_summary.lookback_messages,
+                "keep_last_messages": self.recent_summary.keep_last_messages,
             },
             "vision": {
                 "enabled": self.vision.enabled,

@@ -102,7 +102,7 @@ async def create_agent(config: Config):
     llm = create_llm(api_key=cfg.api_key, model=cfg.model, base_url=cfg.base_url or "", provider_name=config.llm.default or "", enabled=cfg.enabled if hasattr(cfg, 'enabled') else True)
     
     # 建立 Agent 設定
-    agent_config = AgentConfig()
+    agent_config = config.agent
     
     # 建立 Storage
     storage = create_storage(config)
@@ -126,6 +126,7 @@ async def create_agent(config: Config):
         search_store=search_store,
         search_config=config.search,
         user_profile_config=config.user_profile,
+        recent_summary_config=config.recent_summary,
         cron_manager=None,
         media_router=media_router,
     )

@@ -136,9 +136,13 @@ def test_process_connects_mcp_before_saving_and_calling_llm(tmp_path):
     async def fake_update_profile(chat_id):
         order.append("profile")
 
+    async def fake_update_recent_summary(chat_id):
+        order.append("recent-summary")
+
     agent.connect_mcp = fake_connect_mcp
     agent.call_llm = fake_call_llm
     agent._maybe_consolidate_memory = fake_consolidate
+    agent._maybe_update_recent_summary = fake_update_recent_summary
     agent._maybe_update_user_profile = fake_update_profile
 
     response = asyncio.run(
@@ -152,7 +156,7 @@ def test_process_connects_mcp_before_saving_and_calling_llm(tmp_path):
         )
     )
 
-    assert order == ["connect", "call_llm", "memory", "profile"]
+    assert order == ["connect", "call_llm", "memory", "recent-summary", "profile"]
     assert response.text == "assistant reply"
 
 

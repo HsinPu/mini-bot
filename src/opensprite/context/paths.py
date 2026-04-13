@@ -5,6 +5,7 @@ Path layout:
 - app home: ~/.opensprite
 - bootstrap files: ~/.opensprite/bootstrap/*.md
 - memory: ~/.opensprite/memory/<chat>/MEMORY.md
+- recent summary: ~/.opensprite/memory/<chat>/RECENT_SUMMARY.md
 - default skills: ~/.opensprite/skills/*/SKILL.md
 - workspace root: ~/.opensprite/workspace
 - per-chat workspaces: ~/.opensprite/workspace/chats/{channel}/{chat_id}
@@ -27,6 +28,7 @@ SKILLS_DIRNAME = "skills"
 WORKSPACE_DIRNAME = "workspace"
 WORKSPACE_CHATS_DIRNAME = "chats"
 USER_PROFILE_STATE_FILENAME = ".user_profile_state.json"
+RECENT_SUMMARY_STATE_FILENAME = ".recent_summary_state.json"
 
 BOOTSTRAP_FILES = ["SOUL.md", "IDENTITY.md", "AGENTS.md", "USER.md", "TOOLS.md"]
 
@@ -132,6 +134,16 @@ def get_memory_file(memory_dir: str | Path, chat_id: str = "default") -> Path:
     """Get the memory file path for a chat without creating it."""
     safe_chat_id = _sanitize_path_segment(chat_id, default="default", max_length=72)
     return Path(memory_dir).expanduser() / safe_chat_id / "MEMORY.md"
+
+
+def get_recent_summary_file(memory_dir: str | Path, chat_id: str = "default") -> Path:
+    """Get the recent summary file path for a chat without creating it."""
+    return get_memory_file(memory_dir, chat_id).with_name("RECENT_SUMMARY.md")
+
+
+def get_recent_summary_state_file(memory_dir: str | Path) -> Path:
+    """Get the persisted state file for recent summary updates."""
+    return Path(memory_dir).expanduser() / RECENT_SUMMARY_STATE_FILENAME
 
 
 def _relative_path(path: Path, root: Path) -> str:

@@ -75,13 +75,21 @@
     "mcp_servers": {}
   },
   "memory": {
-    "max_history": 50,
-    "threshold": 30
+    "max_history": 150,
+    "threshold": 30,
+    "token_threshold": 100000
   },
   "user_profile": {
     "enabled": true,
     "threshold": 30,
     "lookback_messages": 50
+  },
+  "recent_summary": {
+    "enabled": true,
+    "threshold": 12,
+    "token_threshold": 12000,
+    "lookback_messages": 80,
+    "keep_last_messages": 20
   },
   "vision": {
     "enabled": false,

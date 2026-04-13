@@ -2,7 +2,7 @@ import asyncio
 from pathlib import Path
 
 from opensprite.agent.agent import AgentLoop
-from opensprite.config.schema import AgentConfig, LogConfig, MemoryConfig, SearchConfig, ToolsConfig, UserProfileConfig
+from opensprite.config.schema import AgentConfig, LogConfig, MemoryConfig, RecentSummaryConfig, SearchConfig, ToolsConfig, UserProfileConfig
 from opensprite.bus.message import UserMessage
 from opensprite.storage.base import StoredMessage
 from opensprite.tools.base import Tool
@@ -118,8 +118,12 @@ def test_agent_process_persists_user_then_assistant_then_runs_maintenance(tmp_pa
     async def fake_update_profile(chat_id):
         call_order.append(("profile", chat_id))
 
+    async def fake_update_recent_summary(chat_id):
+        call_order.append(("recent-summary", chat_id))
+
     agent.call_llm = fake_call_llm
     agent._maybe_consolidate_memory = fake_consolidate
+    agent._maybe_update_recent_summary = fake_update_recent_summary
     agent._maybe_update_user_profile = fake_update_profile
 
     response = asyncio.run(
@@ -144,6 +148,7 @@ def test_agent_process_persists_user_then_assistant_then_runs_maintenance(tmp_pa
     assert call_order == [
         ("call_llm", "telegram:room-1", "hello", "telegram", ["img1"]),
         ("memory", "telegram:room-1"),
+        ("recent-summary", "telegram:room-1"),
         ("profile", "telegram:room-1"),
     ]
     assert response.text == "assistant reply"
@@ -170,6 +175,7 @@ def test_call_llm_trims_old_history_to_token_budget(tmp_path):
         log_config=LogConfig(),
         search_config=SearchConfig(),
         user_profile_config=UserProfileConfig(enabled=False),
+        recent_summary_config=RecentSummaryConfig(enabled=False),
     )
 
     captured = {}
