@@ -37,6 +37,7 @@ from ..media import MediaRouter
 from ..documents.user_profile import UserProfileConsolidator, UserProfileStore
 from ..search.base import SearchStore
 from ..tools import ToolRegistry
+from ..utils import count_messages_tokens
 from ..utils.log import logger
 from ..config import AgentConfig, MemoryConfig, ToolsConfig, LogConfig, SearchConfig, UserProfileConfig
 from .consolidation import MemoryConsolidationService, UserProfileUpdateService
@@ -188,6 +189,7 @@ class AgentLoop:
         media_router: MediaRouter | None = None,
     ):
         ...
+        self.config = config
         self.memory_config = memory_config or MemoryConfig()
         self.tools_config = tools_config or ToolsConfig()
         self.log_config = log_config or LogConfig()
@@ -217,6 +219,54 @@ class AgentLoop:
         self._register_memory_tool()
         self.execution_engine = self._setup_execution_engine()
         self.user_profile_update = self._setup_user_profile_update()
+
+    def _trim_history_to_token_budget(
+        self,
+        *,
+        history: list[dict[str, Any]],
+        current_message: str,
+        channel: str | None,
+        chat_id: str,
+    ) -> list[dict[str, Any]]:
+        """Trim oldest history messages when the prompt would exceed the history token budget."""
+        budget = max(0, self.config.history_token_budget)
+        if budget <= 0 or not history:
+            return history
+
+        base_messages = self._context_builder.build_messages(
+            history=[],
+            current_message=current_message,
+            current_images=None,
+            channel=channel,
+            chat_id=chat_id,
+        )
+        base_tokens = count_messages_tokens(base_messages, model=self.provider.get_default_model())
+        if base_tokens >= budget:
+            logger.warning(
+                f"[{chat_id}] prompt.trim | base_tokens={base_tokens} budget={budget} history_retained=0 reason=base-exceeds-budget"
+            )
+            return []
+
+        trimmed_reversed: list[dict[str, Any]] = []
+        running_tokens = base_tokens
+        for message in reversed(history):
+            message_tokens = count_messages_tokens([message], model=self.provider.get_default_model())
+            if trimmed_reversed and running_tokens + message_tokens > budget:
+                break
+            if not trimmed_reversed and running_tokens + message_tokens > budget:
+                logger.warning(
+                    f"[{chat_id}] prompt.trim | base_tokens={base_tokens} first_history_tokens={message_tokens} budget={budget} history_retained=0 reason=first-message-exceeds-budget"
+                )
+                return []
+            trimmed_reversed.append(message)
+            running_tokens += message_tokens
+
+        trimmed_history = list(reversed(trimmed_reversed))
+        if len(trimmed_history) != len(history):
+            logger.info(
+                f"[{chat_id}] prompt.trim | budget={budget} base_tokens={base_tokens} history_before={len(history)} history_after={len(trimmed_history)} estimated_tokens={running_tokens}"
+            )
+        return trimmed_history
 
     def _setup_storage(self, storage: StorageProvider | None) -> StorageProvider:
         """Resolve the storage provider used by the agent."""
@@ -630,6 +680,12 @@ class AgentLoop:
         current_audios = self._get_current_audios()
         current_videos = self._get_current_videos()
         prompt_message = self._augment_message_for_media(current_message, user_images, current_audios, current_videos)
+        history_dicts = self._trim_history_to_token_budget(
+            history=history_dicts,
+            current_message=prompt_message,
+            channel=channel,
+            chat_id=chat_id,
+        )
         full_messages = self._context_builder.build_messages(
             history=history_dicts,
             current_message=prompt_message,

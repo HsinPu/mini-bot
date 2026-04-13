@@ -13,11 +13,13 @@ class FakeContextBuilder:
     def __init__(self, workspace: Path):
         self.workspace = workspace
         self.memory_dir = workspace / "memory"
+        self.last_history = None
 
     def build_system_prompt(self, chat_id: str = "default") -> str:
         return "system"
 
     def build_messages(self, history, current_message, current_images=None, channel=None, chat_id=None):
+        self.last_history = list(history)
         return [{"role": "user", "content": current_message}]
 
     def add_tool_result(self, messages, tool_call_id, tool_name, result):
@@ -56,6 +58,17 @@ class FakeStorage:
 
     async def get_all_chats(self):
         return []
+
+
+class HistoryStorage(FakeStorage):
+    def __init__(self, messages):
+        super().__init__()
+        self.messages = list(messages)
+
+    async def get_messages(self, chat_id, limit=None):
+        if limit is None:
+            return list(self.messages)
+        return list(self.messages[-limit:])
 
 
 class DummyTool(Tool):
@@ -136,3 +149,39 @@ def test_agent_process_persists_user_then_assistant_then_runs_maintenance(tmp_pa
     assert response.text == "assistant reply"
     assert response.channel == "telegram"
     assert response.session_chat_id == "telegram:room-1"
+
+
+def test_call_llm_trims_old_history_to_token_budget(tmp_path):
+    context_builder = FakeContextBuilder(tmp_path)
+    storage = HistoryStorage(
+        [
+            StoredMessage(role="user", content="old message " * 40, timestamp=1.0),
+            StoredMessage(role="assistant", content="recent message", timestamp=2.0),
+        ]
+    )
+    agent = AgentLoop(
+        config=AgentConfig(history_token_budget=120),
+        provider=FakeProvider(),
+        storage=storage,
+        context_builder=context_builder,
+        tools=ToolRegistry(),
+        memory_config=MemoryConfig(),
+        tools_config=ToolsConfig(),
+        log_config=LogConfig(),
+        search_config=SearchConfig(),
+        user_profile_config=UserProfileConfig(enabled=False),
+    )
+
+    captured = {}
+
+    async def fake_execute_messages(log_id, chat_messages, *, allow_tools, tool_result_chat_id=None, tool_registry=None):
+        captured["messages"] = list(chat_messages)
+        return "ok"
+
+    agent._execute_messages = fake_execute_messages
+
+    result = asyncio.run(agent.call_llm("telegram:room-1", "current input", channel="telegram", allow_tools=False))
+
+    assert result == "ok"
+    assert context_builder.last_history == [{"role": "assistant", "content": "recent message"}]
+    assert [message.role for message in captured["messages"]] == ["user"]

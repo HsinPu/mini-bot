@@ -36,6 +36,7 @@ class AgentConfig(BaseModel):
     """Agent configuration."""
     
     max_history: int = 50
+    history_token_budget: int = 12000
 
 
 class StorageConfig(BaseModel):
@@ -295,6 +296,10 @@ class Config:
                     name: server.model_dump()
                     for name, server in self.tools.mcp_servers.items()
                 },
+            },
+            "agent": {
+                "max_history": self.agent.max_history,
+                "history_token_budget": self.agent.history_token_budget,
             },
             "memory": {"max_history": self.memory.max_history, "threshold": self.memory.threshold},
             "search": {
