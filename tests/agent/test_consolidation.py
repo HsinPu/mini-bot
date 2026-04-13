@@ -48,6 +48,7 @@ def test_memory_consolidation_skips_when_threshold_not_reached(monkeypatch):
         memory_store=object(),
         provider=FakeProvider(),
         threshold=3,
+        token_threshold=100,
     )
 
     asyncio.run(service.maybe_consolidate("chat-1"))
@@ -78,6 +79,7 @@ def test_memory_consolidation_updates_index_after_success(monkeypatch):
         memory_store=object(),
         provider=FakeProvider(),
         threshold=2,
+        token_threshold=100,
     )
 
     asyncio.run(service.maybe_consolidate("chat-1"))
@@ -89,3 +91,34 @@ def test_memory_consolidation_updates_index_after_success(monkeypatch):
         {"role": "tool", "content": "third"},
     ]
     assert storage.updated_index == 3
+
+
+def test_memory_consolidation_triggers_when_token_threshold_reached(monkeypatch):
+    captured = {}
+
+    async def fake_consolidate(**kwargs):
+        captured.update(kwargs)
+        return True
+
+    monkeypatch.setattr(consolidation_module, "consolidate", fake_consolidate)
+    monkeypatch.setattr(consolidation_module, "count_messages_tokens", lambda messages, model=None, encoding_name=None: 250)
+
+    storage = FakeStorage(
+        [
+            StoredMessage(role="user", content="very long message", timestamp=1.0),
+            StoredMessage(role="assistant", content="another long message", timestamp=2.0),
+        ],
+        consolidated_index=0,
+    )
+    service = MemoryConsolidationService(
+        storage=storage,
+        memory_store=object(),
+        provider=FakeProvider(),
+        threshold=10,
+        token_threshold=200,
+    )
+
+    asyncio.run(service.maybe_consolidate("chat-1"))
+
+    assert captured["chat_id"] == "chat-1"
+    assert storage.updated_index == 2

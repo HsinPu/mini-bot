@@ -323,6 +323,7 @@ class AgentLoop:
             memory_store=self.memory,
             provider=self.provider,
             threshold=self.memory_config.threshold,
+            token_threshold=self.memory_config.token_threshold,
         )
 
     def _setup_execution_engine(self) -> ExecutionEngine:

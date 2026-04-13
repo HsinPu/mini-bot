@@ -8,6 +8,7 @@ from ..documents.memory import MemoryStore, consolidate
 from ..documents.user_profile import UserProfileConsolidator
 from ..llms import LLMProvider
 from ..storage import StorageProvider, StoredMessage
+from ..utils import count_messages_tokens
 from ..utils.log import logger
 
 
@@ -21,11 +22,13 @@ class MemoryConsolidationService:
         memory_store: MemoryStore,
         provider: LLMProvider,
         threshold: int,
+        token_threshold: int = 0,
     ):
         self.storage = storage
         self.memory_store = memory_store
         self.provider = provider
         self.threshold = threshold
+        self.token_threshold = token_threshold
 
     @staticmethod
     def _to_message_dicts(messages: list[StoredMessage | dict[str, Any]]) -> list[dict[str, str]]:
@@ -50,16 +53,24 @@ class MemoryConsolidationService:
         messages = await self.storage.get_messages(chat_id, limit=1000)
         message_count = len(messages)
         last_consolidated = await self.storage.get_consolidated_index(chat_id)
-        unconsolidated = message_count - last_consolidated
-        if unconsolidated < self.threshold:
+        pending_messages = self._to_message_dicts(messages[last_consolidated:])
+        unconsolidated = len(pending_messages)
+        pending_tokens = count_messages_tokens(pending_messages, model=self.provider.get_default_model()) if pending_messages else 0
+
+        should_consolidate_by_count = self.threshold > 0 and unconsolidated >= self.threshold
+        should_consolidate_by_tokens = self.token_threshold > 0 and pending_tokens >= self.token_threshold
+        if not should_consolidate_by_count and not should_consolidate_by_tokens:
             return
 
-        logger.info(f"[{chat_id}] memory.consolidate | pending={unconsolidated}")
+        logger.info(
+            f"[{chat_id}] memory.consolidate | pending_messages={unconsolidated} pending_tokens={pending_tokens} "
+            f"threshold={self.threshold} token_threshold={self.token_threshold}"
+        )
         try:
             success = await consolidate(
                 memory_store=self.memory_store,
                 chat_id=chat_id,
-                messages=self._to_message_dicts(messages[last_consolidated:]),
+                messages=pending_messages,
                 provider=self.provider,
                 model=self.provider.get_default_model(),
             )

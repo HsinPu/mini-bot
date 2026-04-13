@@ -35,8 +35,8 @@ class LLMsConfig(BaseModel):
 class AgentConfig(BaseModel):
     """Agent configuration."""
     
-    max_history: int = 50
-    history_token_budget: int = 12000
+    max_history: int = 150
+    history_token_budget: int = 80000
 
 
 class StorageConfig(BaseModel):
@@ -152,8 +152,9 @@ class ToolsConfig(BaseModel):
 
 class MemoryConfig(BaseModel):
     """Memory configurations."""
-    max_history: int = 50
+    max_history: int = 150
     threshold: int = 30  # Trigger consolidation after this many messages
+    token_threshold: int = 100000
 
 
 class UserProfileConfig(BaseModel):
@@ -301,7 +302,11 @@ class Config:
                 "max_history": self.agent.max_history,
                 "history_token_budget": self.agent.history_token_budget,
             },
-            "memory": {"max_history": self.memory.max_history, "threshold": self.memory.threshold},
+            "memory": {
+                "max_history": self.memory.max_history,
+                "threshold": self.memory.threshold,
+                "token_threshold": self.memory.token_threshold,
+            },
             "search": {
                 "enabled": self.search.enabled,
                 "provider": self.search.provider,
