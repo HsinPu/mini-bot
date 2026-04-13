@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ..context.paths import get_memory_file
+from ..utils import count_text_tokens
 from ..utils.log import logger
 from .base import ConversationDocumentStore
 
@@ -48,6 +49,23 @@ class MemoryDocumentStore(ConversationDocumentStore):
 FileMemoryStorage = MemoryDocumentStore
 MemoryStore = MemoryDocumentStore
 
+_CONSOLIDATION_MESSAGE_TOKEN_BUDGET = 6000
+_MAX_MESSAGE_CHARS = 800
+_MEMORY_TEMPLATE = """# User Preferences
+- 
+
+# Ongoing Tasks
+- 
+
+# Decisions
+- 
+
+# Important Facts
+- 
+
+# Open Issues
+- """
+
 
 _SAVE_MEMORY_TOOL = [
     {
@@ -73,6 +91,45 @@ _SAVE_MEMORY_TOOL = [
 ]
 
 
+def _normalize_message_line(message: dict[str, Any] | Any) -> str | None:
+    if isinstance(message, dict):
+        content = str(message.get("content", "")).strip()
+        role = str(message.get("role", "?")).upper()
+    else:
+        content = str(getattr(message, "content", "")).strip()
+        role = str(getattr(message, "role", "?")).upper()
+
+    if not content:
+        return None
+
+    if len(content) > _MAX_MESSAGE_CHARS:
+        content = content[:_MAX_MESSAGE_CHARS] + f"... (truncated from {len(content)} chars)"
+
+    return f"[{role}]: {content}"
+
+
+def _select_consolidation_lines(messages: list[dict[str, Any] | Any], model: str) -> list[str]:
+    selected_reversed: list[str] = []
+    running_tokens = 0
+
+    for message in reversed(messages):
+        line = _normalize_message_line(message)
+        if line is None:
+            continue
+
+        line_tokens = count_text_tokens(line, model=model)
+        if selected_reversed and running_tokens + line_tokens > _CONSOLIDATION_MESSAGE_TOKEN_BUDGET:
+            break
+        if not selected_reversed and line_tokens > _CONSOLIDATION_MESSAGE_TOKEN_BUDGET:
+            selected_reversed.append(line)
+            break
+
+        selected_reversed.append(line)
+        running_tokens += line_tokens
+
+    return list(reversed(selected_reversed))
+
+
 async def consolidate(
     memory_store: MemoryStore,
     chat_id: str,
@@ -84,29 +141,34 @@ async def consolidate(
     if not messages:
         return True
 
-    lines: list[str] = []
-    for message in messages:
-        if isinstance(message, dict):
-            content = message.get("content", "")
-            role = message.get("role", "?").upper()
-        else:
-            content = getattr(message, "content", "")
-            role = getattr(message, "role", "?").upper()
-
-        if not content:
-            continue
-        lines.append(f"[{role}]: {content}")
+    lines = _select_consolidation_lines(messages, model)
+    if not lines:
+        return True
 
     current_memory = memory_store.read(chat_id)
-    prompt = f"""Process this conversation and call the save_memory tool with important information to remember.
+    memory_seed = current_memory or _MEMORY_TEMPLATE
+    conversation_block = "\n".join(lines)
+    prompt = f"""Review the new conversation segment and update the chat memory.
 
 Current memory:
-{current_memory or "(empty)"}
+{memory_seed}
 
-Conversation:
-{chr(10).join(lines[-20:])}  # Last 20 messages
+New conversation segment:
+{conversation_block}
 
-Extract key facts, preferences, decisions, and important information. Update the memory accordingly."""
+Return the full updated memory as markdown via the save_memory tool.
+
+Rules:
+- Keep the exact section order from the template below.
+- Merge new durable information into the existing memory instead of rewriting everything from scratch.
+- Keep bullets concise and deduplicated.
+- Remove items that are no longer true or have been completed.
+- Prefer stable preferences, ongoing tasks, important decisions, important facts, and unresolved issues.
+- Skip temporary chatter, verbose tool output, raw logs, and details that can be recomputed later.
+- If nothing meaningful changed, return the current memory unchanged.
+
+Required memory template:
+{_MEMORY_TEMPLATE}"""
 
     try:
         response = await provider.chat(
@@ -114,8 +176,8 @@ Extract key facts, preferences, decisions, and important information. Update the
                 {
                     "role": "system",
                     "content": (
-                        "You are a memory consolidation agent. Call the save_memory tool to update "
-                        "long-term memory with important information from the conversation."
+                        "You are a memory consolidation agent. Update long-term memory as structured markdown "
+                        "using the provided template and call the save_memory tool with the full merged result."
                     ),
                 },
                 {"role": "user", "content": prompt},
