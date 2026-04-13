@@ -70,6 +70,34 @@ class ExecTool(Tool):
     def _get_workspace(self) -> Path:
         return self._workspace_resolver()
 
+    @staticmethod
+    async def _read_stream(stream: asyncio.StreamReader | None, chunks: list[bytes]) -> None:
+        if stream is None:
+            return
+
+        while True:
+            chunk = await stream.read(4096)
+            if not chunk:
+                return
+            chunks.append(chunk)
+
+    @staticmethod
+    def _format_output(stdout: bytes | None, stderr: bytes | None) -> str:
+        result = []
+        if stdout:
+            result.append(stdout.decode("utf-8", errors="replace"))
+        if stderr:
+            result.append(f"[stderr] {stderr.decode('utf-8', errors='replace')}")
+
+        output = "".join(result).strip()
+        if not output:
+            output = "(no output)"
+
+        if len(output) > 3000:
+            output = output[:3000] + f"\n\n... (truncated, total {len(output)} chars)"
+
+        return output
+
     @property
     def name(self) -> str:
         return "exec"
@@ -123,31 +151,30 @@ class ExecTool(Tool):
                 stdin=asyncio.subprocess.DEVNULL,
                 cwd=str(workspace)
             )
+            stdout_chunks: list[bytes] = []
+            stderr_chunks: list[bytes] = []
+            stdout_task = asyncio.create_task(self._read_stream(process.stdout, stdout_chunks))
+            stderr_task = asyncio.create_task(self._read_stream(process.stderr, stderr_chunks))
             
             try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(), 
-                    timeout=self.timeout
-                )
+                await asyncio.wait_for(process.wait(), timeout=self.timeout)
             except asyncio.TimeoutError:
                 process.kill()
                 await process.wait()
-                return f"Error: Command timed out after {self.timeout}s"
-            
-            result = []
-            if stdout:
-                result.append(stdout.decode("utf-8", errors="replace"))
-            if stderr:
-                result.append(f"[stderr] {stderr.decode('utf-8', errors='replace')}")
-            
-            output = "".join(result).strip()
-            if not output:
-                output = "(no output)"
-            
-            # Limit output size
-            if len(output) > 3000:
-                output = output[:3000] + f"\n\n... (truncated, total {len(output)} chars)"
-            
-            return output
+                await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
+                stdout = b"".join(stdout_chunks)
+                stderr = b"".join(stderr_chunks)
+                output = self._format_output(stdout, stderr)
+                return (
+                    f"Error: Command timed out after {self.timeout}s. "
+                    "The command may be waiting for interactive input or may be stuck. "
+                    f"Partial output before timeout:\n{output}"
+                )
+
+            await asyncio.gather(stdout_task, stderr_task)
+            stdout = b"".join(stdout_chunks)
+            stderr = b"".join(stderr_chunks)
+
+            return self._format_output(stdout, stderr)
         except Exception as e:
             return f"Error executing command: {str(e)}"

@@ -46,3 +46,18 @@ def test_exec_rejects_overlong_command(tmp_path):
     result = asyncio.run(tool.execute(command="a" * 2001))
 
     assert result == "Error: Command too long for exec (max 2000 chars). Please run a shorter command."
+
+
+def test_exec_timeout_returns_partial_output(tmp_path):
+    tool = ExecTool(workspace=Path(tmp_path), timeout=1)
+    command = (
+        'python -u -c "import time; print(\'waiting for input...\', flush=True); '
+        'time.sleep(2)"'
+    )
+
+    result = asyncio.run(tool.execute(command=command))
+
+    assert "Error: Command timed out after 1s." in result
+    assert "interactive input" in result
+    assert "Partial output before timeout:" in result
+    assert "waiting for input..." in result
