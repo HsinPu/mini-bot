@@ -59,6 +59,12 @@ class RecentSummaryStore:
     def set_processed_index(self, chat_id: str, index: int) -> None:
         self.state.set_processed_index(chat_id, index)
 
+    def clear(self, chat_id: str) -> None:
+        summary_file = self._get_summary_file(chat_id)
+        if summary_file.exists():
+            summary_file.unlink()
+        self.state.set_processed_index(chat_id, 0)
+
 
 def _to_message_dict(message: StoredMessage | dict[str, Any]) -> dict[str, Any]:
     if isinstance(message, dict):

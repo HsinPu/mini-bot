@@ -33,6 +33,7 @@ from ..llms import LLMProvider, ChatMessage
 from ..storage import StorageProvider, StoredMessage
 from ..context.builder import ContextBuilder
 from ..documents.memory import MemoryStore
+from ..context.paths import get_recent_summary_state_file
 from ..documents.recent_summary import RecentSummaryConsolidator, RecentSummaryStore
 from ..media import MediaRouter
 from ..documents.user_profile import UserProfileConsolidator, UserProfileStore
@@ -385,6 +386,12 @@ class AgentLoop:
             enabled=self.recent_summary_config.enabled,
         )
         return RecentSummaryUpdateService(consolidator)
+
+    def _clear_recent_summary(self, chat_id: str) -> None:
+        memory_dir = getattr(self._context_builder, "memory_dir", None)
+        if memory_dir is None:
+            return
+        RecentSummaryStore(memory_dir, get_recent_summary_state_file(memory_dir)).clear(chat_id)
 
     def _register_memory_tool(self) -> None:
         """Register the save_memory tool."""
@@ -905,6 +912,7 @@ class AgentLoop:
         """
         if chat_id:
             await self.storage.clear_messages(chat_id)
+            self._clear_recent_summary(chat_id)
             if self.search_store is not None:
                 try:
                     await self.search_store.clear_chat(chat_id)
@@ -915,6 +923,7 @@ class AgentLoop:
             all_chats = await self.storage.get_all_chats()
             for c in all_chats:
                 await self.storage.clear_messages(c)
+                self._clear_recent_summary(c)
                 if self.search_store is not None:
                     try:
                         await self.search_store.clear_chat(c)

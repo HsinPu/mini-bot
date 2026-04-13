@@ -3,6 +3,7 @@ from pathlib import Path
 
 from opensprite.agent.agent import AgentLoop
 from opensprite.config.schema import AgentConfig, LogConfig, MemoryConfig, SearchConfig, ToolsConfig, UserProfileConfig
+from opensprite.documents.recent_summary import RecentSummaryStore
 from opensprite.storage.base import StoredMessage
 from opensprite.storage.memory import MemoryStorage
 from opensprite.tools.base import Tool
@@ -83,14 +84,24 @@ def test_reset_history_only_clears_target_session(tmp_path):
             search_store=search_store,
         )
 
+        summary_store = RecentSummaryStore(agent.memory.memory_base)
+        summary_store.write("telegram:user-a", "# Active Threads\n- stale context")
+        summary_store.write("telegram:user-b", "# Active Threads\n- keep context")
+        summary_store.set_processed_index("telegram:user-a", 5)
+        summary_store.set_processed_index("telegram:user-b", 7)
+
         await agent.reset_history("telegram:user-a")
 
         messages_a = await storage.get_messages("telegram:user-a")
         messages_b = await storage.get_messages("telegram:user-b")
-        return messages_a, messages_b, search_store.cleared
+        return messages_a, messages_b, search_store.cleared, summary_store
 
-    messages_a, messages_b, cleared = asyncio.run(scenario())
+    messages_a, messages_b, cleared, summary_store = asyncio.run(scenario())
 
     assert messages_a == []
     assert [message.content for message in messages_b] == ["B1"]
     assert cleared == ["telegram:user-a"]
+    assert summary_store.read("telegram:user-a") == ""
+    assert summary_store.read("telegram:user-b") == "# Active Threads\n- keep context"
+    assert summary_store.get_processed_index("telegram:user-a") == 0
+    assert summary_store.get_processed_index("telegram:user-b") == 7

@@ -1,7 +1,9 @@
+import json
+
 import pytest
 from pydantic import ValidationError
 
-from opensprite.config.schema import MCPServerConfig, SpeechConfig, StorageConfig, ToolsConfig, VideoConfig, VisionConfig
+from opensprite.config.schema import Config, MCPServerConfig, SpeechConfig, StorageConfig, ToolsConfig, VideoConfig, VisionConfig
 
 
 def test_storage_config_accepts_supported_types():
@@ -73,3 +75,22 @@ def test_speech_config_requires_api_key_and_model_when_enabled():
 def test_video_config_requires_api_key_and_model_when_enabled():
     with pytest.raises(ValidationError):
         VideoConfig(enabled=True)
+
+
+def test_config_load_defaults_agent_when_section_missing(tmp_path):
+    path = tmp_path / "opensprite.json"
+    path.write_text(
+        json.dumps(
+            {
+                "llm": {"api_key": "key", "model": "gpt", "temperature": 0.7, "max_tokens": 2048},
+                "storage": {"type": "memory", "path": "memory.db"},
+                "channels": {"telegram": {"enabled": False}, "console": {"enabled": True}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = Config.from_json(path)
+
+    assert config.agent is not None
+    assert config.agent.history_token_budget == 80000

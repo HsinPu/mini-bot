@@ -206,6 +206,9 @@ class Config:
         self.speech = speech or SpeechConfig()
         self.video = video or VideoConfig()
 
+        if self.agent is None:
+            self.agent = AgentConfig()
+
     @classmethod
     def from_json(cls, path: str | Path) -> "Config":
         path = Path(path)
