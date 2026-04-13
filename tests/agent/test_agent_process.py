@@ -191,3 +191,30 @@ def test_call_llm_trims_old_history_to_token_budget(tmp_path):
     assert result == "ok"
     assert context_builder.last_history == [{"role": "assistant", "content": "recent message"}]
     assert [message.role for message in captured["messages"]] == ["user"]
+
+
+def test_load_history_uses_agent_max_history(tmp_path):
+    storage = HistoryStorage(
+        [
+            StoredMessage(role="user", content="first", timestamp=1.0),
+            StoredMessage(role="assistant", content="second", timestamp=2.0),
+            StoredMessage(role="user", content="third", timestamp=3.0),
+        ]
+    )
+    agent = AgentLoop(
+        config=AgentConfig(max_history=2),
+        provider=FakeProvider(),
+        storage=storage,
+        context_builder=FakeContextBuilder(tmp_path),
+        tools=ToolRegistry(),
+        memory_config=MemoryConfig(max_history=99),
+        tools_config=ToolsConfig(),
+        log_config=LogConfig(),
+        search_config=SearchConfig(),
+        user_profile_config=UserProfileConfig(enabled=False),
+        recent_summary_config=RecentSummaryConfig(enabled=False),
+    )
+
+    history = asyncio.run(agent._load_history("telegram:room-1"))
+
+    assert [message.content for message in history] == ["second", "third"]

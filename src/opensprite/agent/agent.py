@@ -496,10 +496,10 @@ class AgentLoop:
             ChatMessage 物件列表，供 LLM 使用。
             List of ChatMessage objects for LLM consumption.
         """
-        # 從 storage 取訊息（使用 max_history 限制數量）
+        # 從 storage 取訊息（使用 agent.max_history 限制數量）
         stored_messages = await self.storage.get_messages(
             chat_id, 
-            limit=self.memory_config.max_history
+            limit=self.config.max_history
         )
 
         # 轉換成 ChatMessage 格式
