@@ -7,7 +7,7 @@ from typing import Any
 
 from ..context.paths import get_recent_summary_file, get_recent_summary_state_file
 from ..storage import StoredMessage, StorageProvider
-from ..utils import count_messages_tokens
+from ..utils import count_messages_tokens, count_text_tokens
 from ..utils.log import logger
 from .base import ConversationConsolidator
 from .state import JsonProgressStore
@@ -105,6 +105,9 @@ async def consolidate_recent_summary(
     if not transcript:
         return True
 
+    transcript_tokens = count_text_tokens(transcript, model=model)
+    current_summary_tokens = count_text_tokens(current_summary, model=model) if current_summary else 0
+
     prompt = f"""Review this recent conversation chunk and update the recent summary.
 
 Current recent summary:
@@ -128,6 +131,15 @@ Required template:
 """
 
     try:
+        logger.info(
+            "[{}] recent_summary.prompt | current_chars={} current_tokens={} transcript_chars={} transcript_tokens={} messages={}",
+            chat_id,
+            len(current_summary),
+            current_summary_tokens,
+            len(transcript),
+            transcript_tokens,
+            len(messages),
+        )
         response = await provider.chat(
             messages=[
                 {
@@ -149,9 +161,23 @@ Required template:
             logger.warning("Recent summary consolidation: empty response content")
             return False
 
+        update_tokens = count_text_tokens(update, model=model)
         if update != current_summary:
             summary_store.write(chat_id, update)
-            logger.info("Recent summary updated for chat {}: {} chars", chat_id, len(update))
+            logger.info(
+                "Recent summary updated for chat {}: {} chars ({} tokens, delta_chars={})",
+                chat_id,
+                len(update),
+                update_tokens,
+                len(update) - len(current_summary),
+            )
+        else:
+            logger.info(
+                "Recent summary unchanged for chat {}: {} chars ({} tokens)",
+                chat_id,
+                len(update),
+                update_tokens,
+            )
         return True
     except Exception as exc:
         logger.error("Recent summary consolidation failed: {}", exc)
@@ -209,6 +235,19 @@ class RecentSummaryConsolidator(ConversationConsolidator):
             return
 
         chunk_tokens = count_messages_tokens(chunk, model=self.model)
+        logger.info(
+            "[{}] recent_summary.check | total_messages={} processed_index={} cutoff_index={} pending_messages={} chunk_messages={} chunk_tokens={} threshold={} token_threshold={} keep_last_messages={}",
+            chat_id,
+            message_count,
+            last_processed,
+            cutoff_index,
+            pending,
+            len(chunk),
+            chunk_tokens,
+            self.threshold,
+            self.token_threshold,
+            self.keep_last_messages,
+        )
         if pending < self.threshold and (self.token_threshold <= 0 or chunk_tokens < self.token_threshold):
             return
 
