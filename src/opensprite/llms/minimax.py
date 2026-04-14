@@ -26,6 +26,13 @@ def _coerce_content(content: Any) -> str:
     return str(content)
 
 
+def _preview_text(value: Any, max_chars: int = 240) -> str:
+    text = _coerce_content(value).replace("\n", "\\n")
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 3] + "..."
+
+
 class MiniMaxLLM(LLMProvider):
     """
     MiniMax LLM 實作
@@ -84,7 +91,19 @@ class MiniMaxLLM(LLMProvider):
                 if m.tool_calls:
                     msg["tool_calls"] = m.tool_calls
             api_messages.append(msg)
-        
+
+        for index, msg in enumerate(api_messages, start=1):
+            content = msg.get("content", "")
+            text = content if isinstance(content, str) else _coerce_content(content)
+            if "<system-reminder>" not in text:
+                continue
+            logger.warning(
+                "MiniMax request contains system-reminder: index={} role={} preview={}",
+                index,
+                msg.get("role", "?"),
+                _preview_text(text),
+            )
+
         # API 參數
         params = {
             "model": model or self.default_model,
