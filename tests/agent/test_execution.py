@@ -115,6 +115,59 @@ def test_execution_engine_falls_back_after_second_blank_visible_response():
     assert len(provider.calls) == 2
 
 
+def test_execution_engine_uses_sanitized_empty_retry_message_for_hidden_only_content():
+    provider = FakeProvider(
+        [
+            LLMResponse(content="<think>secret</think>", model="fake-model"),
+            LLMResponse(content="retry ok", model="fake-model"),
+        ]
+    )
+    engine = _make_engine(
+        provider,
+        ToolRegistry(),
+        [],
+        tools_config=ToolsConfig(max_tool_iterations=3),
+    )
+    engine.sanitize_response_content = lambda text: "" if "<think>" in text else text.strip()
+
+    result = asyncio.run(
+        engine.execute_messages("chat-1", [ChatMessage(role="user", content="hi")], allow_tools=False)
+    )
+
+    assert result == "retry ok"
+    assert len(provider.calls) == 2
+    assert (
+        provider.calls[1]["messages"][-1].content
+        == ExecutionEngine.SANITIZED_EMPTY_RESPONSE_RETRY_MESSAGE
+    )
+
+
+def test_execution_engine_returns_tool_loop_specific_fallback_after_blank_final_answer():
+    registry = ToolRegistry()
+    registry.register(DummyTool())
+    provider = FakeProvider(
+        [
+            LLMResponse(
+                content="",
+                model="fake-model",
+                tool_calls=[ToolCall(id="tc1", name="demo_tool", arguments={"value": "abc"})],
+            ),
+            LLMResponse(content="<think>hidden</think>", model="fake-model"),
+            LLMResponse(content="", model="fake-model"),
+        ]
+    )
+    save_calls = []
+    engine = _make_engine(provider, registry, save_calls)
+    engine.sanitize_response_content = lambda text: "" if "<think>" in text else text.strip()
+
+    result = asyncio.run(
+        engine.execute_messages("chat-1", [ChatMessage(role="user", content="hi")], allow_tools=True)
+    )
+
+    assert result == ExecutionEngine.TOOL_LOOP_EMPTY_RESPONSE_FALLBACK
+    assert len(provider.calls) == 3
+
+
 def test_execution_engine_returns_max_iteration_message_when_tool_loop_never_finishes():
     registry = ToolRegistry()
     registry.register(DummyTool())
@@ -182,3 +235,48 @@ def test_execution_engine_stops_after_repeated_missing_required_tool_errors():
     assert "我重複嘗試呼叫工具，但仍然缺少必要參數而無法繼續。" in result
     assert "Missing required argument(s) for write_file" in result
     assert len(provider.calls) == 2
+
+
+def test_execution_engine_slims_tool_result_for_context_but_persists_full_result():
+    class VerboseTool(Tool):
+        @property
+        def name(self) -> str:
+            return "verbose_tool"
+
+        @property
+        def description(self) -> str:
+            return "Verbose tool"
+
+        @property
+        def parameters(self) -> dict:
+            return {"type": "object", "properties": {}}
+
+        async def execute(self, **kwargs) -> str:
+            return "A" * 2000 + "TAIL"
+
+    registry = ToolRegistry()
+    registry.register(VerboseTool())
+    provider = FakeProvider(
+        [
+            LLMResponse(
+                content="need tool",
+                model="fake-model",
+                tool_calls=[ToolCall(id="tc1", name="verbose_tool", arguments={})],
+            ),
+            LLMResponse(content="done", model="fake-model"),
+        ]
+    )
+    save_calls = []
+    engine = _make_engine(provider, registry, save_calls)
+    messages = [ChatMessage(role="user", content="hi")]
+
+    result = asyncio.run(
+        engine.execute_messages("chat-1", messages, allow_tools=True, tool_result_chat_id="chat-1")
+    )
+
+    assert result == "done"
+    assert save_calls == [("chat-1", "tool", "A" * 2000 + "TAIL", "verbose_tool")]
+    assert messages[-1].role == "tool"
+    assert "Output truncated for context" in messages[-1].content
+    assert len(messages[-1].content) < len("A" * 2000 + "TAIL")
+    assert messages[-1].content.endswith("TAIL")

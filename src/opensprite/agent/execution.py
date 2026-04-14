@@ -48,9 +48,18 @@ class ExecutionEngine:
     """Run the LLM and tool-calling loop for prepared chat messages."""
 
     REPEATED_TOOL_ERROR_LIMIT = 2
+    TOOL_RESULT_MAX_CHARS = 1200
     EMPTY_RESPONSE_RETRY_MESSAGE = (
         "Previous attempt produced no visible user-facing text. "
         "Please answer again with a direct, displayable reply for the user."
+    )
+    SANITIZED_EMPTY_RESPONSE_RETRY_MESSAGE = (
+        "Previous attempt only contained hidden control content and no displayable user-facing text. "
+        "Do not output <think> or <thinking> tags. If you need tools, call them. Otherwise answer now in plain visible text for the user."
+    )
+    TOOL_LOOP_EMPTY_RESPONSE_FALLBACK = (
+        "抱歉，我已執行工具，但模型沒有產生可顯示的最終回覆。"
+        "請再試一次，或把任務拆成更小步驟。"
     )
 
     def __init__(
@@ -85,6 +94,36 @@ class ExecutionEngine:
         if result.startswith("Error: Missing required argument"):
             return result
         return None
+
+    @classmethod
+    def _summarize_tool_result_for_context(cls, tool_name: str, result: str) -> str:
+        """Shrink verbose tool output before feeding it back into the LLM loop."""
+        text = result.strip()
+        if len(text) <= cls.TOOL_RESULT_MAX_CHARS:
+            return text
+
+        head_limit = cls.TOOL_RESULT_MAX_CHARS // 2
+        tail_limit = cls.TOOL_RESULT_MAX_CHARS - head_limit
+        head = text[:head_limit].rstrip()
+        tail = text[-tail_limit:].lstrip()
+        return (
+            f"[tool:{tool_name}] Output truncated for context. Full result was persisted separately "
+            f"({len(text)} chars total).\n"
+            f"--- BEGIN HEAD ---\n{head}\n"
+            f"--- MIDDLE TRUNCATED ---\n"
+            f"--- END TAIL ---\n{tail}"
+        )
+
+    @staticmethod
+    def _summarize_tool_names(tool_calls: list[Any] | None) -> str:
+        """Build a compact tool name list for diagnostics."""
+        if not tool_calls:
+            return "-"
+        names = [getattr(tc, "name", "") or "<unknown>" for tc in tool_calls]
+        preview = ", ".join(names[:5])
+        if len(names) > 5:
+            preview += f", ... (+{len(names) - 5} more)"
+        return preview
 
     async def execute_messages(
         self,
@@ -126,14 +165,18 @@ class ExecutionEngine:
 
             raw_content = response.content or ""
             response.content = self.sanitize_response_content(raw_content)
+            sanitized_became_empty = bool(raw_content.strip() and not response.content)
+            tool_calls_count = len(response.tool_calls or [])
             logger.info(
                 f"[{log_id}] llm.response | iter={iteration + 1} model={response.model} raw_len={len(raw_content)} "
-                f"visible_len={len(response.content)} tool_calls={len(response.tool_calls or [])} "
+                f"visible_len={len(response.content)} tool_calls={tool_calls_count} "
                 f"preview={self.format_log_preview(response.content)}"
             )
-            if raw_content and not response.content:
+            if sanitized_became_empty:
                 logger.warning(
-                    f"[{log_id}] llm.sanitized-empty | iter={iteration + 1} raw_preview={self.format_log_preview(raw_content, max_chars=240)}"
+                    f"[{log_id}] llm.sanitized-empty | iter={iteration + 1} raw_len={len(raw_content)} raw_non_ws={len(raw_content.strip())} "
+                    f"tool_calls={tool_calls_count} tools={self._summarize_tool_names(response.tool_calls)} "
+                    f"raw_preview={self.format_log_preview(raw_content, max_chars=240)}"
                 )
 
             if response.tool_calls:
@@ -146,7 +189,10 @@ class ExecutionEngine:
 
                     return response.content
 
-                logger.info(f"[{log_id}] llm.tool-calls | iter={iteration + 1} count={len(response.tool_calls)}")
+                logger.info(
+                    f"[{log_id}] llm.tool-calls | iter={iteration + 1} count={len(response.tool_calls)} "
+                    f"tools={self._summarize_tool_names(response.tool_calls)} visible_len={len(response.content)}"
+                )
 
                 tool_calls_api = []
                 for tc in response.tool_calls:
@@ -198,9 +244,10 @@ class ExecutionEngine:
                         repeated_tool_error_count = 0
 
                     tool_results_history.append(f"{tool_name}: {result[:200]}")
+                    context_result = self._summarize_tool_result_for_context(tool_name, result)
                     chat_messages.append(ChatMessage(
                         role="tool",
-                        content=result,
+                        content=context_result,
                         tool_call_id=tc.id,
                     ))
 
@@ -216,16 +263,34 @@ class ExecutionEngine:
             if not response.content:
                 if not empty_response_retried:
                     empty_response_retried = True
-                    logger.warning(f"[{log_id}] llm.empty-visible-response | retrying_once=true")
+                    logger.warning(
+                        f"[{log_id}] llm.empty-visible-response | iter={iteration + 1} retrying_once=true "
+                        f"sanitized_from_nonempty={'true' if sanitized_became_empty else 'false'} "
+                        f"tool_history_count={len(tool_results_history)}"
+                    )
                     chat_messages.append(
                         ChatMessage(
                             role="system",
-                            content=self.EMPTY_RESPONSE_RETRY_MESSAGE,
+                            content=(
+                                self.SANITIZED_EMPTY_RESPONSE_RETRY_MESSAGE
+                                if sanitized_became_empty
+                                else self.EMPTY_RESPONSE_RETRY_MESSAGE
+                            ),
                         )
                     )
                     continue
 
-                logger.warning(f"[{log_id}] llm.empty-visible-response | using_fallback=true")
+                logger.warning(
+                    f"[{log_id}] llm.empty-visible-response | iter={iteration + 1} using_fallback=true "
+                    f"sanitized_from_nonempty={'true' if sanitized_became_empty else 'false'} "
+                    f"tool_history_count={len(tool_results_history)}"
+                )
+                if tool_results_history:
+                    logger.warning(
+                        f"[{log_id}] llm.tool-loop-empty-final | iter={iteration + 1} "
+                        f"tool_history_tail={tool_results_history[-3:]}"
+                    )
+                    return self.TOOL_LOOP_EMPTY_RESPONSE_FALLBACK
                 return self.empty_response_fallback
 
             return response.content
