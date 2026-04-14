@@ -216,6 +216,12 @@ class ExecutionEngine:
                 logger.warning(
                     f"[{log_id}] llm.raw-hidden-blocks | iter={iteration + 1} raw_content={raw_content[:500]}"
                 )
+                if "<system-reminder>" in raw_content:
+                    logger.warning(
+                        f"[{log_id}] llm.system-reminder-hidden | iter={iteration + 1} raw_len={len(raw_content)} "
+                        f"visible_len={len(response.content)} tool_calls={tool_calls_count} "
+                        f"tools={self._summarize_tool_names(response.tool_calls)}"
+                    )
 
             if response.tool_calls:
                 if not tools:

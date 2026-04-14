@@ -33,6 +33,10 @@ def _preview_text(value: Any, max_chars: int = 240) -> str:
     return text[: max_chars - 3] + "..."
 
 
+def _contains_system_reminder(value: Any) -> bool:
+    return "<system-reminder>" in _coerce_content(value)
+
+
 class MiniMaxLLM(LLMProvider):
     """
     MiniMax LLM 實作
@@ -92,16 +96,25 @@ class MiniMaxLLM(LLMProvider):
                     msg["tool_calls"] = m.tool_calls
             api_messages.append(msg)
 
+        request_reminder_hits: list[str] = []
         for index, msg in enumerate(api_messages, start=1):
             content = msg.get("content", "")
             text = content if isinstance(content, str) else _coerce_content(content)
-            if "<system-reminder>" not in text:
+            if not _contains_system_reminder(text):
                 continue
+            request_reminder_hits.append(f"{index}:{msg.get('role', '?')}")
             logger.warning(
-                "MiniMax request contains system-reminder: index={} role={} preview={}",
+                "MiniMax request contains system-reminder: index={} role={} len={} preview={}",
                 index,
                 msg.get("role", "?"),
+                len(text),
                 _preview_text(text),
+            )
+        if request_reminder_hits:
+            logger.warning(
+                "MiniMax request system-reminder summary: message_count={} hits={}",
+                len(api_messages),
+                ", ".join(request_reminder_hits),
             )
 
         # API 參數
@@ -174,19 +187,34 @@ class MiniMaxLLM(LLMProvider):
             len(raw_message_content) if raw_message_content else 0,
             (raw_message_content[:500] if raw_message_content else "")[:200],
         )
+        if _contains_system_reminder(raw_message_content):
+            logger.warning(
+                "MiniMax response contains system-reminder: len={} tool_calls_count={} preview={}",
+                len(raw_message_content),
+                _safe_len(getattr(message, "tool_calls", None)),
+                _preview_text(raw_message_content),
+            )
 
         # Log raw tool calls for debugging
         raw_tool_calls = getattr(message, "tool_calls", None)
         if raw_tool_calls:
             for tc in raw_tool_calls:
                 func = getattr(tc, "function", None)
+                raw_arguments = getattr(func, "arguments", None)
                 logger.info(
                     "MiniMax raw tool_call: id={}, name={}, arguments_type={}, arguments_preview={}",
                     getattr(tc, "id", None),
                     getattr(func, "name", None),
-                    type(getattr(func, "arguments", None)).__name__,
-                    str(getattr(func, "arguments", ""))[:200] if getattr(func, "arguments", None) else "None",
+                    type(raw_arguments).__name__,
+                    str(raw_arguments)[:200] if raw_arguments is not None else "None",
                 )
+                if _contains_system_reminder(raw_arguments):
+                    logger.warning(
+                        "MiniMax tool_call arguments contain system-reminder: id={} name={} preview={}",
+                        getattr(tc, "id", None),
+                        getattr(func, "name", None),
+                        _preview_text(raw_arguments),
+                    )
 
         if message is None:
             logger.warning("MiniMax response missing message payload; returning empty response")
