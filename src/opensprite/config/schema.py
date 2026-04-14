@@ -152,7 +152,6 @@ class ToolsConfig(BaseModel):
 
 class MemoryConfig(BaseModel):
     """Memory configurations."""
-    max_history: int = 300
     threshold: int = 50  # Trigger consolidation after this many messages
     token_threshold: int = 120000
 
@@ -319,7 +318,6 @@ class Config:
                 "history_token_budget": self.agent.history_token_budget,
             },
             "memory": {
-                "max_history": self.memory.max_history,
                 "threshold": self.memory.threshold,
                 "token_threshold": self.memory.token_threshold,
             },

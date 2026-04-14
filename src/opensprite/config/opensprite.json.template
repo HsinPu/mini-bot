@@ -79,7 +79,6 @@
     "history_token_budget": 140000
   },
   "memory": {
-    "max_history": 300,
     "threshold": 50,
     "token_threshold": 120000
   },

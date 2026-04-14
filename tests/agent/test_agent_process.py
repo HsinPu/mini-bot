@@ -207,7 +207,7 @@ def test_load_history_uses_agent_max_history(tmp_path):
         storage=storage,
         context_builder=FakeContextBuilder(tmp_path),
         tools=ToolRegistry(),
-        memory_config=MemoryConfig(max_history=99),
+        memory_config=MemoryConfig(),
         tools_config=ToolsConfig(),
         log_config=LogConfig(),
         search_config=SearchConfig(),
