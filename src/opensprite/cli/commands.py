@@ -28,6 +28,8 @@ service_app = typer.Typer(help="Manage the Linux systemd user service.")
 app.add_typer(service_app, name="service")
 cron_app = typer.Typer(help="Manage per-session scheduled jobs.")
 app.add_typer(cron_app, name="cron")
+search_app = typer.Typer(help="Manage the SQLite search index.")
+app.add_typer(search_app, name="search")
 
 
 def version_callback(value: bool) -> None:
@@ -128,8 +130,9 @@ def _emit_status(payload: dict[str, object], json_output: bool) -> None:
     typer.echo(f"Model: {provider['model']}")
     typer.echo(f"Storage: {storage['type']} -> {storage['path']}")
     typer.echo(
-        f"Search: {search['provider']} "
-        f"(enabled={_format_presence(bool(search['enabled']))}) -> {search['path']}"
+        "Search: "
+        f"enabled={_format_presence(bool(search['enabled']))} "
+        f"(history_top_k={search['history_top_k']}, knowledge_top_k={search['knowledge_top_k']})"
     )
     typer.echo(
         "Channels: " + (", ".join(enabled_channels) if enabled_channels else "none enabled")
@@ -310,6 +313,36 @@ def gateway(
     _start_gateway(config=config)
 
 
+@search_app.command("rebuild")
+def search_rebuild(
+    config: str | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to an OpenSprite JSON config file.",
+    ),
+    chat_id: str | None = typer.Option(
+        None,
+        "--chat-id",
+        help="Optional chat id to rebuild instead of rebuilding the full index.",
+    ),
+) -> None:
+    """Rebuild the SQLite search index from stored messages."""
+    try:
+        loaded, search_store = _load_sqlite_search_store(config)
+        result = asyncio.run(search_store.rebuild_index(chat_id=chat_id))
+    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+        _handle_search_error(exc)
+
+    scope = chat_id or "all chats"
+    typer.echo(f"Rebuilt search index for {scope}.")
+    typer.echo(f"Storage DB: {Path(loaded.storage.path).expanduser()}")
+    typer.echo(f"Chats: {result['chat_count']}")
+    typer.echo(f"Messages: {result['message_count']}")
+    typer.echo(f"Knowledge sources: {result['knowledge_count']}")
+    typer.echo(f"Chunks: {result['chunk_count']}")
+
+
 def _handle_service_error(exc: Exception) -> None:
     """Render a service-management error and exit non-zero."""
     typer.secho(f"Error: {exc}", fg=typer.colors.RED, err=True)
@@ -322,9 +355,30 @@ def _handle_cron_error(exc: Exception | str) -> None:
     raise typer.Exit(code=1)
 
 
+def _handle_search_error(exc: Exception | str) -> None:
+    """Render a search-management error and exit non-zero."""
+    typer.secho(f"Error: {exc}", fg=typer.colors.RED, err=True)
+    raise typer.Exit(code=1)
+
+
 def _resolve_workspace_root() -> Path:
     """Resolve the default workspace root used by cron CLI commands."""
     return get_tool_workspace()
+
+
+def _load_sqlite_search_store(config: str | None = None):
+    """Load the configured SQLite search store or fail with a clear message."""
+    from ..config import Config
+    from ..runtime import create_search_store
+    from ..search.sqlite_store import SQLiteSearchStore
+
+    loaded = Config.load(_resolve_config_path(config))
+    search_store = create_search_store(loaded)
+    if search_store is None:
+        raise ValueError("search.enabled=false; enable search first")
+    if not isinstance(search_store, SQLiteSearchStore):
+        raise ValueError("configured search backend does not support rebuild")
+    return loaded, search_store
 
 
 def _get_cron_service(session: str) -> CronService:

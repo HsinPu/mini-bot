@@ -8,8 +8,8 @@ import time
 from pathlib import Path
 
 from .base import SearchHit, SearchStore
-from .indexing import build_history_chunks, build_knowledge_documents
-from ..storage.base import StorageProvider
+from .indexing import build_history_chunks, build_knowledge_documents, build_knowledge_documents_from_message
+from ..storage.base import StorageProvider, StoredMessage
 from ..storage.sqlite import (
     ensure_sqlite_schema,
     find_message_owner_id,
@@ -169,6 +169,93 @@ class SQLiteSearchStore(SearchStore):
                 conn.execute("DELETE FROM search_chunks WHERE chat_id = ?", (chat_id,))
                 conn.execute("DELETE FROM knowledge_sources WHERE chat_id = ?", (chat_id,))
                 conn.commit()
+            finally:
+                conn.close()
+
+    async def rebuild_index(self, chat_id: str | None = None) -> dict[str, int]:
+        """Rebuild indexed history and knowledge rows from persisted messages."""
+        async with self._lock:
+            conn = self._get_conn()
+            try:
+                ensure_sqlite_schema(conn)
+                conn.execute("BEGIN")
+                if chat_id:
+                    conn.execute("DELETE FROM search_chunks WHERE chat_id = ?", (chat_id,))
+                    conn.execute("DELETE FROM knowledge_sources WHERE chat_id = ?", (chat_id,))
+                    rows = conn.execute(
+                        """
+                        SELECT id, chat_id, role, content, tool_name, created_at
+                        FROM messages
+                        WHERE chat_id = ?
+                        ORDER BY id ASC
+                        """,
+                        (chat_id,),
+                    ).fetchall()
+                else:
+                    conn.execute("DELETE FROM search_chunks")
+                    conn.execute("DELETE FROM knowledge_sources")
+                    rows = conn.execute(
+                        """
+                        SELECT id, chat_id, role, content, tool_name, created_at
+                        FROM messages
+                        ORDER BY chat_id ASC, id ASC
+                        """
+                    ).fetchall()
+
+                message_count = 0
+                knowledge_count = 0
+                chunk_count = 0
+                for row in rows:
+                    created_at = float(row["created_at"] or 0)
+                    history_chunks = build_history_chunks(
+                        role=str(row["role"]),
+                        content=str(row["content"]),
+                        tool_name=row["tool_name"],
+                        created_at=created_at,
+                        chunk_size=self.chunk_size,
+                        chunk_overlap=self.chunk_overlap,
+                    )
+                    insert_search_chunks(
+                        conn,
+                        chat_id=str(row["chat_id"]),
+                        owner_type="message",
+                        owner_id=int(row["id"]),
+                        chunks=history_chunks,
+                    )
+                    chunk_count += len(history_chunks)
+                    message_count += 1
+
+                    message = StoredMessage(
+                        role=str(row["role"]),
+                        content=str(row["content"]),
+                        timestamp=created_at,
+                        tool_name=row["tool_name"],
+                    )
+                    documents = build_knowledge_documents_from_message(
+                        message,
+                        chunk_size=self.chunk_size,
+                        chunk_overlap=self.chunk_overlap,
+                    )
+                    for document in documents:
+                        insert_knowledge_document(
+                            conn,
+                            chat_id=str(row["chat_id"]),
+                            document=document,
+                            created_at=created_at,
+                        )
+                        knowledge_count += 1
+                        chunk_count += len(document.chunks)
+
+                conn.commit()
+                return {
+                    "chat_count": len({str(row["chat_id"]) for row in rows}),
+                    "message_count": message_count,
+                    "knowledge_count": knowledge_count,
+                    "chunk_count": chunk_count,
+                }
+            except Exception:
+                conn.rollback()
+                raise
             finally:
                 conn.close()
 
