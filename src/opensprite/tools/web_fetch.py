@@ -788,13 +788,19 @@ class WebFetchTool(Tool):
         ).fetch(url)
         return json.dumps(
             {
+                "type": "web_fetch",
+                "query": url,
                 "url": result.get("url"),
-                "finalUrl": result.get("finalUrl"),
-                "status": result.get("status"),
+                "final_url": result.get("finalUrl"),
                 "title": result.get("title"),
+                "content": result.get("text"),
+                "summary": result.get("title") or result.get("url") or url,
+                "provider": "web_fetch",
                 "extractor": result.get("extractor"),
+                "status": result.get("status"),
+                "content_type": result.get("contentType"),
                 "truncated": result.get("truncated"),
-                "text": result.get("text"),
+                "items": [],
             },
             ensure_ascii=False,
         )

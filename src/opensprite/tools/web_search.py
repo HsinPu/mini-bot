@@ -55,8 +55,8 @@ def _extract_duckduckgo_url(href: str) -> str:
 
 
 def _format_results(query: str, items: list[dict[str, Any]], n: int, *, provider: str) -> str:
-    """Format search results into a structured JSON payload."""
-    normalized_items = []
+    """Format search results into the shared web payload schema."""
+    normalized_items: list[dict[str, str]] = []
     for item in items[:n]:
         normalized_items.append(
             {
@@ -67,9 +67,18 @@ def _format_results(query: str, items: list[dict[str, Any]], n: int, *, provider
         )
     return json.dumps(
         {
+            "type": "web_search",
             "query": query,
+            "url": "",
+            "final_url": "",
+            "title": "",
+            "content": "",
+            "summary": f"Search results for: {query}",
             "provider": provider,
-            "results": normalized_items,
+            "extractor": "search",
+            "status": None,
+            "content_type": "application/json",
+            "items": normalized_items,
         },
         ensure_ascii=False,
     )

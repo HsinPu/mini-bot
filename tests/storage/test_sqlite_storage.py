@@ -23,7 +23,28 @@ def test_sqlite_storage_migrates_legacy_sessions_and_drops_table(tmp_path):
         {"role": "user", "content": "Please keep sqlite fts docs handy", "timestamp": 1.0},
         {
             "role": "tool",
-            "content": "Results for: sqlite fts5\n\n1. SQLite FTS5\n   https://sqlite.org/fts5.html\n   Official full text search docs",
+            "content": json.dumps(
+                {
+                    "type": "web_search",
+                    "query": "sqlite fts5",
+                    "url": "",
+                    "final_url": "",
+                    "title": "",
+                    "content": "",
+                    "summary": "Search results for: sqlite fts5",
+                    "provider": "duckduckgo",
+                    "extractor": "search",
+                    "status": None,
+                    "content_type": "application/json",
+                    "items": [
+                        {
+                            "title": "SQLite FTS5",
+                            "url": "https://sqlite.org/fts5.html",
+                            "content": "Official full text search docs",
+                        }
+                    ],
+                }
+            ),
             "timestamp": 2.0,
             "tool_name": "web_search",
         },
@@ -31,10 +52,19 @@ def test_sqlite_storage_migrates_legacy_sessions_and_drops_table(tmp_path):
             "role": "tool",
             "content": json.dumps(
                 {
+                    "type": "web_fetch",
+                    "query": "https://sqlite.org/fts5.html",
                     "title": "SQLite FTS5",
                     "url": "https://sqlite.org/fts5.html",
-                    "finalUrl": "https://sqlite.org/fts5.html",
-                    "text": "SQLite FTS5 supports full text search in a single database.",
+                    "final_url": "https://sqlite.org/fts5.html",
+                    "content": "SQLite FTS5 supports full text search in a single database.",
+                    "summary": "SQLite FTS5",
+                    "provider": "web_fetch",
+                    "extractor": "trafilatura",
+                    "status": 200,
+                    "content_type": "text/html",
+                    "truncated": False,
+                    "items": [],
                 }
             ),
             "timestamp": 3.0,

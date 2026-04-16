@@ -42,9 +42,18 @@ def test_sqlite_search_store_indexes_and_filters_history_and_knowledge(tmp_path)
             tool_args={"query": "sqlite fts5"},
             result=json.dumps(
                 {
+                    "type": "web_search",
                     "query": "sqlite fts5",
+                    "url": "",
+                    "final_url": "",
+                    "title": "",
+                    "content": "",
+                    "summary": "Search results for: sqlite fts5",
                     "provider": "duckduckgo",
-                    "results": [
+                    "extractor": "search",
+                    "status": None,
+                    "content_type": "application/json",
+                    "items": [
                         {
                             "title": "SQLite FTS5",
                             "url": "https://sqlite.org/fts5.html",
@@ -61,10 +70,19 @@ def test_sqlite_search_store_indexes_and_filters_history_and_knowledge(tmp_path)
             tool_args={"url": "https://sqlite.org/fts5.html"},
             result=json.dumps(
                 {
+                    "type": "web_fetch",
+                    "query": "https://sqlite.org/fts5.html",
                     "title": "SQLite FTS5",
                     "url": "https://sqlite.org/fts5.html",
-                    "finalUrl": "https://sqlite.org/fts5.html",
-                    "text": "SQLite FTS5 supports full text search docs and examples.",
+                    "final_url": "https://sqlite.org/fts5.html",
+                    "content": "SQLite FTS5 supports full text search docs and examples.",
+                    "summary": "SQLite FTS5",
+                    "provider": "web_fetch",
+                    "extractor": "trafilatura",
+                    "status": 200,
+                    "content_type": "text/html",
+                    "truncated": False,
+                    "items": [],
                 }
             ),
             created_at=12.0,
@@ -123,9 +141,18 @@ def test_sqlite_search_store_sync_backfills_existing_messages(tmp_path):
                 role="tool",
                 content=json.dumps(
                     {
+                        "type": "web_search",
                         "query": "sqlite fts5",
+                        "url": "",
+                        "final_url": "",
+                        "title": "",
+                        "content": "",
+                        "summary": "Search results for: sqlite fts5",
                         "provider": "duckduckgo",
-                        "results": [
+                        "extractor": "search",
+                        "status": None,
+                        "content_type": "application/json",
+                        "items": [
                             {
                                 "title": "SQLite FTS5",
                                 "url": "https://sqlite.org/fts5.html",

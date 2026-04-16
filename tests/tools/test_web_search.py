@@ -20,9 +20,18 @@ def test_format_results_returns_structured_json_payload():
     parsed = json.loads(payload)
 
     assert parsed == {
+        "type": "web_search",
         "query": "sqlite fts5",
+        "url": "",
+        "final_url": "",
+        "title": "",
+        "content": "",
+        "summary": "Search results for: sqlite fts5",
         "provider": "duckduckgo",
-        "results": [
+        "extractor": "search",
+        "status": None,
+        "content_type": "application/json",
+        "items": [
             {
                 "title": "SQLite FTS5",
                 "url": "https://sqlite.org/fts5.html",

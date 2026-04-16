@@ -58,9 +58,18 @@ def test_search_rebuild_cli_rebuilds_index_from_messages(tmp_path):
                 role="tool",
                 content=json.dumps(
                     {
+                        "type": "web_search",
                         "query": "sqlite fts5",
+                        "url": "",
+                        "final_url": "",
+                        "title": "",
+                        "content": "",
+                        "summary": "Search results for: sqlite fts5",
                         "provider": "duckduckgo",
-                        "results": [
+                        "extractor": "search",
+                        "status": None,
+                        "content_type": "application/json",
+                        "items": [
                             {
                                 "title": "SQLite FTS5",
                                 "url": "https://sqlite.org/fts5.html",

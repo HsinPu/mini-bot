@@ -162,9 +162,15 @@ def guess_tool_name(content: str) -> str | None:
             payload = json.loads(stripped)
         except Exception:
             return None
-        if isinstance(payload, dict) and "query" in payload and isinstance(payload.get("results"), list):
+        if isinstance(payload, dict) and (
+            payload.get("type") == "web_search"
+            or ("query" in payload and isinstance(payload.get("items", payload.get("results")), list))
+        ):
             return "web_search"
-        if isinstance(payload, dict) and ("url" in payload or "finalUrl" in payload) and "text" in payload:
+        if isinstance(payload, dict) and (
+            payload.get("type") == "web_fetch"
+            or (("url" in payload or "finalUrl" in payload or "final_url" in payload) and ("text" in payload or "content" in payload))
+        ):
             return "web_fetch"
     return None
 
@@ -179,7 +185,7 @@ def parse_web_search_results(result: str) -> tuple[str, list[dict[str, str]]]:
             payload = None
         if isinstance(payload, dict):
             query = str(payload.get("query", "") or "")
-            raw_results = payload.get("results", [])
+            raw_results = payload.get("items", payload.get("results", []))
             items: list[dict[str, str]] = []
             if isinstance(raw_results, list):
                 for item in raw_results:
@@ -272,8 +278,8 @@ def _build_web_fetch_documents(
         payload = json.loads(result)
         if isinstance(payload, dict):
             title = str(payload.get("title", "") or "")
-            url = str(payload.get("finalUrl", payload.get("url", query)) or query)
-            content = str(payload.get("text", result) or result)
+            url = str(payload.get("final_url", payload.get("finalUrl", payload.get("url", query))) or query)
+            content = str(payload.get("content", payload.get("text", result)) or result)
     except Exception:
         pass
 
