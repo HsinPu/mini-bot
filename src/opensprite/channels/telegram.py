@@ -19,7 +19,7 @@ from typing import Any
 from telegram import Update
 from telegram.constants import ChatAction
 from telegram.error import NetworkError, TimedOut
-from telegram.ext import Application
+from telegram.ext import Application, filters
 
 from ..bus.message import MessageAdapter, UserMessage, AssistantMessage
 from ..utils.log import logger
@@ -184,6 +184,19 @@ class TelegramAdapter(MessageAdapter):
             if callable(method):
                 builder = method(self._get_int(key))
         return builder.build()
+
+    @staticmethod
+    def _supported_message_filters():
+        """Return the Telegram message types handled by this adapter."""
+        return (
+            filters.TEXT
+            | filters.PHOTO
+            | filters.VOICE
+            | filters.AUDIO
+            | filters.VIDEO
+            | filters.VIDEO_NOTE
+            | filters.ANIMATION
+        ) & ~filters.COMMAND
 
     async def _shutdown_app(self) -> None:
         """Best-effort cleanup for partially started Telegram applications."""
@@ -663,8 +676,9 @@ class TelegramAdapter(MessageAdapter):
                 # 這裡需要傳入 agent，暫時不支援
                 raise RuntimeError("請传入 mq (MessageQueue) 來啟動")
         
-        from telegram.ext import MessageHandler, filters
-        self.app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO) & ~filters.COMMAND, handle_update))
+        from telegram.ext import MessageHandler
+
+        self.app.add_handler(MessageHandler(self._supported_message_filters(), handle_update))
 
         if self.mq is None:
             raise RuntimeError("請传入 mq (MessageQueue) 來啟動")

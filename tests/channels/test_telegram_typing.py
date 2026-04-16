@@ -2,6 +2,7 @@ import asyncio
 from types import SimpleNamespace
 
 from telegram import Update
+from telegram.ext import filters
 
 from opensprite.bus.message import AssistantMessage
 from opensprite.channels.telegram import TelegramAdapter
@@ -84,3 +85,59 @@ def test_to_user_message_sets_session_chat_id_for_typing():
 
     assert user_message.chat_id == "12345"
     assert user_message.session_chat_id == "telegram:12345"
+
+
+def test_supported_message_filters_include_media_updates():
+    message_filter = TelegramAdapter._supported_message_filters()
+
+    voice_update = Update.de_json(
+        {
+            "update_id": 1,
+            "message": {
+                "message_id": 10,
+                "date": 1710000000,
+                "chat": {"id": 12345, "type": "private"},
+                "from": {"id": 67890, "is_bot": False, "first_name": "Test"},
+                "voice": {"file_id": "voice-1", "file_unique_id": "voice-u-1", "duration": 1},
+            },
+        },
+        bot=None,
+    )
+    video_update = Update.de_json(
+        {
+            "update_id": 2,
+            "message": {
+                "message_id": 11,
+                "date": 1710000001,
+                "chat": {"id": 12345, "type": "private"},
+                "from": {"id": 67890, "is_bot": False, "first_name": "Test"},
+                "video": {
+                    "file_id": "video-1",
+                    "file_unique_id": "video-u-1",
+                    "width": 16,
+                    "height": 16,
+                    "duration": 1,
+                },
+            },
+        },
+        bot=None,
+    )
+    command_update = Update.de_json(
+        {
+            "update_id": 3,
+            "message": {
+                "message_id": 12,
+                "date": 1710000002,
+                "chat": {"id": 12345, "type": "private"},
+                "from": {"id": 67890, "is_bot": False, "first_name": "Test"},
+                "text": "/start",
+                "entities": [{"type": "bot_command", "offset": 0, "length": 6}],
+            },
+        },
+        bot=None,
+    )
+
+    assert bool(message_filter.check_update(voice_update))
+    assert bool(message_filter.check_update(video_update))
+    assert not message_filter.check_update(command_update)
+    assert filters.VOICE.check_update(voice_update)
