@@ -38,6 +38,37 @@ def test_tools_config_parses_mcp_server_entries():
     assert server.enabled_tools == ["read_file"]
 
 
+def test_tools_config_provides_typed_tool_defaults():
+    config = ToolsConfig()
+
+    assert config.exec_tool.timeout == 60
+    assert config.web_search.provider == "brave"
+    assert config.web_search.max_results == 10
+    assert config.web_fetch.max_chars == 50000
+    assert config.web_fetch.timeout == 30
+    assert config.web_fetch.prefer_trafilatura is True
+    assert config.cron.default_timezone == "UTC"
+
+
+def test_tools_config_parses_nested_tool_sections_from_json_shape():
+    config = ToolsConfig(
+        **{
+            "exec": {"timeout": 15},
+            "web_search": {"provider": "jina", "max_results": 7},
+            "web_fetch": {"max_chars": 1234, "timeout": 9, "prefer_trafilatura": False},
+            "cron": {"default_timezone": "Asia/Taipei"},
+        }
+    )
+
+    assert config.exec_tool.timeout == 15
+    assert config.web_search.provider == "jina"
+    assert config.web_search.max_results == 7
+    assert config.web_fetch.max_chars == 1234
+    assert config.web_fetch.timeout == 9
+    assert config.web_fetch.prefer_trafilatura is False
+    assert config.cron.default_timezone == "Asia/Taipei"
+
+
 def test_vision_config_defaults_to_disabled_provider():
     config = VisionConfig()
 
@@ -94,3 +125,7 @@ def test_config_load_defaults_agent_when_section_missing(tmp_path):
 
     assert config.agent is not None
     assert config.agent.history_token_budget == 140000
+    assert config.tools.exec_tool.timeout == 60
+    assert config.tools.web_search.max_results == 10
+    assert config.tools.web_fetch.timeout == 30
+    assert config.tools.cron.default_timezone == "UTC"

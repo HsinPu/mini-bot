@@ -57,6 +57,9 @@
   },
   "tools": {
     "max_tool_iterations": 100,
+    "exec": {
+      "timeout": 60
+    },
     "web_search": {
       "provider": "brave",
       "brave_api_key": "",
@@ -71,6 +74,9 @@
       "timeout": 30,
       "prefer_trafilatura": true,
       "firecrawl_api_key": ""
+    },
+    "cron": {
+      "default_timezone": "UTC"
     },
     "mcp_servers": {}
   },

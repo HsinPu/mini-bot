@@ -1,7 +1,11 @@
 from pathlib import Path
 
 from opensprite.agent.tool_registration import register_default_tools
-from opensprite.config.schema import SearchConfig
+from opensprite.config.schema import SearchConfig, ToolsConfig
+from opensprite.tools.cron import CronTool
+from opensprite.tools.shell import ExecTool
+from opensprite.tools.web_fetch import WebFetchTool
+from opensprite.tools.web_search import WebSearchTool
 from opensprite.tools.registry import ToolRegistry
 
 
@@ -75,3 +79,61 @@ def test_register_default_tools_skips_optional_skill_and_search_tools_when_depen
         "delegate",
         "cron",
     ]
+
+
+def test_register_default_tools_applies_typed_tools_config_values():
+    registry = ToolRegistry()
+
+    register_default_tools(
+        registry,
+        workspace_resolver=lambda: Path.cwd(),
+        get_chat_id=lambda: "chat-1",
+        run_subagent=_fake_run_subagent,
+        tools_config=ToolsConfig(
+            **{
+                "exec": {"timeout": 12},
+                "web_search": {"provider": "jina", "max_results": 7},
+                "web_fetch": {
+                    "max_chars": 1234,
+                    "timeout": 9,
+                    "prefer_trafilatura": False,
+                    "firecrawl_api_key": "firecrawl-key",
+                },
+            }
+        ),
+    )
+
+    exec_tool = registry.get("exec")
+    web_search_tool = registry.get("web_search")
+    web_fetch_tool = registry.get("web_fetch")
+    cron_tool = registry.get("cron")
+
+    assert isinstance(exec_tool, ExecTool)
+    assert isinstance(cron_tool, CronTool)
+    assert isinstance(web_search_tool, WebSearchTool)
+    assert isinstance(web_fetch_tool, WebFetchTool)
+    assert exec_tool.timeout == 12
+    assert "UTC" in cron_tool.description
+    assert web_search_tool.provider == "jina"
+    assert web_search_tool.max_results == 7
+    assert web_fetch_tool.fetcher.max_chars == 1234
+    assert web_fetch_tool.fetcher.timeout == 9
+    assert web_fetch_tool.fetcher.prefer_trafilatura is False
+    assert web_fetch_tool.fetcher.firecrawl_api_key == "firecrawl-key"
+
+
+def test_register_default_tools_applies_cron_default_timezone_from_tools_config():
+    registry = ToolRegistry()
+
+    register_default_tools(
+        registry,
+        workspace_resolver=lambda: Path.cwd(),
+        get_chat_id=lambda: "chat-1",
+        run_subagent=_fake_run_subagent,
+        tools_config=ToolsConfig(**{"cron": {"default_timezone": "Asia/Taipei"}}),
+    )
+
+    cron_tool = registry.get("cron")
+
+    assert isinstance(cron_tool, CronTool)
+    assert "Asia/Taipei" in cron_tool.description

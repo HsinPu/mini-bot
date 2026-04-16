@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 import httpx
 from loguru import logger
 
+from ..config.schema import WebSearchToolConfig
 from .base import Tool
 from .validation import NON_EMPTY_STRING_PATTERN
 
@@ -81,30 +82,30 @@ class WebSearchTool(Tool):
         "required": ["query"]
     }
 
-    def __init__(self, config: dict | None = None, proxy: str | None = None):
-        self.config = config or {}
-        raw_proxy = proxy if proxy is not None else self.config.get("proxy")
+    def __init__(self, config: WebSearchToolConfig | None = None, proxy: str | None = None):
+        self.config = config or WebSearchToolConfig()
+        raw_proxy = proxy if proxy is not None else self.config.proxy
         self.proxy = _normalize_proxy(raw_proxy)
 
     @property
     def provider(self) -> str:
-        return self.config.get("provider", "brave").strip().lower() or "brave"
+        return self.config.provider.strip().lower() or "brave"
 
     @property
     def brave_api_key(self) -> str:
-        return self.config.get("brave_api_key", "") or os.environ.get("BRAVE_API_KEY", "")
+        return self.config.brave_api_key or os.environ.get("BRAVE_API_KEY", "")
 
     @property
     def tavily_api_key(self) -> str:
-        return self.config.get("tavily_api_key", "") or os.environ.get("TAVILY_API_KEY", "")
+        return self.config.tavily_api_key or os.environ.get("TAVILY_API_KEY", "")
 
     @property
     def jina_api_key(self) -> str:
-        return self.config.get("jina_api_key", "") or os.environ.get("JINA_API_KEY", "")
+        return self.config.jina_api_key or os.environ.get("JINA_API_KEY", "")
 
     @property
     def max_results(self) -> int:
-        return self.config.get("max_results", 10)
+        return self.config.max_results
 
     async def _execute(self, query: str, count: int | None = None, **kwargs: Any) -> str:
         n = min(max(count or self.max_results, 1), 10)
@@ -212,7 +213,7 @@ class WebSearchTool(Tool):
             return f"Error: {e}"
 
     async def _search_searxng(self, query: str, n: int) -> str:
-        base_url = self.config.get("searxng_url", "https://searx.be")
+        base_url = self.config.searxng_url
         try:
             async with httpx.AsyncClient(proxy=self.proxy) as client:
                 r = await client.get(

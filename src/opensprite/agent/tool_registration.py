@@ -100,9 +100,16 @@ def register_shell_tools(
     registry: ToolRegistry,
     *,
     workspace_resolver: Callable[[], Path],
+    tools_config: ToolsConfig | None = None,
 ) -> None:
     """Register shell execution tools."""
-    registry.register(ExecTool(workspace_resolver=workspace_resolver))
+    current_tools_config = tools_config or ToolsConfig()
+    registry.register(
+        ExecTool(
+            workspace_resolver=workspace_resolver,
+            timeout=current_tools_config.exec_tool.timeout,
+        )
+    )
 
 
 def register_web_tools(
@@ -112,16 +119,16 @@ def register_web_tools(
 ) -> None:
     """Register web search and fetch tools."""
     current_tools_config = tools_config or ToolsConfig()
-    web_search_config = getattr(current_tools_config, "web_search", None) or {}
-    web_fetch_config = getattr(current_tools_config, "web_fetch", None) or {}
+    web_search_config = current_tools_config.web_search
+    web_fetch_config = current_tools_config.web_fetch
 
     registry.register(WebSearchTool(config=web_search_config))
     registry.register(
         WebFetchTool(
-            max_chars=web_fetch_config.get("max_chars", 50000),
-            timeout=web_fetch_config.get("timeout", 30),
-            prefer_trafilatura=web_fetch_config.get("prefer_trafilatura", True),
-            firecrawl_api_key=web_fetch_config.get("firecrawl_api_key"),
+            max_chars=web_fetch_config.max_chars,
+            timeout=web_fetch_config.timeout,
+            prefer_trafilatura=web_fetch_config.prefer_trafilatura,
+            firecrawl_api_key=web_fetch_config.firecrawl_api_key,
         )
     )
 
@@ -202,13 +209,16 @@ def register_cron_tools(
     registry: ToolRegistry,
     *,
     cron_manager: CronManager | None = None,
+    tools_config: ToolsConfig | None = None,
     get_chat_id: Callable[[], str | None],
 ) -> None:
     """Register per-session cron scheduling tools when cron is enabled."""
+    current_tools_config = tools_config or ToolsConfig()
     registry.register(
         CronTool(
             cron_manager,
             get_chat_id=get_chat_id,
+            default_timezone=current_tools_config.cron.default_timezone,
         )
     )
 
@@ -240,7 +250,7 @@ def register_default_tools(
         skills_loader=skills_loader,
         workspace_resolver=workspace_resolver,
     )
-    register_shell_tools(registry, workspace_resolver=workspace_resolver)
+    register_shell_tools(registry, workspace_resolver=workspace_resolver, tools_config=tools_config)
     register_web_tools(registry, tools_config=tools_config)
     register_media_tools(
         registry,
@@ -259,5 +269,6 @@ def register_default_tools(
     register_cron_tools(
         registry,
         cron_manager=cron_manager,
+        tools_config=tools_config,
         get_chat_id=get_chat_id,
     )

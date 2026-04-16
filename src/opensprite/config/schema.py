@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 from typing import Any, Literal
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ProviderConfig(BaseModel):
@@ -140,13 +140,49 @@ class VideoConfig(BaseModel):
         return self
 
 
+class ExecToolConfig(BaseModel):
+    """Shell execution tool configuration."""
+
+    timeout: int = Field(default=60, ge=1)
+
+
+class WebSearchToolConfig(BaseModel):
+    """Web search tool configuration."""
+
+    provider: Literal["brave", "duckduckgo", "tavily", "searxng", "jina"] = "brave"
+    brave_api_key: str = ""
+    tavily_api_key: str = ""
+    jina_api_key: str = ""
+    searxng_url: str = "https://searx.be"
+    max_results: int = Field(default=10, ge=1, le=10)
+    proxy: str | None = None
+
+
+class WebFetchToolConfig(BaseModel):
+    """Web fetch tool configuration."""
+
+    max_chars: int = Field(default=50000, ge=1)
+    timeout: int = Field(default=30, ge=1)
+    prefer_trafilatura: bool = True
+    firecrawl_api_key: str = ""
+
+
+class CronToolConfig(BaseModel):
+    """Cron tool configuration."""
+
+    default_timezone: str = "UTC"
+
+
 class ToolsConfig(BaseModel):
     """Tool configurations."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
     max_tool_iterations: int = 100
-    # Web search config
-    web_search: dict[str, Any] = Field(default_factory=dict)  # {"provider": "brave|duckduckgo|tavily|searxng|jina", "brave_api_key": "", "tavily_api_key": "", "jina_api_key": "", "searxng_url": "", "max_results": 10, "proxy": null}
-    # Web fetch config
-    web_fetch: dict[str, Any] = Field(default_factory=dict)  # {"max_chars": 50000, "timeout": 30, "prefer_trafilatura": true, "firecrawl_api_key": ""}
+    exec_tool: ExecToolConfig = Field(default_factory=ExecToolConfig, alias="exec")
+    web_search: WebSearchToolConfig = Field(default_factory=WebSearchToolConfig)
+    web_fetch: WebFetchToolConfig = Field(default_factory=WebFetchToolConfig)
+    cron: CronToolConfig = Field(default_factory=CronToolConfig)
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 
 
@@ -306,8 +342,10 @@ class Config:
             "log": {"enabled": self.log.enabled, "retention_days": self.log.retention_days, "level": self.log.level, "log_system_prompt": self.log.log_system_prompt, "log_system_prompt_lines": self.log.log_system_prompt_lines},
             "tools": {
                 "max_tool_iterations": self.tools.max_tool_iterations,
-                "web_search": self.tools.web_search or {},
-                "web_fetch": self.tools.web_fetch or {},
+                "exec": self.tools.exec_tool.model_dump(by_alias=True),
+                "web_search": self.tools.web_search.model_dump(by_alias=True),
+                "web_fetch": self.tools.web_fetch.model_dump(by_alias=True),
+                "cron": self.tools.cron.model_dump(by_alias=True),
                 "mcp_servers": {
                     name: server.model_dump()
                     for name, server in self.tools.mcp_servers.items()
