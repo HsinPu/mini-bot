@@ -58,6 +58,8 @@ def create_search_store(config: Config) -> SearchStore | None:
         knowledge_top_k=config.search.knowledge_top_k,
         embedding_provider=embedding_provider,
         hybrid_candidate_count=config.search.embedding.candidate_count,
+        embedding_candidate_strategy=config.search.embedding.candidate_strategy,
+        vector_candidate_count=config.search.embedding.vector_candidate_count,
         retry_failed_on_startup=config.search.embedding.retry_failed_on_startup,
     )
 

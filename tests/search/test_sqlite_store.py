@@ -366,6 +366,57 @@ def test_sqlite_search_store_persists_embeddings_and_reranks_candidates(tmp_path
     ]
 
 
+def test_sqlite_search_store_can_use_vector_candidate_strategy(tmp_path):
+    db_path = tmp_path / "search.db"
+    embedder = FakeEmbeddingProvider(
+        {
+            "orchard manual": [1.0, 0.0],
+            "kitchen recipe": [0.0, 1.0],
+            "guide": [1.0, 0.0],
+        }
+    )
+
+    async def scenario():
+        storage = SQLiteStorage(db_path)
+        search = SQLiteSearchStore(
+            db_path,
+            history_top_k=2,
+            knowledge_top_k=2,
+            embedding_provider=embedder,
+            hybrid_candidate_count=4,
+            embedding_candidate_strategy="vector",
+            vector_candidate_count=10,
+        )
+
+        await storage.add_message(
+            "chat-a",
+            StoredMessage(role="user", content="orchard manual", timestamp=10.0),
+        )
+        await search.index_message(
+            "chat-a",
+            role="user",
+            content="orchard manual",
+            created_at=10.0,
+        )
+        await storage.add_message(
+            "chat-a",
+            StoredMessage(role="user", content="kitchen recipe", timestamp=20.0),
+        )
+        await search.index_message(
+            "chat-a",
+            role="user",
+            content="kitchen recipe",
+            created_at=20.0,
+        )
+        await search.wait_for_embedding_idle()
+
+        return await search.search_history("chat-a", "guide", limit=1)
+
+    hits = asyncio.run(scenario())
+
+    assert [hit.content for hit in hits] == ["orchard manual"]
+
+
 def test_sqlite_search_store_processes_embeddings_in_background(tmp_path):
     db_path = tmp_path / "search.db"
     embedder = BlockingEmbeddingProvider()

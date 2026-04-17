@@ -118,6 +118,45 @@ def test_create_search_store_passes_retry_failed_embedding_setting(tmp_path):
     assert store.retry_failed_on_startup is True
 
 
+def test_create_search_store_passes_embedding_candidate_strategy(tmp_path):
+    config = Config(
+        llm=LLMsConfig(
+            providers={
+                "openai": {
+                    "api_key": "llm-key",
+                    "model": "gpt-4o-mini",
+                    "base_url": "https://api.openai.com/v1",
+                    "enabled": True,
+                }
+            },
+            default="openai",
+            api_key="",
+            model="",
+            temperature=0.7,
+            max_tokens=2048,
+        ),
+        agent=AgentConfig(),
+        storage=StorageConfig(type="sqlite", path=str(tmp_path / "sessions.db")),
+        channels=ChannelsConfig(),
+        search=SearchConfig(
+            enabled=True,
+            embedding=SearchEmbeddingConfig(
+                enabled=True,
+                provider="openai",
+                model="text-embedding-3-small",
+                candidate_strategy="vector",
+                vector_candidate_count=80,
+            ),
+        ),
+    )
+
+    store = create_search_store(config)
+
+    assert store is not None
+    assert store.embedding_candidate_strategy == "vector"
+    assert store.vector_candidate_count == 80
+
+
 def test_should_start_search_queue_worker_requires_embeddings():
     assert should_start_search_queue_worker(None) is False
     assert should_start_search_queue_worker(FakeSearchStore()) is False

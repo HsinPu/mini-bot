@@ -220,6 +220,8 @@ class SearchEmbeddingConfig(BaseModel):
     base_url: str | None = None
     batch_size: int = Field(default=16, ge=1, le=128)
     candidate_count: int = Field(default=20, ge=1, le=200)
+    candidate_strategy: Literal["fts", "vector"] = "fts"
+    vector_candidate_count: int = Field(default=50, ge=1, le=500)
     retry_failed_on_startup: bool = False
 
     @model_validator(mode="after")

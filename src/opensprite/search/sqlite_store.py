@@ -46,6 +46,8 @@ class SQLiteSearchStore(SearchStore):
         chunk_overlap: int = 200,
         embedding_provider: EmbeddingProvider | None = None,
         hybrid_candidate_count: int = 20,
+        embedding_candidate_strategy: str = "fts",
+        vector_candidate_count: int = 50,
         retry_failed_on_startup: bool = False,
     ):
         self.path = Path(path).expanduser()
@@ -56,6 +58,8 @@ class SQLiteSearchStore(SearchStore):
         self.chunk_overlap = chunk_overlap
         self.embedding_provider = embedding_provider
         self.hybrid_candidate_count = max(hybrid_candidate_count, max(history_top_k, knowledge_top_k))
+        self.embedding_candidate_strategy = embedding_candidate_strategy
+        self.vector_candidate_count = max(vector_candidate_count, max(history_top_k, knowledge_top_k))
         self.retry_failed_on_startup = retry_failed_on_startup
         self._lock = asyncio.Lock()
         self._embedding_task: asyncio.Task | None = None
@@ -76,7 +80,10 @@ class SQLiteSearchStore(SearchStore):
         embedding_signature = "disabled"
         if self.embedding_provider is not None:
             embedding_signature = f"{self.embedding_provider.provider_name}:{self.embedding_provider.model_name}"
-        return f"v{SEARCH_INDEX_VERSION}:chunk={self.chunk_size}:{self.chunk_overlap}:embed={embedding_signature}"
+        return (
+            f"v{SEARCH_INDEX_VERSION}:chunk={self.chunk_size}:{self.chunk_overlap}:embed={embedding_signature}"
+            f":strategy={self.embedding_candidate_strategy}:vectork={self.vector_candidate_count}"
+        )
 
     def _read_index_signature(self, conn) -> str | None:
         """Read the persisted search index signature, if any."""
@@ -183,6 +190,10 @@ class SQLiteSearchStore(SearchStore):
         if self.embedding_provider is None:
             return max(requested_limit, 1)
         return max(requested_limit, self.hybrid_candidate_count)
+
+    def _vector_limit(self, requested_limit: int) -> int:
+        """Return the candidate pool size for vector-based retrieval."""
+        return max(requested_limit, self.vector_candidate_count)
 
     def _schedule_pending_embeddings(self) -> None:
         """Start the background embedding worker when there is an active event loop."""
@@ -697,8 +708,12 @@ class SQLiteSearchStore(SearchStore):
         query_tokens = self._query_tokens(normalized_query)
         ranked_rows = [dict(row) if not isinstance(row, dict) else dict(row) for row in rows]
 
-        embedding_similarities: dict[int, float] = {}
-        if self.embedding_provider is not None:
+        embedding_similarities: dict[int, float] = {
+            int(row["id"]): float(row["embedding_similarity"])
+            for row in ranked_rows
+            if row.get("embedding_similarity") is not None
+        }
+        if self.embedding_provider is not None and not embedding_similarities:
             try:
                 query_vectors = await self.embedding_provider.embed_texts([normalized_query or query])
             except Exception as exc:
@@ -757,6 +772,113 @@ class SQLiteSearchStore(SearchStore):
 
         if owner_type == "knowledge":
             return self._dedupe_knowledge_rows(scored_rows, limit)
+        return scored_rows[: max(limit, 1)]
+
+    async def _vector_candidate_rows(
+        self,
+        conn,
+        *,
+        chat_id: str,
+        query: str,
+        owner_type: str,
+        limit: int,
+        source_type: str | None = None,
+        provider: str | None = None,
+        extractor: str | None = None,
+        status: int | None = None,
+        content_type: str | None = None,
+        truncated: bool | None = None,
+    ) -> list[dict]:
+        """Select candidates by exact vector similarity over stored embeddings."""
+        if self.embedding_provider is None:
+            return []
+
+        normalized_query = self._normalize_query_text(query)
+        try:
+            query_vectors = await self.embedding_provider.embed_texts([normalized_query or query])
+        except Exception as exc:
+            logger.warning("search.embed | failed to embed query for vector retrieval: {}", exc)
+            return []
+        if not query_vectors:
+            return []
+
+        query_vector = query_vectors[0]
+        sql = """
+            SELECT
+                c.id,
+                c.owner_id,
+                c.chat_id,
+                c.source_type,
+                c.content,
+                c.created_at,
+                c.role,
+                c.tool_name,
+                c.title,
+                c.url,
+                c.query,
+                ks.summary,
+                ks.provider,
+                ks.extractor,
+                ks.status,
+                ks.content_type,
+                ks.truncated,
+                ce.embedding,
+                ce.embedding_dim
+            FROM search_chunks c
+            JOIN chunk_embeddings ce ON ce.chunk_id = c.id
+            LEFT JOIN knowledge_sources ks ON c.owner_type = 'knowledge' AND ks.id = c.owner_id
+            WHERE c.chat_id = ?
+              AND c.owner_type = ?
+              AND ce.embedding_status = 'completed'
+              AND COALESCE(ce.embedding_provider, '') = ?
+              AND COALESCE(ce.embedding_model, '') = ?
+        """
+        params: list[object] = [
+            chat_id,
+            owner_type,
+            self.embedding_provider.provider_name,
+            self.embedding_provider.model_name,
+        ]
+        if source_type:
+            sql += " AND c.source_type = ?"
+            params.append(source_type)
+        if provider:
+            sql += " AND ks.provider = ?"
+            params.append(provider)
+        if extractor:
+            sql += " AND ks.extractor = ?"
+            params.append(extractor)
+        if status is not None:
+            sql += " AND ks.status = ?"
+            params.append(status)
+        if content_type:
+            sql += " AND ks.content_type = ?"
+            params.append(content_type)
+        if truncated is not None:
+            sql += " AND ks.truncated = ?"
+            params.append(1 if truncated else 0)
+
+        rows = conn.execute(sql, params).fetchall()
+        scored_rows: list[dict] = []
+        for row in rows:
+            payload = dict(row)
+            vector = unpack_embedding(row["embedding"], int(row["embedding_dim"] or 0))
+            similarity = self._cosine_similarity(query_vector, vector)
+            if similarity is None:
+                continue
+            payload["embedding_similarity"] = similarity
+            payload["score"] = similarity
+            scored_rows.append(payload)
+
+        scored_rows.sort(
+            key=lambda row: (
+                float(row.get("embedding_similarity") or 0),
+                self._source_rank(str(row.get("source_type") or "")) if owner_type == "knowledge" else 0,
+                float(row.get("created_at") or 0),
+                int(row.get("id") or 0),
+            ),
+            reverse=True,
+        )
         return scored_rows[: max(limit, 1)]
 
     @staticmethod
@@ -1067,18 +1189,19 @@ class SQLiteSearchStore(SearchStore):
         async with self._lock:
             conn = self._get_conn()
             try:
-                rows = self._search_rows(
+                requested_limit = limit or self.history_top_k
+                rows = await self._select_candidate_rows(
                     conn,
                     chat_id=chat_id,
                     query=query,
                     owner_type="message",
-                    limit=self._candidate_limit(limit or self.history_top_k),
+                    limit=requested_limit,
                 )
                 rows = await self._rerank_rows(
                     conn,
                     query,
                     rows,
-                    limit or self.history_top_k,
+                    requested_limit,
                     owner_type="message",
                 )
                 return [self._row_to_hit(row) for row in rows]
@@ -1100,12 +1223,13 @@ class SQLiteSearchStore(SearchStore):
         async with self._lock:
             conn = self._get_conn()
             try:
-                rows = self._search_rows(
+                requested_limit = limit or self.knowledge_top_k
+                rows = await self._select_candidate_rows(
                     conn,
                     chat_id=chat_id,
                     query=query,
                     owner_type="knowledge",
-                    limit=self._candidate_limit(limit or self.knowledge_top_k),
+                    limit=requested_limit,
                     source_type=source_type,
                     provider=provider,
                     extractor=extractor,
@@ -1117,12 +1241,59 @@ class SQLiteSearchStore(SearchStore):
                     conn,
                     query,
                     rows,
-                    limit or self.knowledge_top_k,
+                    requested_limit,
                     owner_type="knowledge",
                 )
                 return [self._row_to_hit(row) for row in rows]
             finally:
                 conn.close()
+
+    async def _select_candidate_rows(
+        self,
+        conn,
+        *,
+        chat_id: str,
+        query: str,
+        owner_type: str,
+        limit: int,
+        source_type: str | None = None,
+        provider: str | None = None,
+        extractor: str | None = None,
+        status: int | None = None,
+        content_type: str | None = None,
+        truncated: bool | None = None,
+    ):
+        """Select candidate rows using the configured retrieval strategy."""
+        if self.embedding_candidate_strategy == "vector" and self.embedding_provider is not None:
+            rows = await self._vector_candidate_rows(
+                conn,
+                chat_id=chat_id,
+                query=query,
+                owner_type=owner_type,
+                limit=self._vector_limit(limit),
+                source_type=source_type,
+                provider=provider,
+                extractor=extractor,
+                status=status,
+                content_type=content_type,
+                truncated=truncated,
+            )
+            if rows:
+                return rows
+
+        return self._search_rows(
+            conn,
+            chat_id=chat_id,
+            query=query,
+            owner_type=owner_type,
+            limit=self._candidate_limit(limit),
+            source_type=source_type,
+            provider=provider,
+            extractor=extractor,
+            status=status,
+            content_type=content_type,
+            truncated=truncated,
+        )
 
     async def clear_chat(self, chat_id: str) -> None:
         async with self._lock:
