@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import math
+import os
 import re
+import socket
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -26,6 +29,9 @@ from ..utils.log import logger
 
 SEARCH_INDEX_VERSION = 2
 SEARCH_INDEX_SIGNATURE_KEY = "index_signature"
+SEARCH_WORKER_LOCK_KEY = "embedding_worker_lock"
+SEARCH_WORKER_LAST_RUN_KEY = "embedding_worker_last_run"
+SEARCH_WORKER_LEASE_SECONDS = 60.0
 
 
 class SQLiteSearchStore(SearchStore):
@@ -53,6 +59,7 @@ class SQLiteSearchStore(SearchStore):
         self.retry_failed_on_startup = retry_failed_on_startup
         self._lock = asyncio.Lock()
         self._embedding_task: asyncio.Task | None = None
+        self._worker_owner = f"{socket.gethostname()}:{os.getpid()}:{id(self)}"
         conn = self._get_conn()
         try:
             ensure_sqlite_schema(conn)
@@ -88,6 +95,87 @@ class SQLiteSearchStore(SearchStore):
             """,
             (SEARCH_INDEX_SIGNATURE_KEY, self._index_signature, time.time()),
         )
+
+    def _read_json_metadata(self, conn, key: str) -> dict | None:
+        """Read a JSON object from search metadata."""
+        row = conn.execute(
+            "SELECT value FROM search_metadata WHERE key = ?",
+            (key,),
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            payload = json.loads(str(row["value"]))
+        except Exception:
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def _write_json_metadata(self, conn, key: str, payload: dict) -> None:
+        """Persist a JSON object into search metadata."""
+        conn.execute(
+            """
+            INSERT INTO search_metadata (key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            (key, json.dumps(payload, ensure_ascii=False), time.time()),
+        )
+
+    def _delete_metadata(self, conn, key: str) -> None:
+        """Delete a metadata entry by key."""
+        conn.execute("DELETE FROM search_metadata WHERE key = ?", (key,))
+
+    def _acquire_worker_lease(self, conn) -> tuple[bool, dict | None]:
+        """Acquire the queue worker lease if no other live worker holds it."""
+        now = time.time()
+        expires_at = now + SEARCH_WORKER_LEASE_SECONDS
+        conn.execute("BEGIN IMMEDIATE")
+        payload = self._read_json_metadata(conn, SEARCH_WORKER_LOCK_KEY)
+        if payload is not None:
+            current_owner = str(payload.get("owner", ""))
+            current_expires_at = float(payload.get("expires_at", 0) or 0)
+            if current_owner and current_owner != self._worker_owner and current_expires_at > now:
+                conn.rollback()
+                return False, payload
+
+        lease_payload = {
+            "owner": self._worker_owner,
+            "started_at": now,
+            "heartbeat_at": now,
+            "expires_at": expires_at,
+        }
+        self._write_json_metadata(conn, SEARCH_WORKER_LOCK_KEY, lease_payload)
+        conn.commit()
+        return True, lease_payload
+
+    def _heartbeat_worker_lease(self, conn) -> None:
+        """Refresh the queue worker lease while this process is active."""
+        now = time.time()
+        if not conn.in_transaction:
+            conn.execute("BEGIN IMMEDIATE")
+        payload = self._read_json_metadata(conn, SEARCH_WORKER_LOCK_KEY)
+        if payload is None or str(payload.get("owner", "")) != self._worker_owner:
+            conn.rollback()
+            raise RuntimeError("search embedding worker lease was lost")
+        payload["heartbeat_at"] = now
+        payload["expires_at"] = now + SEARCH_WORKER_LEASE_SECONDS
+        self._write_json_metadata(conn, SEARCH_WORKER_LOCK_KEY, payload)
+        conn.commit()
+
+    def _release_worker_lease(self, conn) -> None:
+        """Release the queue worker lease if this process owns it."""
+        if not conn.in_transaction:
+            conn.execute("BEGIN IMMEDIATE")
+        payload = self._read_json_metadata(conn, SEARCH_WORKER_LOCK_KEY)
+        if payload is not None and str(payload.get("owner", "")) == self._worker_owner:
+            self._delete_metadata(conn, SEARCH_WORKER_LOCK_KEY)
+            conn.commit()
+            return
+        conn.rollback()
+
+    def _write_last_run_metadata(self, conn, payload: dict) -> None:
+        """Persist queue worker run summary metadata."""
+        self._write_json_metadata(conn, SEARCH_WORKER_LAST_RUN_KEY, payload)
 
     def _candidate_limit(self, requested_limit: int) -> int:
         """Expand the search candidate pool when embeddings are enabled."""
@@ -141,6 +229,7 @@ class SQLiteSearchStore(SearchStore):
         async with self._lock:
             conn = self._get_conn()
             try:
+                conn.execute("BEGIN IMMEDIATE")
                 rows = conn.execute(
                     """
                     SELECT ce.chunk_id, sc.content
@@ -154,6 +243,7 @@ class SQLiteSearchStore(SearchStore):
                     (self.embedding_provider.model_name, self.embedding_provider.batch_size),
                 ).fetchall()
                 if not rows:
+                    conn.commit()
                     return []
                 chunk_ids = [int(row["chunk_id"]) for row in rows]
                 conn.executemany(
@@ -197,10 +287,15 @@ class SQLiteSearchStore(SearchStore):
         if self.embedding_provider is None:
             return await self.get_status()
 
+        processed_chunks = 0
+        failed_chunks_run = 0
         current_task = asyncio.current_task()
         if self._embedding_task is not None and self._embedding_task is not current_task and not self._embedding_task.done():
             await self._embedding_task
-            return await self.get_status()
+            status = await self.get_status()
+            status["processed_chunks"] = 0
+            status["failed_chunks_run"] = 0
+            return status
 
         while True:
             batch = await self._claim_pending_embedding_batch()
@@ -213,16 +308,117 @@ class SQLiteSearchStore(SearchStore):
             except Exception as exc:
                 logger.warning("search.embed | failed to embed batch: {}", exc)
                 await self._mark_embedding_batch(chunk_ids, vectors=None, status="failed")
+                failed_chunks_run += len(chunk_ids)
                 continue
             await self._mark_embedding_batch(chunk_ids, vectors=vectors, status="completed")
+            processed_chunks += len(chunk_ids)
 
-        return await self.get_status()
+        status = await self.get_status()
+        status["processed_chunks"] = processed_chunks
+        status["failed_chunks_run"] = failed_chunks_run
+        return status
 
     async def wait_for_embedding_idle(self) -> dict[str, int]:
         """Wait for background embedding work to finish and return current status counts."""
         if self._embedding_task is not None and not self._embedding_task.done():
             await self._embedding_task
         return await self.process_pending_embeddings()
+
+    async def run_queue(
+        self,
+        *,
+        once: bool = False,
+        poll_interval: float = 5.0,
+        idle_exit_seconds: float | None = None,
+        force_refresh: bool = False,
+    ) -> dict[str, int | float | str | bool | None]:
+        """Run the embedding queue worker once or continuously with a lease."""
+        if self.embedding_provider is None:
+            status = await self.get_status()
+            status.update({
+                "refreshed": 0,
+                "processed_chunks": 0,
+                "failed_chunks_run": 0,
+                "worker_mode": "disabled",
+            })
+            return status
+
+        async with self._lock:
+            conn = self._get_conn()
+            try:
+                acquired, payload = self._acquire_worker_lease(conn)
+            finally:
+                conn.close()
+
+        if not acquired:
+            owner = str((payload or {}).get("owner", "unknown"))
+            raise RuntimeError(f"search embedding queue is already running by {owner}")
+
+        started_at = time.time()
+        last_status: dict[str, int | float | str | bool | None] = {}
+        idle_started_at: float | None = None
+        mode = "once" if once else "watch"
+
+        try:
+            while True:
+                refresh_status = await self.refresh_embeddings(
+                    force=force_refresh,
+                    wait=False,
+                    schedule=False,
+                )
+                process_status = await self.process_pending_embeddings()
+                current_status = await self.get_status()
+                current_status["refreshed"] = int(refresh_status.get("refreshed", 0))
+                current_status["processed_chunks"] = int(process_status.get("processed_chunks", 0))
+                current_status["failed_chunks_run"] = int(process_status.get("failed_chunks_run", 0))
+                current_status["worker_mode"] = mode
+                last_status = current_status
+
+                async with self._lock:
+                    conn = self._get_conn()
+                    try:
+                        self._heartbeat_worker_lease(conn)
+                    finally:
+                        conn.close()
+
+                did_work = bool(
+                    current_status["refreshed"]
+                    or current_status["processed_chunks"]
+                    or current_status["failed_chunks_run"]
+                    or current_status["queued"]
+                )
+
+                if once:
+                    break
+                if did_work:
+                    idle_started_at = None
+                else:
+                    idle_started_at = idle_started_at or time.time()
+                    if idle_exit_seconds is not None and (time.time() - idle_started_at) >= max(idle_exit_seconds, 0):
+                        break
+
+                await asyncio.sleep(max(poll_interval, 0.1))
+        finally:
+            finished_at = time.time()
+            summary = dict(last_status)
+            summary.update(
+                {
+                    "owner": self._worker_owner,
+                    "started_at": started_at,
+                    "finished_at": finished_at,
+                    "mode": mode,
+                    "force_refresh": force_refresh,
+                }
+            )
+            async with self._lock:
+                conn = self._get_conn()
+                try:
+                    self._write_last_run_metadata(conn, summary)
+                    self._release_worker_lease(conn)
+                finally:
+                    conn.close()
+
+        return last_status
 
     async def _requeue_embeddings(self, *, from_status: str, chat_id: str | None = None) -> int:
         """Move matching embedding jobs back to pending."""
@@ -288,6 +484,7 @@ class SQLiteSearchStore(SearchStore):
         *,
         force: bool = False,
         wait: bool = True,
+        schedule: bool = True,
     ) -> dict[str, int]:
         """Queue embeddings for missing, stale, or explicitly refreshed chunks."""
         if self.embedding_provider is None:
@@ -334,9 +531,13 @@ class SQLiteSearchStore(SearchStore):
                 conn.close()
 
         if chunk_ids:
-            self._schedule_pending_embeddings()
+            if schedule:
+                self._schedule_pending_embeddings()
             if wait:
-                await self.wait_for_embedding_idle()
+                if schedule:
+                    await self.wait_for_embedding_idle()
+                else:
+                    await self.process_pending_embeddings()
 
         status = await self.get_status(chat_id=chat_id)
         status["refreshed"] = len(chunk_ids)
@@ -387,6 +588,30 @@ class SQLiteSearchStore(SearchStore):
 
                 missing_count = 0
                 stale_count = 0
+                worker_running = False
+                worker_owner: str | None = None
+                worker_expires_at: float | None = None
+                last_run_started_at: float | None = None
+                last_run_finished_at: float | None = None
+                last_run_mode: str | None = None
+                last_run_refreshed = 0
+                last_run_processed = 0
+                last_run_failed = 0
+                lock_payload = self._read_json_metadata(conn, SEARCH_WORKER_LOCK_KEY)
+                if lock_payload:
+                    worker_owner = str(lock_payload.get("owner", "") or "") or None
+                    worker_expires_at = float(lock_payload.get("expires_at", 0) or 0) or None
+                    worker_running = bool(worker_owner and worker_expires_at and worker_expires_at > time.time())
+                last_run_payload = self._read_json_metadata(conn, SEARCH_WORKER_LAST_RUN_KEY)
+                if last_run_payload:
+                    raw_started_at = last_run_payload.get("started_at")
+                    raw_finished_at = last_run_payload.get("finished_at")
+                    last_run_started_at = float(raw_started_at) if isinstance(raw_started_at, (int, float)) else None
+                    last_run_finished_at = float(raw_finished_at) if isinstance(raw_finished_at, (int, float)) else None
+                    last_run_mode = str(last_run_payload.get("mode", "") or "") or None
+                    last_run_refreshed = int(last_run_payload.get("refreshed", 0) or 0)
+                    last_run_processed = int(last_run_payload.get("processed_chunks", 0) or 0)
+                    last_run_failed = int(last_run_payload.get("failed_chunks_run", 0) or 0)
                 if self.embedding_provider is not None:
                     missing_count = int(
                         conn.execute(
@@ -444,6 +669,15 @@ class SQLiteSearchStore(SearchStore):
             "failed": counts.get("failed", 0),
             "missing": int(missing_count),
             "stale": int(stale_count),
+            "worker_running": worker_running,
+            "worker_owner": worker_owner,
+            "worker_expires_at": worker_expires_at,
+            "last_run_started_at": last_run_started_at,
+            "last_run_finished_at": last_run_finished_at,
+            "last_run_mode": last_run_mode,
+            "last_run_refreshed": last_run_refreshed,
+            "last_run_processed": last_run_processed,
+            "last_run_failed": last_run_failed,
         }
 
     async def _rerank_rows(self, conn, query: str, rows, limit: int, *, owner_type: str):

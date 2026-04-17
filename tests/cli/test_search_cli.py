@@ -158,6 +158,8 @@ def test_search_status_cli_reports_index_and_embedding_counts(tmp_path):
     assert "Chunks: 1" in result.stdout
     assert "Embedding: enabled=no provider=openai model=<unset> retry_failed_on_startup=no" in result.stdout
     assert "Embedding jobs: total=0 queued=0 pending=0 processing=0 completed=0 failed=0 missing=0 stale=0" in result.stdout
+    assert "Queue worker: running=no owner=<none> expires=never" in result.stdout
+    assert "Last queue run: mode=<none> started=never finished=never refreshed=0 processed=0 failed=0" in result.stdout
 
 
 def test_search_retry_embeddings_cli_reports_retried_jobs(monkeypatch, tmp_path):
@@ -286,3 +288,70 @@ def test_search_refresh_embeddings_cli_reports_refreshed_jobs(monkeypatch, tmp_p
     assert "Refreshed: 3" in result.stdout
     assert "provider=openai model=text-embedding-3-small force=yes" in result.stdout
     assert "Embedding jobs: total=4 queued=0 pending=0 processing=0 completed=4 failed=0 missing=0 stale=0" in result.stdout
+
+
+def test_search_run_queue_cli_reports_queue_run(monkeypatch, tmp_path):
+    db_path = tmp_path / "sessions.db"
+    config_path = tmp_path / "opensprite.json"
+    _write_config(
+        config_path,
+        db_path,
+        search_enabled=True,
+        embedding={
+            "enabled": True,
+            "provider": "openai",
+            "api_key": "key",
+            "model": "text-embedding-3-small",
+            "base_url": None,
+            "batch_size": 16,
+            "candidate_count": 20,
+            "retry_failed_on_startup": False,
+        },
+    )
+
+    class FakeSearchStore:
+        async def run_queue(self, once=True, poll_interval=5.0, idle_exit_seconds=None, force_refresh=False):
+            assert once is True
+            assert poll_interval == 5.0
+            assert idle_exit_seconds is None
+            assert force_refresh is True
+            return {
+                "embedding_total": 5,
+                "queued": 0,
+                "pending": 0,
+                "processing": 0,
+                "completed": 5,
+                "failed": 0,
+                "missing": 0,
+                "stale": 0,
+                "refreshed": 2,
+                "processed_chunks": 3,
+                "failed_chunks_run": 0,
+            }
+
+    loaded = SimpleNamespace(
+        storage=SimpleNamespace(path=str(db_path)),
+        search=SimpleNamespace(
+            embedding=SimpleNamespace(
+                enabled=True,
+                provider="openai",
+                model="text-embedding-3-small",
+                retry_failed_on_startup=False,
+            )
+        ),
+    )
+
+    monkeypatch.setattr(
+        "opensprite.cli.commands._load_sqlite_search_store",
+        lambda config=None: (loaded, FakeSearchStore()),
+    )
+
+    result = runner.invoke(
+        app,
+        ["search", "run-queue", "--config", str(config_path), "--force-refresh"],
+    )
+
+    assert result.exit_code == 0
+    assert "Ran search queue in once mode." in result.stdout
+    assert "Embedding jobs: total=5 queued=0 pending=0 processing=0 completed=5 failed=0 missing=0 stale=0" in result.stdout
+    assert "Queue run: refreshed=2 processed=3 failed=0" in result.stdout

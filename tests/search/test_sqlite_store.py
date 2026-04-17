@@ -691,3 +691,81 @@ def test_sqlite_search_store_sync_refreshes_stale_embeddings(tmp_path):
 
     assert status["stale"] == 0
     assert status["completed"] == 1
+
+
+def test_sqlite_search_store_run_queue_records_last_run_metadata(tmp_path):
+    db_path = tmp_path / "search.db"
+    embedder = FakeEmbeddingProvider({"queue run metadata": [1.0, 0.0]})
+
+    async def scenario():
+        storage = SQLiteStorage(db_path)
+        indexing_store = SQLiteSearchStore(
+            db_path,
+            history_top_k=2,
+            knowledge_top_k=2,
+        )
+        worker_store = SQLiteSearchStore(
+            db_path,
+            history_top_k=2,
+            knowledge_top_k=2,
+            embedding_provider=embedder,
+            hybrid_candidate_count=4,
+        )
+        await storage.add_message(
+            "chat-a",
+            StoredMessage(role="user", content="queue run metadata", timestamp=10.0),
+        )
+        await indexing_store.index_message(
+            "chat-a",
+            role="user",
+            content="queue run metadata",
+            created_at=10.0,
+        )
+
+        status = await worker_store.run_queue(once=True)
+        final_status = await worker_store.get_status()
+        return status, final_status
+
+    status, final_status = asyncio.run(scenario())
+
+    assert status["processed_chunks"] == 1
+    assert final_status["worker_running"] is False
+    assert final_status["last_run_mode"] == "once"
+    assert final_status["last_run_processed"] == 1
+    assert final_status["last_run_finished_at"] is not None
+
+
+def test_sqlite_search_store_run_queue_rejects_active_worker_lease(tmp_path):
+    db_path = tmp_path / "search.db"
+    embedder = FakeEmbeddingProvider({})
+
+    search = SQLiteSearchStore(
+        db_path,
+        history_top_k=2,
+        knowledge_top_k=2,
+        embedding_provider=embedder,
+        hybrid_candidate_count=4,
+    )
+
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        "INSERT INTO search_metadata (key, value, updated_at) VALUES (?, ?, ?)",
+        (
+            "embedding_worker_lock",
+            json.dumps({"owner": "other-worker", "expires_at": 9999999999.0}),
+            9999999999.0,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    async def scenario():
+        try:
+            await search.run_queue(once=True)
+        except RuntimeError as exc:
+            return str(exc)
+        return ""
+
+    error = asyncio.run(scenario())
+
+    assert "already running" in error
