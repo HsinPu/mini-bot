@@ -91,6 +91,34 @@ def create_search_embedding_provider(config: Config):
     )
 
 
+def should_start_search_queue_worker(search_store: SearchStore | None) -> bool:
+    """Return whether the runtime should start the persistent embedding queue worker."""
+    return bool(
+        search_store is not None
+        and getattr(search_store, "embedding_provider", None) is not None
+        and hasattr(search_store, "run_queue")
+    )
+
+
+def start_search_queue_worker(search_store: SearchStore | None) -> asyncio.Task | None:
+    """Start the long-running embedding queue worker when embeddings are enabled."""
+    if not should_start_search_queue_worker(search_store):
+        return None
+    logger.info("Starting search embedding queue worker")
+    return asyncio.create_task(search_store.run_queue(once=False))
+
+
+async def stop_background_task(task: asyncio.Task | None, *, name: str) -> None:
+    """Cancel and await one runtime background task."""
+    if task is None:
+        return
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        logger.info("Stopped {}", name)
+
+
 def create_media_router(config: Config) -> MediaRouter:
     """Create the media router with optional image analysis support."""
     vision = getattr(config, "vision", None)
@@ -224,6 +252,7 @@ async def run(config_path: str | Path | None = None) -> None:
     
     # 建立 Agent + MessageQueue
     agent, mq, cron_manager = await create_agent(config)
+    search_queue_worker = start_search_queue_worker(getattr(agent, "search_store", None))
 
     # 啟動前先連 MCP，讓外部 tools 在服務運行時就緒
     await agent.connect_mcp()
@@ -248,6 +277,7 @@ async def run(config_path: str | Path | None = None) -> None:
     finally:
         await mq.stop()
         await processor
+        await stop_background_task(search_queue_worker, name="search embedding queue worker")
         await cron_manager.stop()
         await agent.close_mcp()
         logger.info("再見！")

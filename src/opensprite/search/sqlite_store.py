@@ -59,6 +59,7 @@ class SQLiteSearchStore(SearchStore):
         self.retry_failed_on_startup = retry_failed_on_startup
         self._lock = asyncio.Lock()
         self._embedding_task: asyncio.Task | None = None
+        self._queue_worker_task: asyncio.Task | None = None
         self._worker_owner = f"{socket.gethostname()}:{os.getpid()}:{id(self)}"
         conn = self._get_conn()
         try:
@@ -186,6 +187,8 @@ class SQLiteSearchStore(SearchStore):
     def _schedule_pending_embeddings(self) -> None:
         """Start the background embedding worker when there is an active event loop."""
         if self.embedding_provider is None:
+            return
+        if self._queue_worker_task is not None and not self._queue_worker_task.done():
             return
         try:
             loop = asyncio.get_running_loop()
@@ -358,6 +361,9 @@ class SQLiteSearchStore(SearchStore):
         last_status: dict[str, int | float | str | bool | None] = {}
         idle_started_at: float | None = None
         mode = "once" if once else "watch"
+        current_worker_task = asyncio.current_task()
+        previous_worker_task = self._queue_worker_task
+        self._queue_worker_task = current_worker_task
 
         try:
             while True:
@@ -410,6 +416,8 @@ class SQLiteSearchStore(SearchStore):
                     "force_refresh": force_refresh,
                 }
             )
+            if self._queue_worker_task is current_worker_task:
+                self._queue_worker_task = previous_worker_task if previous_worker_task is not current_worker_task else None
             async with self._lock:
                 conn = self._get_conn()
                 try:

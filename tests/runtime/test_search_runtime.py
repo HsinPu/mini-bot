@@ -1,4 +1,5 @@
 import pytest
+import asyncio
 
 from opensprite.config.schema import (
     AgentConfig,
@@ -9,7 +10,28 @@ from opensprite.config.schema import (
     SearchConfig,
     StorageConfig,
 )
-from opensprite.runtime import create_search_embedding_provider, create_search_store
+from opensprite.runtime import (
+    create_search_embedding_provider,
+    create_search_store,
+    should_start_search_queue_worker,
+    start_search_queue_worker,
+    stop_background_task,
+)
+
+
+class FakeSearchStore:
+    def __init__(self, embedding_provider=None):
+        self.embedding_provider = embedding_provider
+        self.started = asyncio.Event()
+        self.cancelled = asyncio.Event()
+
+    async def run_queue(self, once=False):
+        self.started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            self.cancelled.set()
+            raise
 
 
 def test_create_search_store_requires_sqlite_storage_when_enabled():
@@ -94,3 +116,21 @@ def test_create_search_store_passes_retry_failed_embedding_setting(tmp_path):
 
     assert store is not None
     assert store.retry_failed_on_startup is True
+
+
+def test_should_start_search_queue_worker_requires_embeddings():
+    assert should_start_search_queue_worker(None) is False
+    assert should_start_search_queue_worker(FakeSearchStore()) is False
+    assert should_start_search_queue_worker(FakeSearchStore(embedding_provider=object())) is True
+
+
+def test_start_and_stop_search_queue_worker_lifecycle():
+    async def scenario():
+        store = FakeSearchStore(embedding_provider=object())
+        task = start_search_queue_worker(store)
+        assert task is not None
+        await asyncio.wait_for(store.started.wait(), timeout=1.0)
+        await stop_background_task(task, name="test queue worker")
+        await asyncio.wait_for(store.cancelled.wait(), timeout=1.0)
+
+    asyncio.run(scenario())
