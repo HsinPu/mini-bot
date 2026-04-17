@@ -100,6 +100,11 @@ class SearchKnowledgeTool(_BaseSearchTool):
                     "description": "Optional source filter",
                     "enum": ["web_search", "web_fetch"],
                 },
+                "provider": {"type": "string", "description": "Optional provider filter"},
+                "extractor": {"type": "string", "description": "Optional extractor filter"},
+                "status": {"type": "integer", "description": "Optional HTTP status filter"},
+                "content_type": {"type": "string", "description": "Optional content type filter"},
+                "truncated": {"type": "boolean", "description": "Optional truncation filter"},
             },
             "required": ["query"],
         }
@@ -109,6 +114,11 @@ class SearchKnowledgeTool(_BaseSearchTool):
         query: str,
         limit: int | None = None,
         source_type: str | None = None,
+        provider: str | None = None,
+        extractor: str | None = None,
+        status: int | None = None,
+        content_type: str | None = None,
+        truncated: bool | None = None,
         **kwargs: Any,
     ) -> str:
         query = query.strip()
@@ -121,9 +131,14 @@ class SearchKnowledgeTool(_BaseSearchTool):
             query=query,
             limit=limit or self.default_limit,
             source_type=source_type,
+            provider=provider,
+            extractor=extractor,
+            status=status,
+            content_type=content_type,
+            truncated=truncated,
         )
         if not hits:
-            scope = source_type or "web knowledge"
+            scope = source_type or provider or extractor or content_type or "web knowledge"
             return f"No {scope} matches found for '{query}' in this chat."
 
         return self._format_hits(query, hits)

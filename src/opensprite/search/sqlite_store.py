@@ -503,6 +503,11 @@ class SQLiteSearchStore(SearchStore):
         query: str,
         limit: int = 5,
         source_type: str | None = None,
+        provider: str | None = None,
+        extractor: str | None = None,
+        status: int | None = None,
+        content_type: str | None = None,
+        truncated: bool | None = None,
     ) -> list[SearchHit]:
         async with self._lock:
             conn = self._get_conn()
@@ -514,6 +519,11 @@ class SQLiteSearchStore(SearchStore):
                     owner_type="knowledge",
                     limit=self._candidate_limit(limit or self.knowledge_top_k),
                     source_type=source_type,
+                    provider=provider,
+                    extractor=extractor,
+                    status=status,
+                    content_type=content_type,
+                    truncated=truncated,
                 )
                 rows = await self._rerank_rows(conn, query, rows, limit or self.knowledge_top_k)
                 return [self._row_to_hit(row) for row in rows]
@@ -630,6 +640,11 @@ class SQLiteSearchStore(SearchStore):
         owner_type: str,
         limit: int,
         source_type: str | None = None,
+        provider: str | None = None,
+        extractor: str | None = None,
+        status: int | None = None,
+        content_type: str | None = None,
+        truncated: bool | None = None,
     ):
         match_query = self._compile_match_query(query)
         if match_query is None:
@@ -640,6 +655,11 @@ class SQLiteSearchStore(SearchStore):
                 owner_type=owner_type,
                 limit=limit,
                 source_type=source_type,
+                provider=provider,
+                extractor=extractor,
+                status=status,
+                content_type=content_type,
+                truncated=truncated,
             )
 
         sql = """
@@ -672,6 +692,21 @@ class SQLiteSearchStore(SearchStore):
         if source_type:
             sql += " AND c.source_type = ?"
             params.append(source_type)
+        if provider:
+            sql += " AND ks.provider = ?"
+            params.append(provider)
+        if extractor:
+            sql += " AND ks.extractor = ?"
+            params.append(extractor)
+        if status is not None:
+            sql += " AND ks.status = ?"
+            params.append(status)
+        if content_type:
+            sql += " AND ks.content_type = ?"
+            params.append(content_type)
+        if truncated is not None:
+            sql += " AND ks.truncated = ?"
+            params.append(1 if truncated else 0)
         sql += " ORDER BY score ASC, c.created_at DESC, c.id DESC LIMIT ?"
         params.append(max(limit, 1))
 
@@ -685,6 +720,11 @@ class SQLiteSearchStore(SearchStore):
                 owner_type=owner_type,
                 limit=limit,
                 source_type=source_type,
+                provider=provider,
+                extractor=extractor,
+                status=status,
+                content_type=content_type,
+                truncated=truncated,
             )
 
     def _search_rows_fallback(
@@ -696,6 +736,11 @@ class SQLiteSearchStore(SearchStore):
         owner_type: str,
         limit: int,
         source_type: str | None = None,
+        provider: str | None = None,
+        extractor: str | None = None,
+        status: int | None = None,
+        content_type: str | None = None,
+        truncated: bool | None = None,
     ):
         sql = """
             SELECT
@@ -724,6 +769,21 @@ class SQLiteSearchStore(SearchStore):
         if source_type:
             sql += " AND c.source_type = ?"
             params.append(source_type)
+        if provider:
+            sql += " AND ks.provider = ?"
+            params.append(provider)
+        if extractor:
+            sql += " AND ks.extractor = ?"
+            params.append(extractor)
+        if status is not None:
+            sql += " AND ks.status = ?"
+            params.append(status)
+        if content_type:
+            sql += " AND ks.content_type = ?"
+            params.append(content_type)
+        if truncated is not None:
+            sql += " AND ks.truncated = ?"
+            params.append(1 if truncated else 0)
         sql += " ORDER BY c.created_at DESC, c.id DESC"
 
         rows = conn.execute(sql, params).fetchall()

@@ -69,6 +69,11 @@ class SearchStore(ABC):
         query: str,
         limit: int = 5,
         source_type: str | None = None,
+        provider: str | None = None,
+        extractor: str | None = None,
+        status: int | None = None,
+        content_type: str | None = None,
+        truncated: bool | None = None,
     ) -> list[SearchHit]:
         """Search stored knowledge within a single chat."""
 

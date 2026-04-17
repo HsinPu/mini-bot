@@ -119,6 +119,11 @@ def test_sqlite_search_store_indexes_and_filters_history_and_knowledge(tmp_path)
         other_chat_hits = await search.search_history("chat-b", "sqlite docs")
         knowledge_hits = await search.search_knowledge("chat-a", "full text docs")
         fetch_only_hits = await search.search_knowledge("chat-a", "examples", source_type="web_fetch")
+        provider_hits = await search.search_knowledge("chat-a", "full text docs", provider="duckduckgo")
+        extractor_hits = await search.search_knowledge("chat-a", "examples", extractor="trafilatura")
+        status_hits = await search.search_knowledge("chat-a", "examples", status=200)
+        content_type_hits = await search.search_knowledge("chat-a", "examples", content_type="text/html")
+        truncated_hits = await search.search_knowledge("chat-a", "examples", truncated=False)
 
         import sqlite3
 
@@ -137,6 +142,11 @@ def test_sqlite_search_store_indexes_and_filters_history_and_knowledge(tmp_path)
             other_chat_hits,
             knowledge_hits,
             fetch_only_hits,
+            provider_hits,
+            extractor_hits,
+            status_hits,
+            content_type_hits,
+            truncated_hits,
             cleared_history_hits,
             remaining_messages,
             metadata_rows,
@@ -147,6 +157,11 @@ def test_sqlite_search_store_indexes_and_filters_history_and_knowledge(tmp_path)
         other_chat_hits,
         knowledge_hits,
         fetch_only_hits,
+        provider_hits,
+        extractor_hits,
+        status_hits,
+        content_type_hits,
+        truncated_hits,
         cleared_history_hits,
         remaining_messages,
         metadata_rows,
@@ -164,6 +179,11 @@ def test_sqlite_search_store_indexes_and_filters_history_and_knowledge(tmp_path)
     assert fetch_only_hits[0].status == 200
     assert fetch_only_hits[0].content_type == "text/html"
     assert fetch_only_hits[0].truncated is False
+    assert [hit.provider for hit in provider_hits] == ["duckduckgo"]
+    assert [hit.extractor for hit in extractor_hits] == ["trafilatura"]
+    assert [hit.status for hit in status_hits] == [200]
+    assert [hit.content_type for hit in content_type_hits] == ["text/html"]
+    assert [hit.truncated for hit in truncated_hits] == [False]
     assert cleared_history_hits == []
     assert [message.content for message in remaining_messages] == ["Please keep sqlite fts docs handy"]
     assert metadata_rows == [
