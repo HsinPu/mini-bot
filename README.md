@@ -9,7 +9,7 @@ OpenSprite is a lightweight, self-hosted personal AI assistant for people who wa
 - Receives messages from Telegram
 - Stores conversation history in memory or SQLite
 - Provides built-in tools for file edits, shell commands, web search, web fetch, and long-term memory
-- Can optionally index history and tool results with LanceDB
+- Can optionally index history and web tool results in SQLite FTS5, with background embeddings for hybrid reranking
 
 ## Current Status
 
@@ -271,12 +271,23 @@ Example:
 
 Optional search uses the same SQLite database as `storage.path` and is configured in `search`.
 
+Search requires `storage.type="sqlite"`.
+
 ```json
 {
   "search": {
     "enabled": true,
     "history_top_k": 5,
-    "knowledge_top_k": 5
+    "knowledge_top_k": 5,
+    "embedding": {
+      "enabled": false,
+      "provider": "openai",
+      "api_key": "",
+      "model": "",
+      "base_url": null,
+      "batch_size": 16,
+      "candidate_count": 20
+    }
   }
 }
 ```
@@ -286,6 +297,52 @@ When enabled, OpenSprite can index:
 - stored chat history
 - web search results
 - web fetch results
+
+Search data now lives in the same SQLite file as normal chat storage:
+
+- `messages` for normalized chat history
+- `knowledge_sources` for stored `web_search` and `web_fetch` payloads
+- `search_chunks` and `search_chunks_fts` for FTS5 search
+- `chunk_embeddings` for optional hybrid reranking
+
+When `search.embedding.enabled=true`:
+
+- chunk embeddings are queued in the background instead of blocking normal replies
+- search still works immediately through FTS5
+- hybrid reranking improves result quality as pending embedding jobs complete
+
+If `search.embedding.api_key` or `search.embedding.base_url` is empty, OpenSprite falls back to the active LLM provider settings.
+
+Search maintenance commands:
+
+```bash
+# rebuild all indexed history and knowledge
+opensprite search rebuild
+
+# rebuild one chat only
+opensprite search rebuild --chat-id telegram:user-a
+
+# inspect index and embedding job status
+opensprite search status
+opensprite search status --chat-id telegram:user-a
+```
+
+## Web Search Pipeline
+
+`web_search` and `web_fetch` now use one shared JSON payload shape.
+
+- `web_search` is the discovery step: it returns result items with titles, URLs, and snippets
+- `web_fetch` is the content step: it returns one page payload with final URL, title, extracted content, and fetch metadata
+
+When search is enabled, both tools are persisted into `knowledge_sources` with metadata such as:
+
+- `provider`
+- `extractor`
+- `status`
+- `content_type`
+- `truncated`
+
+That metadata is exposed back through knowledge search results and can also be used as filters by the agent-facing `search_knowledge` tool.
 
 ## Built-In Tools
 
@@ -302,7 +359,7 @@ The default agent registers tools for:
 - extracting visible text from images in the current user turn
 - scheduling per-session cron jobs
 - long-term memory save
-- search over indexed history and knowledge when SQLite search is enabled
+- search over indexed history and knowledge when SQLite search is enabled, including metadata filters for stored web knowledge
 
 ## Vision
 
@@ -537,7 +594,7 @@ src/opensprite/
 ├── context/        # Bootstrap files, paths, workspace helpers
 ├── documents/      # Managed markdown stores and consolidators
 ├── llms/           # LLM provider implementations
-├── search/         # Optional LanceDB index
+├── search/         # SQLite-backed search, indexing, and embeddings
 ├── storage/        # Memory and SQLite storage providers
 ├── tools/          # Built-in tool implementations
 ├── utils/          # Logging and shared helpers
@@ -571,6 +628,12 @@ opensprite status
 
 # inspect status as JSON
 opensprite status --json
+
+# inspect search index and embedding job state
+opensprite search status
+
+# rebuild indexed history and knowledge
+opensprite search rebuild
 
 # module entrypoint
 python -m opensprite gateway
