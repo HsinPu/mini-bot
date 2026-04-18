@@ -183,6 +183,7 @@ class ToolsConfig(BaseModel):
     web_search: WebSearchToolConfig = Field(default_factory=WebSearchToolConfig)
     web_fetch: WebFetchToolConfig = Field(default_factory=WebFetchToolConfig)
     cron: CronToolConfig = Field(default_factory=CronToolConfig)
+    mcp_servers_file: str = "mcp_servers.json"
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 
 
@@ -265,6 +266,78 @@ class Config:
         if self.agent is None:
             self.agent = AgentConfig()
 
+    @staticmethod
+    def _resolve_mcp_servers_file(config_path: Path, mcp_servers_file: str | None) -> Path | None:
+        if not mcp_servers_file:
+            return None
+
+        candidate = Path(mcp_servers_file).expanduser()
+        if not candidate.is_absolute():
+            candidate = (config_path.parent / candidate).resolve()
+        return candidate
+
+    @classmethod
+    def _load_mcp_servers_data(cls, path: Path) -> dict[str, Any]:
+        if not path.exists():
+            return {}
+
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        if not isinstance(data, dict):
+            raise ValueError(f"MCP 設定檔必須是 JSON object：{path}")
+
+        return data
+
+    @classmethod
+    def _parse_mcp_servers(cls, raw_data: dict[str, Any], source: Path) -> dict[str, MCPServerConfig]:
+        parsed: dict[str, MCPServerConfig] = {}
+        for name, server in raw_data.items():
+            if not isinstance(server, dict):
+                raise ValueError(f"MCP server '{name}' 必須是 JSON object：{source}")
+            parsed[name] = MCPServerConfig(**server)
+        return parsed
+
+    @classmethod
+    def _merge_mcp_servers(
+        cls,
+        inline_servers: dict[str, Any],
+        external_servers: dict[str, Any],
+        *,
+        config_path: Path,
+        external_path: Path | None,
+    ) -> dict[str, MCPServerConfig]:
+        merged: dict[str, MCPServerConfig] = {}
+        merged.update(cls._parse_mcp_servers(inline_servers, config_path))
+        if external_path is not None:
+            merged.update(cls._parse_mcp_servers(external_servers, external_path))
+        return merged
+
+    @classmethod
+    def _write_json_file(cls, path: Path, data: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+
+    @classmethod
+    def _build_default_mcp_servers_path(cls, config_path: Path) -> Path:
+        return config_path.parent / "mcp_servers.json"
+
+    @classmethod
+    def ensure_mcp_servers_file(cls, config_path: str | Path, config_data: dict[str, Any] | None = None) -> Path:
+        resolved_config_path = Path(config_path).expanduser().resolve()
+        tools_data = config_data.get("tools", {}) if isinstance(config_data, dict) else {}
+        configured_path = tools_data.get("mcp_servers_file") if isinstance(tools_data, dict) else None
+        target_path = cls._resolve_mcp_servers_file(resolved_config_path, configured_path)
+        if target_path is None:
+            target_path = cls._build_default_mcp_servers_path(resolved_config_path)
+
+        if not target_path.exists():
+            cls._write_json_file(target_path, {})
+
+        return target_path
+
     @classmethod
     def from_json(cls, path: str | Path) -> "Config":
         path = Path(path)
@@ -277,13 +350,24 @@ class Config:
         for section in ["llm", "storage", "channels"]:
             if section not in data:
                 raise ValueError(f"設定檔缺少必要區塊：{section}")
+        tools_data = dict(data.get("tools", {})) if "tools" in data else {}
+        inline_mcp_servers = tools_data.get("mcp_servers", {})
+        mcp_servers_path = cls._resolve_mcp_servers_file(path, tools_data.get("mcp_servers_file"))
+        external_mcp_servers = cls._load_mcp_servers_data(mcp_servers_path) if mcp_servers_path is not None else {}
+        if inline_mcp_servers or mcp_servers_path is not None:
+            tools_data["mcp_servers"] = cls._merge_mcp_servers(
+                inline_mcp_servers,
+                external_mcp_servers,
+                config_path=path,
+                external_path=mcp_servers_path,
+            )
         return cls(
             llm=LLMsConfig(**data["llm"]),
             agent=AgentConfig(**data["agent"]) if "agent" in data else None,
             storage=StorageConfig(**data["storage"]),
             channels=ChannelsConfig(**data["channels"]),
             log=LogConfig(**data["log"]) if "log" in data else None,
-            tools=ToolsConfig(**data.get("tools", {})) if "tools" in data else None,
+            tools=ToolsConfig(**tools_data) if "tools" in data else None,
             memory=MemoryConfig(**data.get("memory", {})) if "memory" in data else None,
             search=SearchConfig(**data.get("search", {})) if "search" in data else None,
             user_profile=UserProfileConfig(**data.get("user_profile", {})) if "user_profile" in data else None,
@@ -337,17 +421,24 @@ class Config:
         
         import shutil
         template_path = cls.template_path()
-        
+
         if template_path.exists():
             shutil.copy2(template_path, path)
-        
+            cls.ensure_mcp_servers_file(path, cls.load_template_data())
+
         return path
 
     def save(self, path: str | Path) -> None:
         """Save config to JSON file."""
-        path = Path(path)
+        path = Path(path).expanduser().resolve()
         if path.suffix != ".json":
             raise ValueError(f"不支援的格式：{path.suffix}")
+        mcp_servers_path = self._resolve_mcp_servers_file(path, self.tools.mcp_servers_file)
+        if mcp_servers_path is not None:
+            self._write_json_file(
+                mcp_servers_path,
+                {name: server.model_dump() for name, server in self.tools.mcp_servers.items()},
+            )
         data = {
             "llm": {
                 "providers": dict(self.llm.providers) if self.llm.providers else {},
@@ -367,10 +458,7 @@ class Config:
                 "web_search": self.tools.web_search.model_dump(by_alias=True),
                 "web_fetch": self.tools.web_fetch.model_dump(by_alias=True),
                 "cron": self.tools.cron.model_dump(by_alias=True),
-                "mcp_servers": {
-                    name: server.model_dump()
-                    for name, server in self.tools.mcp_servers.items()
-                },
+                "mcp_servers_file": self.tools.mcp_servers_file,
             },
             "agent": {
                 "max_history": self.agent.max_history,
@@ -420,5 +508,4 @@ class Config:
                 "base_url": self.video.base_url,
             },
         }
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        self._write_json_file(path, data)

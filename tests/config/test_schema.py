@@ -48,6 +48,7 @@ def test_tools_config_provides_typed_tool_defaults():
     assert config.web_fetch.timeout == 30
     assert config.web_fetch.prefer_trafilatura is True
     assert config.cron.default_timezone == "UTC"
+    assert config.mcp_servers_file == "mcp_servers.json"
 
 
 def test_tools_config_parses_nested_tool_sections_from_json_shape():
@@ -147,3 +148,101 @@ def test_config_load_defaults_agent_when_section_missing(tmp_path):
     assert config.tools.web_search.max_results == 10
     assert config.tools.web_fetch.timeout == 30
     assert config.tools.cron.default_timezone == "UTC"
+
+
+def test_config_load_merges_external_mcp_servers_file(tmp_path):
+    config_path = tmp_path / "opensprite.json"
+    mcp_path = tmp_path / "mcp_servers.json"
+    mcp_path.write_text(
+        json.dumps(
+            {
+                "external": {
+                    "command": "npx",
+                    "args": ["-y", "external-mcp"],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    config_path.write_text(
+        json.dumps(
+            {
+                "llm": {"api_key": "key", "model": "gpt", "temperature": 0.7, "max_tokens": 2048},
+                "storage": {"type": "memory", "path": "memory.db"},
+                "channels": {"telegram": {"enabled": False}, "console": {"enabled": True}},
+                "tools": {
+                    "mcp_servers_file": "mcp_servers.json",
+                    "mcp_servers": {
+                        "inline": {
+                            "command": "npx",
+                            "args": ["-y", "inline-mcp"],
+                        }
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = Config.from_json(config_path)
+
+    assert sorted(config.tools.mcp_servers) == ["external", "inline"]
+    assert config.tools.mcp_servers["external"].args == ["-y", "external-mcp"]
+    assert config.tools.mcp_servers["inline"].args == ["-y", "inline-mcp"]
+
+
+def test_config_save_writes_mcp_servers_to_external_file(tmp_path):
+    config_path = tmp_path / "opensprite.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "llm": {"api_key": "key", "model": "gpt", "temperature": 0.7, "max_tokens": 2048},
+                "storage": {"type": "memory", "path": "memory.db"},
+                "channels": {"telegram": {"enabled": False}, "console": {"enabled": True}},
+                "tools": {
+                    "mcp_servers_file": "mcp_servers.json",
+                    "mcp_servers": {
+                        "demo": {
+                            "command": "npx",
+                            "args": ["-y", "demo-mcp"],
+                        }
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = Config.from_json(config_path)
+    config.save(config_path)
+
+    saved_main = json.loads(config_path.read_text(encoding="utf-8"))
+    saved_mcp = json.loads((tmp_path / "mcp_servers.json").read_text(encoding="utf-8"))
+
+    assert saved_main["tools"]["mcp_servers_file"] == "mcp_servers.json"
+    assert "mcp_servers" not in saved_main["tools"]
+    assert saved_mcp == {
+        "demo": {
+            "type": None,
+            "command": "npx",
+            "args": ["-y", "demo-mcp"],
+            "env": {},
+            "url": "",
+            "headers": {},
+            "tool_timeout": 30,
+            "enabled_tools": ["*"],
+        }
+    }
+
+
+def test_copy_template_creates_external_mcp_servers_file(tmp_path):
+    config_path = tmp_path / "opensprite.json"
+
+    Config.copy_template(config_path)
+
+    template_data = json.loads(config_path.read_text(encoding="utf-8"))
+    mcp_path = (tmp_path / "mcp_servers.json")
+
+    assert template_data["tools"]["mcp_servers_file"] == "mcp_servers.json"
+    assert mcp_path.exists()
+    assert json.loads(mcp_path.read_text(encoding="utf-8")) == {}

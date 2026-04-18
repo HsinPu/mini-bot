@@ -206,6 +206,7 @@ def _prepare_config_data(result: OnboardResult, config_path: Path, force: bool) 
         result.created_config = True
 
     _write_json(config_path, data)
+    Config.ensure_mcp_servers_file(config_path, data)
     return data
 
 
@@ -406,6 +407,7 @@ def run_onboard(
             raise RuntimeError("Interactive onboarding cancelled.") from exc
         if updated != config_data:
             _write_json(resolved_config, updated)
+            Config.ensure_mcp_servers_file(resolved_config, updated)
         config_data = updated
 
     _apply_result_snapshot(result, config_data, interactive=interactive)

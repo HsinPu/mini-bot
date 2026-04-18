@@ -78,7 +78,7 @@
     "cron": {
       "default_timezone": "UTC"
     },
-    "mcp_servers": {}
+    "mcp_servers_file": "mcp_servers.json"
   },
   "agent": {
     "max_history": 300,
