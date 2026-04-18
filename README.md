@@ -379,6 +379,11 @@ opensprite search run-queue
 opensprite search run-queue --watch
 opensprite search run-queue --watch --idle-exit-seconds 30
 opensprite search run-queue --force-refresh
+
+# benchmark FTS vs vector candidate selection
+opensprite search benchmark --chat-id telegram:user-a --query "sqlite guide"
+opensprite search benchmark --chat-id telegram:user-a --query "sqlite guide" --strategy both --repeat 5
+opensprite search benchmark --chat-id telegram:user-a --query "sqlite guide" --strategy both --repeat 5 --json
 ```
 
 In practice, you should usually only need these commands when:
@@ -386,6 +391,47 @@ In practice, you should usually only need these commands when:
 - the service is offline and you still want to drain the embedding queue
 - you want to force a full embedding refresh after changing models or ranking behavior
 - you want to inspect or recover failed jobs immediately instead of waiting for the next startup cycle
+
+### Benchmarking Candidate Strategies
+
+Use `opensprite search benchmark` when you want to compare `fts` and `vector` candidate selection for the same chat query.
+
+Examples:
+
+```bash
+# compare both strategies on stored knowledge
+opensprite search benchmark \
+  --chat-id telegram:user-a \
+  --kind knowledge \
+  --query "full text docs" \
+  --strategy both \
+  --repeat 5
+
+# compare history search strategies
+opensprite search benchmark \
+  --chat-id telegram:user-a \
+  --kind history \
+  --query "sqlite guide" \
+  --strategy both \
+  --repeat 5
+
+# emit machine-readable JSON output
+opensprite search benchmark \
+  --chat-id telegram:user-a \
+  --query "sqlite guide" \
+  --strategy both \
+  --repeat 5 \
+  --json
+```
+
+The benchmark command reports:
+
+- elapsed time summary (`avg`, `min`, `max`, `median`)
+- hit count
+- top result preview
+- optional JSON output for later comparison or scripting
+
+If embeddings are disabled, vector benchmarks are skipped automatically.
 
 ## Web Search Pipeline
 
@@ -701,6 +747,9 @@ opensprite search refresh-embeddings
 
 # run the embedding queue worker manually
 opensprite search run-queue
+
+# compare candidate strategies
+opensprite search benchmark --chat-id telegram:user-a --query "sqlite guide" --strategy both --repeat 5
 
 # module entrypoint
 python -m opensprite gateway
