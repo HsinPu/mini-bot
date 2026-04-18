@@ -149,6 +149,8 @@ def test_main_agent_call_llm_passes_full_file_builder_system_prompt_to_provider(
     assert "You are OpenSprite" in system_text
     assert "# Session Context" in system_text
     assert "# Retrieval Strategy" in system_text
+    assert "# MCP Configuration" in system_text
+    assert "prefer using `configure_mcp` instead of telling the user to edit config files manually" in system_text
     assert "# Available Subagents" in system_text
     assert "Use `delegate` when a focused subproblem would benefit from a dedicated prompt." in system_text
     assert "\n\n---\n\n" in system_text
@@ -197,6 +199,8 @@ def test_main_agent_system_prompt_lists_connected_mcp_tools(tmp_path: Path) -> N
 
     assert result == "done"
     system_text = provider.calls[0][0].content
+    assert "# MCP Configuration" in system_text
+    assert "Use `configure_mcp` first for MCP setup or changes." in system_text
     assert "# Available MCP Tools" in system_text
     assert "These MCP tools are already connected and available through normal tool calling." in system_text
     assert "`mcp_demo_echo`: Echo text through demo MCP" in system_text
