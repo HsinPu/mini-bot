@@ -493,6 +493,22 @@ class AgentLoop:
         """Register the save_memory tool."""
         register_memory_tool(self.tools, self.memory, self._get_current_chat_id)
 
+    def _sync_runtime_mcp_tools_context(self) -> None:
+        """Expose connected MCP tools to context builders that support prompt summaries."""
+        if not hasattr(self._context_builder, "set_runtime_mcp_tools"):
+            return
+
+        mcp_tools = sorted(
+            [
+                (tool.name, tool.description)
+                for tool_name in self.tools.tool_names
+                for tool in [self.tools.get(tool_name)]
+                if tool is not None and tool.name.startswith("mcp_")
+            ],
+            key=lambda item: item[0],
+        )
+        self._context_builder.set_runtime_mcp_tools(mcp_tools)
+
     async def connect_mcp(self) -> None:
         """Connect configured MCP servers once and register their tools."""
         if self._mcp_connected or self._mcp_connecting or not self._mcp_servers:
@@ -512,6 +528,7 @@ class AgentLoop:
                 await connect_mcp_servers(self._mcp_servers, self.tools, stack)
                 self._mcp_stack = stack
                 self._mcp_connected = True
+                self._sync_runtime_mcp_tools_context()
                 logger.info("agent.mcp.connected | tools={}", ", ".join(self.tools.tool_names))
             except BaseException as exc:
                 logger.error("agent.mcp.connect.error | error={}", exc)
@@ -531,6 +548,7 @@ class AgentLoop:
             self._mcp_stack = None
             self._mcp_connected = False
             self._mcp_connecting = False
+            self._sync_runtime_mcp_tools_context()
 
         if stack is None:
             return
@@ -835,6 +853,7 @@ class AgentLoop:
         logger.info(
             f"[{chat_id}] prompt.tokens | budget={self.config.history_token_budget} base={base_tokens} tools={tool_schema_tokens} history={history_tokens} final_estimated={final_tokens}"
         )
+        self._sync_runtime_mcp_tools_context()
         full_messages = self._context_builder.build_messages(
             history=history_dicts,
             current_message=prompt_message,

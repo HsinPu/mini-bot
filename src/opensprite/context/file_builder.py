@@ -46,6 +46,21 @@ When retrieval tools are available:
 - When answering from retrieved web knowledge, preserve the source title or URL when it helps the user verify the result.
 """
 
+    def _build_mcp_tools_summary(self) -> str:
+        """Describe currently connected MCP tools for the main agent."""
+        if not self._runtime_mcp_tools:
+            return ""
+
+        tool_lines = "\n".join(
+            f"- `{name}`: {description}" for name, description in self._runtime_mcp_tools
+        )
+        return f"""# Available MCP Tools
+
+These MCP tools are already connected and available through normal tool calling.
+
+{tool_lines}
+"""
+
     def _build_subagent_summary(self) -> str:
         """Describe the available delegate prompt types for the main agent."""
         subagents = get_all_subagents(self.app_home)
@@ -86,11 +101,16 @@ Use `delegate` when a focused subproblem would benefit from a dedicated prompt.
         self.workspace = self.tool_workspace
         self.memory_store = MemoryStore(self.memory_dir)
         self.recent_summary_store = RecentSummaryStore(self.memory_dir)
+        self._runtime_mcp_tools: list[tuple[str, str]] = []
         self.skills_loader = skills_loader or SkillsLoader(
             default_skills_dir=default_skills_dir or get_skills_dir(self.app_home),
             personal_skills_dir=personal_skills_dir,
             custom_skills_dir=custom_skills_dir,
         )
+
+    def set_runtime_mcp_tools(self, tools: list[tuple[str, str]]) -> None:
+        """Store the connected MCP tool summary for prompt generation."""
+        self._runtime_mcp_tools = list(tools)
 
     def get_chat_workspace(self, chat_id: str = "default") -> Path:
         """Resolve the current chat's isolated workspace."""
@@ -132,6 +152,10 @@ To use a skill, read its SKILL.md file using the read_skill tool.
         subagent_summary = self._build_subagent_summary()
         if subagent_summary:
             parts.append(subagent_summary)
+
+        mcp_tools_summary = self._build_mcp_tools_summary()
+        if mcp_tools_summary:
+            parts.append(mcp_tools_summary)
 
         memory = self.memory_store.read(chat_id)
         if memory:

@@ -58,6 +58,23 @@ class _MinimalTool(Tool):
         return "ok"
 
 
+class _MinimalMCPTool(Tool):
+    @property
+    def name(self) -> str:
+        return "mcp_demo_echo"
+
+    @property
+    def description(self) -> str:
+        return "Echo text through demo MCP"
+
+    @property
+    def parameters(self) -> dict:
+        return {"type": "object", "properties": {}}
+
+    async def _execute(self, **kwargs):
+        return "ok"
+
+
 class _EmptyStorage:
     async def get_messages(self, chat_id, limit=None):
         return []
@@ -135,3 +152,51 @@ def test_main_agent_call_llm_passes_full_file_builder_system_prompt_to_provider(
     assert "# Available Subagents" in system_text
     assert "Use `delegate` when a focused subproblem would benefit from a dedicated prompt." in system_text
     assert "\n\n---\n\n" in system_text
+
+
+def test_main_agent_system_prompt_lists_connected_mcp_tools(tmp_path: Path) -> None:
+    app_home = tmp_path / "home"
+    sync_templates(app_home, silent=True)
+
+    context_builder = FileContextBuilder(
+        app_home=app_home,
+        bootstrap_dir=app_home / "bootstrap",
+        memory_dir=app_home / "memory",
+        tool_workspace=app_home / "workspace",
+    )
+
+    registry = ToolRegistry()
+    registry.register(_MinimalTool())
+    registry.register(_MinimalMCPTool())
+
+    provider = CapturingProvider()
+    agent = AgentLoop(
+        config=AgentConfig(),
+        provider=provider,
+        storage=_EmptyStorage(),
+        context_builder=context_builder,
+        tools=registry,
+        memory_config=MemoryConfig(),
+        tools_config=ToolsConfig(),
+        log_config=LogConfig(log_system_prompt=False),
+        search_config=SearchConfig(),
+        user_profile_config=UserProfileConfig(enabled=False),
+    )
+
+    chat_id = "telegram:room-1"
+
+    async def _run() -> str:
+        return await agent.call_llm(
+            chat_id,
+            "show me available mcp tools",
+            channel="telegram",
+            allow_tools=False,
+        )
+
+    result = asyncio.run(_run())
+
+    assert result == "done"
+    system_text = provider.calls[0][0].content
+    assert "# Available MCP Tools" in system_text
+    assert "These MCP tools are already connected and available through normal tool calling." in system_text
+    assert "`mcp_demo_echo`: Echo text through demo MCP" in system_text
