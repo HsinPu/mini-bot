@@ -43,7 +43,7 @@ from ..search.base import SearchStore
 from ..tools import ToolRegistry
 from ..utils import count_messages_tokens, count_text_tokens, sanitize_assistant_visible_text, strip_assistant_internal_scaffolding
 from ..utils.log import logger
-from ..config import AgentConfig, MemoryConfig, ToolsConfig, LogConfig, SearchConfig, UserProfileConfig, RecentSummaryConfig
+from ..config import AgentConfig, MemoryConfig, ToolsConfig, LogConfig, SearchConfig, UserProfileConfig, RecentSummaryConfig, Config
 from .consolidation import MemoryConsolidationService, RecentSummaryUpdateService, UserProfileUpdateService
 from .execution import ExecutionEngine
 from .tool_registration import register_default_tools, register_memory_tool
@@ -267,6 +267,7 @@ class AgentLoop:
         recent_summary_config: RecentSummaryConfig | None = None,
         cron_manager: Any | None = None,
         media_router: MediaRouter | None = None,
+        config_path: str | Path | None = None,
     ):
         ...
         self.config = config
@@ -286,7 +287,9 @@ class AgentLoop:
         self._current_videos: ContextVar[list[str] | None] = ContextVar("current_videos", default=None)
         self.app_home: Path | None = None
         self.tool_workspace: Path | None = None
+        self.config_path: Path | None = Path(config_path).expanduser().resolve() if config_path is not None else None
         self._mcp_servers = dict(self.tools_config.mcp_servers)
+        self._mcp_tool_names: set[str] = set()
         self._mcp_stack: AsyncExitStack | None = None
         self._mcp_connected = False
         self._mcp_connecting = False
@@ -509,6 +512,13 @@ class AgentLoop:
         )
         self._context_builder.set_runtime_mcp_tools(mcp_tools)
 
+    def _get_config_path(self) -> Path | None:
+        if self.config_path is not None:
+            return self.config_path
+        if self.app_home is not None:
+            return (self.app_home / "opensprite.json").resolve()
+        return None
+
     async def connect_mcp(self) -> None:
         """Connect configured MCP servers once and register their tools."""
         if self._mcp_connected or self._mcp_connecting or not self._mcp_servers:
@@ -520,6 +530,7 @@ class AgentLoop:
 
             self._mcp_connecting = True
             stack: AsyncExitStack | None = None
+            preexisting_tool_names = set(self.tools.tool_names)
             try:
                 from ..tools.mcp import connect_mcp_servers
 
@@ -528,9 +539,17 @@ class AgentLoop:
                 await connect_mcp_servers(self._mcp_servers, self.tools, stack)
                 self._mcp_stack = stack
                 self._mcp_connected = True
+                self._mcp_tool_names = {
+                    name for name in self.tools.tool_names
+                    if name.startswith("mcp_") and name not in preexisting_tool_names
+                }
                 self._sync_runtime_mcp_tools_context()
                 logger.info("agent.mcp.connected | tools={}", ", ".join(self.tools.tool_names))
             except BaseException as exc:
+                for name in list(self.tools.tool_names):
+                    if name.startswith("mcp_") and name not in preexisting_tool_names:
+                        self.tools.unregister(name)
+                self._mcp_tool_names.clear()
                 logger.error("agent.mcp.connect.error | error={}", exc)
                 if stack is not None:
                     try:
@@ -548,6 +567,9 @@ class AgentLoop:
             self._mcp_stack = None
             self._mcp_connected = False
             self._mcp_connecting = False
+            for tool_name in list(self._mcp_tool_names):
+                self.tools.unregister(tool_name)
+            self._mcp_tool_names.clear()
             self._sync_runtime_mcp_tools_context()
 
         if stack is None:
@@ -557,6 +579,28 @@ class AgentLoop:
             await stack.aclose()
         except Exception as exc:
             logger.warning("agent.mcp.close.error | error={}", exc)
+
+    async def reload_mcp_from_config(self) -> str:
+        """Reload MCP settings from disk and reconnect MCP tools for this agent."""
+        config_path = self._get_config_path()
+        if config_path is None:
+            return "Error: MCP config path is unavailable."
+
+        loaded = Config.load(config_path)
+        self.tools_config.mcp_servers_file = loaded.tools.mcp_servers_file
+        self.tools_config.mcp_servers = dict(loaded.tools.mcp_servers)
+        self._mcp_servers = dict(loaded.tools.mcp_servers)
+
+        await self.close_mcp()
+        if not self._mcp_servers:
+            return "MCP configuration reloaded. No MCP servers are configured now."
+
+        await self.connect_mcp()
+        if not self._mcp_connected:
+            return "MCP configuration reloaded, but no MCP servers connected successfully."
+
+        connected_tools = ", ".join(sorted(self._mcp_tool_names)) or "(none)"
+        return f"MCP configuration reloaded. Connected tools: {connected_tools}"
 
     def _get_current_chat_id(self) -> str | None:
         """Return the current task-local chat id."""
@@ -584,6 +628,8 @@ class AgentLoop:
             workspace_resolver=self._get_current_workspace,
             get_chat_id=self._get_current_chat_id,
             run_subagent=self.run_subagent,
+            config_path_resolver=self._get_config_path,
+            reload_mcp=self.reload_mcp_from_config,
             app_home=self.app_home,
             skills_loader=getattr(self._context_builder, "skills_loader", None),
             tools_config=self.tools_config,

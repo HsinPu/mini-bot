@@ -193,6 +193,7 @@ async def create_agent(config: Config):
         recent_summary_config=config.recent_summary,
         cron_manager=None,
         media_router=media_router,
+        config_path=config.source_path,
     )
     mq = MessageQueue(agent)
     agent._message_bus = mq.bus

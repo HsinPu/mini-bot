@@ -193,3 +193,45 @@ def test_close_mcp_resets_state_and_closes_stack(tmp_path, monkeypatch):
     assert stack.closed is True
     assert agent._mcp_stack is None
     assert agent._mcp_connected is False
+
+
+def test_reload_mcp_from_config_replaces_registered_mcp_tools(tmp_path, monkeypatch):
+    config_path = tmp_path / "opensprite.json"
+    mcp_path = tmp_path / "mcp_servers.json"
+    config_path.write_text(
+        '{"llm":{"api_key":"key","model":"gpt","temperature":0.7,"max_tokens":2048},'
+        '"storage":{"type":"memory","path":"memory.db"},'
+        '"channels":{"telegram":{"enabled":false},"console":{"enabled":true}},'
+        '"tools":{"mcp_servers_file":"mcp_servers.json"}}',
+        encoding="utf-8",
+    )
+    mcp_path.write_text(
+        '{"demo":{"command":"npx","args":["-y","demo-mcp"]}}',
+        encoding="utf-8",
+    )
+
+    async def fake_connect(servers, registry, stack):
+        for server_name in sorted(servers):
+            registry.register(DummyTool(f"mcp_{server_name}_echo"))
+
+    monkeypatch.setattr("opensprite.tools.mcp.connect_mcp_servers", fake_connect)
+
+    agent = _make_agent(
+        tmp_path,
+        ToolsConfig(mcp_servers={"demo": {"command": "npx", "args": ["demo-mcp"]}}),
+    )
+    agent.config_path = config_path
+
+    asyncio.run(agent.connect_mcp())
+    assert "mcp_demo_echo" in agent.tools.tool_names
+
+    mcp_path.write_text(
+        '{"other":{"command":"npx","args":["-y","other-mcp"]}}',
+        encoding="utf-8",
+    )
+
+    result = asyncio.run(agent.reload_mcp_from_config())
+
+    assert "MCP configuration reloaded." in result
+    assert "mcp_other_echo" in agent.tools.tool_names
+    assert "mcp_demo_echo" not in agent.tools.tool_names

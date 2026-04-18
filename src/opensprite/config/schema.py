@@ -248,7 +248,7 @@ class Config:
                  memory: MemoryConfig | None = None, search: SearchConfig | None = None,
                  user_profile: UserProfileConfig | None = None, vision: VisionConfig | None = None,
                  speech: SpeechConfig | None = None, video: VideoConfig | None = None,
-                 recent_summary: RecentSummaryConfig | None = None):
+                 recent_summary: RecentSummaryConfig | None = None, source_path: str | Path | None = None):
         self.llm = llm
         self.agent = agent
         self.storage = storage
@@ -262,6 +262,7 @@ class Config:
         self.vision = vision or VisionConfig()
         self.speech = speech or SpeechConfig()
         self.video = video or VideoConfig()
+        self.source_path = Path(source_path).expanduser().resolve() if source_path is not None else None
 
         if self.agent is None:
             self.agent = AgentConfig()
@@ -325,13 +326,28 @@ class Config:
         return config_path.parent / "mcp_servers.json"
 
     @classmethod
-    def ensure_mcp_servers_file(cls, config_path: str | Path, config_data: dict[str, Any] | None = None) -> Path:
+    def get_mcp_servers_file_path(
+        cls,
+        config_path: str | Path,
+        tools_config: ToolsConfig | dict[str, Any] | None = None,
+    ) -> Path:
         resolved_config_path = Path(config_path).expanduser().resolve()
-        tools_data = config_data.get("tools", {}) if isinstance(config_data, dict) else {}
-        configured_path = tools_data.get("mcp_servers_file") if isinstance(tools_data, dict) else None
+        if isinstance(tools_config, ToolsConfig):
+            configured_path = tools_config.mcp_servers_file
+        elif isinstance(tools_config, dict):
+            configured_path = tools_config.get("mcp_servers_file")
+        else:
+            configured_path = None
+
         target_path = cls._resolve_mcp_servers_file(resolved_config_path, configured_path)
         if target_path is None:
             target_path = cls._build_default_mcp_servers_path(resolved_config_path)
+        return target_path
+
+    @classmethod
+    def ensure_mcp_servers_file(cls, config_path: str | Path, config_data: dict[str, Any] | None = None) -> Path:
+        tools_data = config_data.get("tools", {}) if isinstance(config_data, dict) else None
+        target_path = cls.get_mcp_servers_file_path(config_path, tools_data)
 
         if not target_path.exists():
             cls._write_json_file(target_path, {})
@@ -375,6 +391,7 @@ class Config:
             vision=VisionConfig(**data.get("vision", {})) if "vision" in data else None,
             speech=SpeechConfig(**data.get("speech", {})) if "speech" in data else None,
             video=VideoConfig(**data.get("video", {})) if "video" in data else None,
+            source_path=path,
         )
 
     @classmethod

@@ -3,6 +3,7 @@ from pathlib import Path
 from opensprite.agent.tool_registration import register_default_tools
 from opensprite.config.schema import SearchConfig, ToolsConfig
 from opensprite.tools.cron import CronTool
+from opensprite.tools.mcp_config import ConfigureMCPTool
 from opensprite.tools.shell import ExecTool
 from opensprite.tools.search import SearchKnowledgeTool
 from opensprite.tools.web_fetch import WebFetchTool
@@ -12,6 +13,10 @@ from opensprite.tools.registry import ToolRegistry
 
 async def _fake_run_subagent(task: str, prompt_type: str) -> str:
     return f"{prompt_type}:{task}"
+
+
+async def _fake_reload_mcp() -> str:
+    return "reloaded"
 
 
 class FakeSearchStore:
@@ -30,6 +35,8 @@ def test_register_default_tools_includes_optional_skill_and_search_tools():
         workspace_resolver=lambda: Path.cwd(),
         get_chat_id=lambda: "chat-1",
         run_subagent=_fake_run_subagent,
+        config_path_resolver=lambda: Path.cwd() / "opensprite.json",
+        reload_mcp=_fake_reload_mcp,
         skills_loader=object(),
         search_store=FakeSearchStore(),
         search_config=SearchConfig(history_top_k=7, knowledge_top_k=9),
@@ -41,6 +48,7 @@ def test_register_default_tools_includes_optional_skill_and_search_tools():
         "edit_file",
         "list_dir",
         "read_skill",
+        "configure_mcp",
         "exec",
         "web_search",
         "web_fetch",
@@ -63,6 +71,8 @@ def test_register_default_tools_skips_optional_skill_and_search_tools_when_depen
         workspace_resolver=lambda: Path.cwd(),
         get_chat_id=lambda: "chat-1",
         run_subagent=_fake_run_subagent,
+        config_path_resolver=lambda: Path.cwd() / "opensprite.json",
+        reload_mcp=_fake_reload_mcp,
     )
 
     assert registry.tool_names == [
@@ -70,6 +80,7 @@ def test_register_default_tools_skips_optional_skill_and_search_tools_when_depen
         "write_file",
         "edit_file",
         "list_dir",
+        "configure_mcp",
         "exec",
         "web_search",
         "web_fetch",
@@ -90,6 +101,8 @@ def test_register_default_tools_applies_typed_tools_config_values():
         workspace_resolver=lambda: Path.cwd(),
         get_chat_id=lambda: "chat-1",
         run_subagent=_fake_run_subagent,
+        config_path_resolver=lambda: Path.cwd() / "opensprite.json",
+        reload_mcp=_fake_reload_mcp,
         tools_config=ToolsConfig(
             **{
                 "exec": {"timeout": 12},
@@ -108,9 +121,11 @@ def test_register_default_tools_applies_typed_tools_config_values():
     web_search_tool = registry.get("web_search")
     web_fetch_tool = registry.get("web_fetch")
     cron_tool = registry.get("cron")
+    configure_mcp_tool = registry.get("configure_mcp")
 
     assert isinstance(exec_tool, ExecTool)
     assert isinstance(cron_tool, CronTool)
+    assert isinstance(configure_mcp_tool, ConfigureMCPTool)
     assert isinstance(web_search_tool, WebSearchTool)
     assert isinstance(web_fetch_tool, WebFetchTool)
     assert exec_tool.timeout == 12
@@ -131,6 +146,8 @@ def test_search_and_web_tools_describe_retrieval_preference():
         workspace_resolver=lambda: Path.cwd(),
         get_chat_id=lambda: "chat-1",
         run_subagent=_fake_run_subagent,
+        config_path_resolver=lambda: Path.cwd() / "opensprite.json",
+        reload_mcp=_fake_reload_mcp,
         search_store=FakeSearchStore(),
         search_config=SearchConfig(history_top_k=7, knowledge_top_k=9),
     )
@@ -155,6 +172,8 @@ def test_register_default_tools_applies_cron_default_timezone_from_tools_config(
         workspace_resolver=lambda: Path.cwd(),
         get_chat_id=lambda: "chat-1",
         run_subagent=_fake_run_subagent,
+        config_path_resolver=lambda: Path.cwd() / "opensprite.json",
+        reload_mcp=_fake_reload_mcp,
         tools_config=ToolsConfig(**{"cron": {"default_timezone": "Asia/Taipei"}}),
     )
 

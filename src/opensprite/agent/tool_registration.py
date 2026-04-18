@@ -28,6 +28,7 @@ from ..tools import (
     WebSearchTool,
     WebFetchTool,
     ReadSkillTool,
+    ConfigureMCPTool,
 )
 from ..tools.delegate import DelegateTool
 
@@ -108,6 +109,21 @@ def register_shell_tools(
         ExecTool(
             workspace_resolver=workspace_resolver,
             timeout=current_tools_config.exec_tool.timeout,
+        )
+    )
+
+
+def register_config_tools(
+    registry: ToolRegistry,
+    *,
+    config_path_resolver: Callable[[], Path | None],
+    reload_mcp: Callable[[], Awaitable[str]],
+) -> None:
+    """Register tools that safely update application configuration."""
+    registry.register(
+        ConfigureMCPTool(
+            config_path_resolver=config_path_resolver,
+            reload_callback=reload_mcp,
         )
     )
 
@@ -230,6 +246,8 @@ def register_default_tools(
     workspace_resolver: Callable[[], Path],
     get_chat_id: Callable[[], str | None],
     run_subagent: Callable[[str, str], Awaitable[str]],
+    config_path_resolver: Callable[[], Path | None],
+    reload_mcp: Callable[[], Awaitable[str]],
     app_home: Path | None = None,
     skills_loader: Any = None,
     tools_config: ToolsConfig | None = None,
@@ -251,6 +269,11 @@ def register_default_tools(
         registry,
         skills_loader=skills_loader,
         workspace_resolver=workspace_resolver,
+    )
+    register_config_tools(
+        registry,
+        config_path_resolver=config_path_resolver,
+        reload_mcp=reload_mcp,
     )
     register_shell_tools(registry, workspace_resolver=workspace_resolver, tools_config=tools_config)
     register_web_tools(registry, tools_config=tools_config)

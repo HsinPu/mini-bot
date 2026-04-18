@@ -19,6 +19,10 @@ class ToolRegistry:
         """Get a tool by name."""
         return self._tools.get(name)
 
+    def unregister(self, name: str) -> Tool | None:
+        """Remove one registered tool by name."""
+        return self._tools.pop(name, None)
+
     def filtered(self, *, exclude_names: set[str] | None = None) -> "ToolRegistry":
         """Return a registry copy filtered by excluded tool names."""
         filtered_registry = ToolRegistry()

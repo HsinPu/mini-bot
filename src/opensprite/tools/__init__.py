@@ -11,6 +11,7 @@ from .search import SearchHistoryTool, SearchKnowledgeTool
 from .web_search import WebSearchTool
 from .web_fetch import WebFetchTool
 from .mcp import MCPToolWrapper, connect_mcp_servers
+from .mcp_config import ConfigureMCPTool
 from .cron import CronTool
 from .image import AnalyzeImageTool, OCRImageTool
 
@@ -31,6 +32,7 @@ __all__ = [
     "WebFetchTool",
     "MCPToolWrapper",
     "connect_mcp_servers",
+    "ConfigureMCPTool",
     "CronTool",
     "AnalyzeImageTool",
     "OCRImageTool",
