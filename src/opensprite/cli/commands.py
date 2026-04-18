@@ -16,6 +16,7 @@ from ..context.paths import get_chat_workspace, get_tool_workspace
 from ..cron import CronSchedule, CronService
 from ..runtime import gateway as run_gateway
 from ..search.base import SearchHit
+from ..storage.base import StoredMessage
 from . import service_linux
 from .onboard import run_onboard
 
@@ -678,6 +679,29 @@ def search_benchmark(
         typer.echo(json.dumps(benchmark_payload, ensure_ascii=False, indent=2))
 
 
+@search_app.command("seed-demo")
+def search_seed_demo(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to an OpenSprite JSON config file."),
+    chat_id: str = typer.Option("demo:search-benchmark", "--chat-id", help="Chat id that will receive the synthetic benchmark dataset."),
+    reset: bool = typer.Option(True, "--reset/--append", help="Replace any existing demo chat data before seeding."),
+) -> None:
+    """Seed synthetic chat and web knowledge so benchmark commands can run without real user data."""
+    try:
+        loaded, search_store = _load_sqlite_search_store(config)
+        result = asyncio.run(_seed_demo_search_data(loaded, search_store, chat_id=chat_id, reset=reset))
+    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+        _handle_search_error(exc)
+
+    typer.echo(f"Seeded demo search data for {chat_id}.")
+    typer.echo(f"Storage DB: {Path(loaded.storage.path).expanduser()}")
+    typer.echo(f"Messages: {result['messages']}")
+    typer.echo(f"Knowledge sources: {result['knowledge_sources']}")
+    typer.echo(f"Chunks: {result['chunks']}")
+    typer.echo(f"Completed embeddings: {result['completed']}")
+    typer.echo("Try:")
+    typer.echo(f"  opensprite search benchmark --chat-id {chat_id} --query \"orchard irrigation\" --strategy both --repeat 5")
+
+
 @search_app.command("retry-embeddings")
 def search_retry_embeddings(
     config: str | None = typer.Option(
@@ -894,6 +918,153 @@ def _benchmark_one_strategy(
         )
     elapsed_ms = (time.perf_counter() - started) * 1000.0
     return elapsed_ms, hits
+
+
+def _demo_search_payload(query: str, title: str, url: str, content: str, *, provider: str = "duckduckgo") -> str:
+    """Build a demo web_search payload."""
+    return json.dumps(
+        {
+            "type": "web_search",
+            "query": query,
+            "url": "",
+            "final_url": "",
+            "title": "",
+            "content": "",
+            "summary": f"Search results for: {query}",
+            "provider": provider,
+            "extractor": "search",
+            "status": None,
+            "truncated": False,
+            "content_type": "application/json",
+            "items": [
+                {
+                    "title": title,
+                    "url": url,
+                    "content": content,
+                }
+            ],
+        },
+        ensure_ascii=False,
+    )
+
+
+def _demo_fetch_payload(url: str, title: str, content: str, *, extractor: str = "trafilatura") -> str:
+    """Build a demo web_fetch payload."""
+    return json.dumps(
+        {
+            "type": "web_fetch",
+            "query": url,
+            "url": url,
+            "final_url": url,
+            "title": title,
+            "content": content,
+            "summary": title,
+            "provider": "web_fetch",
+            "extractor": extractor,
+            "status": 200,
+            "content_type": "text/html",
+            "truncated": False,
+            "items": [],
+        },
+        ensure_ascii=False,
+    )
+
+
+async def _seed_demo_search_data(loaded, search_store, *, chat_id: str, reset: bool) -> dict[str, int]:
+    """Seed one synthetic chat with history and stored web knowledge."""
+    from ..storage.sqlite import SQLiteStorage
+
+    storage = SQLiteStorage(loaded.storage.path)
+    if reset:
+        await storage.clear_messages(chat_id)
+        await search_store.clear_chat(chat_id)
+
+    seeded_messages = [
+        StoredMessage(role="user", content="Compare SQLite FTS and vector search strategies.", timestamp=10.0),
+        StoredMessage(role="assistant", content="I can compare retrieval speed and relevance once benchmark data is ready.", timestamp=11.0),
+        StoredMessage(role="user", content="Focus on orchard planning, irrigation, and soil notes.", timestamp=12.0),
+    ]
+
+    for message in seeded_messages:
+        await storage.add_message(chat_id, message)
+        await search_store.index_message(
+            chat_id,
+            role=message.role,
+            content=message.content,
+            tool_name=message.tool_name,
+            created_at=message.timestamp,
+        )
+
+    demo_knowledge = [
+        (
+            "web_search",
+            {"query": "orchard irrigation guide", "provider": "duckduckgo"},
+            _demo_search_payload(
+                "orchard irrigation guide",
+                "Orchard Irrigation Guide",
+                "https://example.com/orchard-irrigation",
+                "Irrigation scheduling, soil moisture, and orchard planning checklist.",
+            ),
+            20.0,
+        ),
+        (
+            "web_fetch",
+            {"url": "https://example.com/orchard-irrigation"},
+            _demo_fetch_payload(
+                "https://example.com/orchard-irrigation",
+                "Orchard Irrigation Guide",
+                "This guide covers orchard layout, irrigation timing, soil moisture targets, and benchmark-friendly notes about planning healthy trees.",
+            ),
+            21.0,
+        ),
+        (
+            "web_search",
+            {"query": "soil amendment notes", "provider": "duckduckgo"},
+            _demo_search_payload(
+                "soil amendment notes",
+                "Soil Amendment Notes",
+                "https://example.com/soil-notes",
+                "Soil notes on compost, drainage, and amendment timing for orchards.",
+            ),
+            22.0,
+        ),
+        (
+            "web_fetch",
+            {"url": "https://example.com/soil-notes"},
+            _demo_fetch_payload(
+                "https://example.com/soil-notes",
+                "Soil Amendment Notes",
+                "Detailed soil notes covering compost rates, drainage fixes, and orchard soil preparation steps.",
+            ),
+            23.0,
+        ),
+    ]
+
+    for tool_name, tool_args, payload, created_at in demo_knowledge:
+        tool_message = StoredMessage(role="tool", content=payload, timestamp=created_at, tool_name=tool_name)
+        await storage.add_message(chat_id, tool_message)
+        await search_store.index_message(
+            chat_id,
+            role=tool_message.role,
+            content=tool_message.content,
+            tool_name=tool_message.tool_name,
+            created_at=tool_message.timestamp,
+        )
+        await search_store.index_tool_result(
+            chat_id,
+            tool_name=tool_name,
+            tool_args=tool_args,
+            result=payload,
+            created_at=created_at,
+        )
+
+    status = await search_store.wait_for_embedding_idle()
+    return {
+        "messages": len(seeded_messages) + len(demo_knowledge),
+        "knowledge_sources": 4,
+        "chunks": status["chunk_count"],
+        "completed": status["completed"],
+    }
 
 
 def _get_cron_service(session: str) -> CronService:

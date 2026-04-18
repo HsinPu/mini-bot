@@ -537,3 +537,40 @@ def test_search_benchmark_cli_can_emit_json(monkeypatch):
     assert payload["strategies"][0]["summary"]["avg_ms"] == 6.0
     assert payload["strategies"][0]["hits"][0]["title"] == "vector result"
     assert payload["comparison"] == {}
+
+
+def test_search_seed_demo_cli_seeds_benchmark_ready_data(tmp_path):
+    db_path = tmp_path / "sessions.db"
+    config_path = tmp_path / "opensprite.json"
+    _write_config(config_path, db_path, search_enabled=True)
+
+    seed_result = runner.invoke(
+        app,
+        ["search", "seed-demo", "--config", str(config_path), "--chat-id", "demo:bench"],
+    )
+
+    assert seed_result.exit_code == 0
+    assert "Seeded demo search data for demo:bench." in seed_result.stdout
+    assert "Messages: 7" in seed_result.stdout
+    assert "Knowledge sources: 4" in seed_result.stdout
+
+    benchmark_result = runner.invoke(
+        app,
+        [
+            "search",
+            "benchmark",
+            "--config",
+            str(config_path),
+            "--chat-id",
+            "demo:bench",
+            "--query",
+            "orchard irrigation",
+            "--strategy",
+            "fts",
+        ],
+    )
+
+    assert benchmark_result.exit_code == 0
+    assert "Search benchmark for demo:bench (knowledge)." in benchmark_result.stdout
+    assert "Strategy: fts" in benchmark_result.stdout
+    assert "Orchard Irrigation Guide" in benchmark_result.stdout
