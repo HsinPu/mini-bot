@@ -110,6 +110,42 @@ def test_video_config_requires_api_key_and_model_when_enabled():
         VideoConfig(enabled=True)
 
 
+def test_config_load_reads_media_from_external_file(tmp_path):
+    config_path = tmp_path / "opensprite.json"
+    media_path = tmp_path / "media.json"
+    media_path.write_text(
+        json.dumps(
+            {
+                "vision": {"enabled": True, "model": "vision-model", "api_key": "vision-key"},
+                "speech": {"enabled": True, "model": "speech-model", "api_key": "speech-key"},
+                "video": {"enabled": True, "model": "video-model", "api_key": "video-key"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    config_path.write_text(
+        json.dumps(
+            {
+                "llm": {"api_key": "key", "model": "gpt", "temperature": 0.7, "max_tokens": 2048},
+                "storage": {"type": "memory", "path": "memory.db"},
+                "channels": {"telegram": {"enabled": False}, "console": {"enabled": True}},
+                "media_file": "media.json",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = Config.from_json(config_path)
+
+    assert config.vision.enabled is True
+    assert config.vision.model == "vision-model"
+    assert config.speech.enabled is True
+    assert config.speech.model == "speech-model"
+    assert config.video.enabled is True
+    assert config.video.model == "video-model"
+    assert config.media_file == "media.json"
+
+
 def test_search_embedding_config_requires_model_when_enabled():
     with pytest.raises(ValidationError):
         SearchEmbeddingConfig(enabled=True)
@@ -282,6 +318,43 @@ def test_config_save_writes_search_to_external_file(tmp_path):
     assert saved_search["embedding"]["candidate_count"] == 77
 
 
+def test_config_save_writes_media_to_external_file(tmp_path):
+    config_path = tmp_path / "opensprite.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "llm": {"api_key": "key", "model": "gpt", "temperature": 0.7, "max_tokens": 2048},
+                "storage": {"type": "memory", "path": "memory.db"},
+                "channels": {"telegram": {"enabled": False}, "console": {"enabled": True}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = Config.from_json(config_path)
+    config.vision.enabled = True
+    config.vision.model = "vision-model"
+    config.vision.api_key = "vision-key"
+    config.speech.enabled = True
+    config.speech.model = "speech-model"
+    config.speech.api_key = "speech-key"
+    config.video.enabled = True
+    config.video.model = "video-model"
+    config.video.api_key = "video-key"
+    config.save(config_path)
+
+    saved_main = json.loads(config_path.read_text(encoding="utf-8"))
+    saved_media = json.loads((tmp_path / "media.json").read_text(encoding="utf-8"))
+
+    assert saved_main["media_file"] == "media.json"
+    assert "vision" not in saved_main
+    assert "speech" not in saved_main
+    assert "video" not in saved_main
+    assert saved_media["vision"]["model"] == "vision-model"
+    assert saved_media["speech"]["model"] == "speech-model"
+    assert saved_media["video"]["model"] == "video-model"
+
+
 def test_config_load_merges_external_mcp_servers_file(tmp_path):
     config_path = tmp_path / "opensprite.json"
     mcp_path = tmp_path / "mcp_servers.json"
@@ -406,7 +479,21 @@ def test_copy_template_creates_external_search_file(tmp_path):
     assert json.loads(search_path.read_text(encoding="utf-8")) == Config.load_external_template_data("search")
 
 
+def test_copy_template_creates_external_media_file(tmp_path):
+    config_path = tmp_path / "opensprite.json"
+
+    Config.copy_template(config_path)
+
+    template_data = json.loads(config_path.read_text(encoding="utf-8"))
+    media_path = tmp_path / "media.json"
+
+    assert template_data["media_file"] == "media.json"
+    assert media_path.exists()
+    assert json.loads(media_path.read_text(encoding="utf-8")) == Config.load_external_template_data("media")
+
+
 def test_external_template_paths_exist():
     assert Config.external_template_path("channels").exists()
     assert Config.external_template_path("search").exists()
     assert Config.external_template_path("mcp_servers").exists()
+    assert Config.external_template_path("media").exists()

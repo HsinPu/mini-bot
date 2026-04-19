@@ -249,7 +249,7 @@ class Config:
                  user_profile: UserProfileConfig | None = None, vision: VisionConfig | None = None,
                  speech: SpeechConfig | None = None, video: VideoConfig | None = None,
                  recent_summary: RecentSummaryConfig | None = None, source_path: str | Path | None = None,
-                 channels_file: str = "channels.json", search_file: str = "search.json"):
+                 channels_file: str = "channels.json", search_file: str = "search.json", media_file: str = "media.json"):
         self.llm = llm
         self.agent = agent
         self.storage = storage
@@ -266,6 +266,7 @@ class Config:
         self.source_path = Path(source_path).expanduser().resolve() if source_path is not None else None
         self.channels_file = channels_file
         self.search_file = search_file
+        self.media_file = media_file
 
         if self.agent is None:
             self.agent = AgentConfig()
@@ -296,6 +297,16 @@ class Config:
             return None
 
         candidate = Path(search_file).expanduser()
+        if not candidate.is_absolute():
+            candidate = (config_path.parent / candidate).resolve()
+        return candidate
+
+    @staticmethod
+    def _resolve_media_file(config_path: Path, media_file: str | None) -> Path | None:
+        if not media_file:
+            return None
+
+        candidate = Path(media_file).expanduser()
         if not candidate.is_absolute():
             candidate = (config_path.parent / candidate).resolve()
         return candidate
@@ -336,6 +347,19 @@ class Config:
 
         if not isinstance(data, dict):
             raise ValueError(f"Search 設定檔必須是 JSON object：{path}")
+
+        return data
+
+    @classmethod
+    def _load_media_data(cls, path: Path) -> dict[str, Any]:
+        if not path.exists():
+            return {}
+
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        if not isinstance(data, dict):
+            raise ValueError(f"Media 設定檔必須是 JSON object：{path}")
 
         return data
 
@@ -381,6 +405,10 @@ class Config:
     @classmethod
     def _build_default_search_path(cls, config_path: Path) -> Path:
         return config_path.parent / "search.json"
+
+    @classmethod
+    def _build_default_media_path(cls, config_path: Path) -> Path:
+        return config_path.parent / "media.json"
 
     @classmethod
     def get_mcp_servers_file_path(
@@ -433,6 +461,23 @@ class Config:
         target_path = cls._resolve_search_file(resolved_config_path, configured_path)
         if target_path is None:
             target_path = cls._build_default_search_path(resolved_config_path)
+        return target_path
+
+    @classmethod
+    def get_media_file_path(
+        cls,
+        config_path: str | Path,
+        config_data: dict[str, Any] | None = None,
+        media_file: str | None = None,
+    ) -> Path:
+        resolved_config_path = Path(config_path).expanduser().resolve()
+        configured_path = media_file
+        if configured_path is None and isinstance(config_data, dict):
+            configured_path = config_data.get("media_file")
+
+        target_path = cls._resolve_media_file(resolved_config_path, configured_path)
+        if target_path is None:
+            target_path = cls._build_default_media_path(resolved_config_path)
         return target_path
 
     @classmethod
@@ -494,6 +539,39 @@ class Config:
         return target_path
 
     @classmethod
+    def write_media_file(
+        cls,
+        config_path: str | Path,
+        media_data: dict[str, Any],
+        config_data: dict[str, Any] | None = None,
+        media_file: str | None = None,
+    ) -> Path:
+        target_path = cls.get_media_file_path(config_path, config_data, media_file)
+        cls._write_json_file(target_path, media_data)
+        return target_path
+
+    @classmethod
+    def ensure_media_file(cls, config_path: str | Path, config_data: dict[str, Any] | None = None) -> Path:
+        vision_data = config_data.get("vision") if isinstance(config_data, dict) else None
+        speech_data = config_data.get("speech") if isinstance(config_data, dict) else None
+        video_data = config_data.get("video") if isinstance(config_data, dict) else None
+        target_path = cls.get_media_file_path(config_path, config_data)
+
+        if not target_path.exists():
+            cls._copy_external_template(target_path, "media")
+            if any(isinstance(section, dict) for section in (vision_data, speech_data, video_data)):
+                cls._write_json_file(
+                    target_path,
+                    {
+                        "vision": vision_data if isinstance(vision_data, dict) else VisionConfig().model_dump(),
+                        "speech": speech_data if isinstance(speech_data, dict) else SpeechConfig().model_dump(),
+                        "video": video_data if isinstance(video_data, dict) else VideoConfig().model_dump(),
+                    },
+                )
+
+        return target_path
+
+    @classmethod
     def from_json(cls, path: str | Path) -> "Config":
         path = Path(path)
         if not path.exists():
@@ -517,6 +595,17 @@ class Config:
         external_search = cls._load_search_data(search_path) if search_path is not None else {}
         merged_search = dict(inline_search) if isinstance(inline_search, dict) else {}
         merged_search.update(external_search)
+        media_path = cls._resolve_media_file(path, data.get("media_file"))
+        external_media = cls._load_media_data(media_path) if media_path is not None else {}
+        merged_vision = dict(data.get("vision", {})) if isinstance(data.get("vision", {}), dict) else {}
+        merged_speech = dict(data.get("speech", {})) if isinstance(data.get("speech", {}), dict) else {}
+        merged_video = dict(data.get("video", {})) if isinstance(data.get("video", {}), dict) else {}
+        if isinstance(external_media.get("vision"), dict):
+            merged_vision.update(external_media["vision"])
+        if isinstance(external_media.get("speech"), dict):
+            merged_speech.update(external_media["speech"])
+        if isinstance(external_media.get("video"), dict):
+            merged_video.update(external_media["video"])
         tools_data = dict(data.get("tools", {})) if "tools" in data else {}
         inline_mcp_servers = tools_data.get("mcp_servers", {})
         mcp_servers_path = cls._resolve_mcp_servers_file(path, tools_data.get("mcp_servers_file"))
@@ -539,12 +628,13 @@ class Config:
             search=SearchConfig(**merged_search) if (merged_search or "search" in data or search_path is not None) else None,
             user_profile=UserProfileConfig(**data.get("user_profile", {})) if "user_profile" in data else None,
             recent_summary=RecentSummaryConfig(**data.get("recent_summary", {})) if "recent_summary" in data else None,
-            vision=VisionConfig(**data.get("vision", {})) if "vision" in data else None,
-            speech=SpeechConfig(**data.get("speech", {})) if "speech" in data else None,
-            video=VideoConfig(**data.get("video", {})) if "video" in data else None,
+            vision=VisionConfig(**merged_vision) if (merged_vision or "vision" in data or media_path is not None) else None,
+            speech=SpeechConfig(**merged_speech) if (merged_speech or "speech" in data or media_path is not None) else None,
+            video=VideoConfig(**merged_video) if (merged_video or "video" in data or media_path is not None) else None,
             source_path=path,
             channels_file=data.get("channels_file") or "channels.json",
             search_file=data.get("search_file") or "search.json",
+            media_file=data.get("media_file") or "media.json",
         )
 
     @classmethod
@@ -620,6 +710,7 @@ class Config:
             shutil.copy2(template_path, path)
             cls.ensure_channels_file(path, cls.load_template_data())
             cls.ensure_search_file(path, cls.load_template_data())
+            cls.ensure_media_file(path, cls.load_template_data())
             cls.ensure_mcp_servers_file(path, cls.load_template_data())
 
         return path
@@ -642,6 +733,15 @@ class Config:
             self.search.model_dump(),
             search_file=self.search_file,
         )
+        self.write_media_file(
+            path,
+            {
+                "vision": self.vision.model_dump(),
+                "speech": self.speech.model_dump(),
+                "video": self.video.model_dump(),
+            },
+            media_file=self.media_file,
+        )
         mcp_servers_path = self._resolve_mcp_servers_file(path, self.tools.mcp_servers_file)
         if mcp_servers_path is not None:
             self._write_json_file(
@@ -658,6 +758,7 @@ class Config:
             "storage": {"type": self.storage.type, "path": self.storage.path},
             "channels_file": self.channels_file,
             "search_file": self.search_file,
+            "media_file": self.media_file,
             "log": {"enabled": self.log.enabled, "retention_days": self.log.retention_days, "level": self.log.level, "log_system_prompt": self.log.log_system_prompt, "log_system_prompt_lines": self.log.log_system_prompt_lines},
             "tools": {
                 "max_tool_iterations": self.tools.max_tool_iterations,
@@ -686,27 +787,6 @@ class Config:
                 "token_threshold": self.recent_summary.token_threshold,
                 "lookback_messages": self.recent_summary.lookback_messages,
                 "keep_last_messages": self.recent_summary.keep_last_messages,
-            },
-            "vision": {
-                "enabled": self.vision.enabled,
-                "provider": self.vision.provider,
-                "api_key": self.vision.api_key,
-                "model": self.vision.model,
-                "base_url": self.vision.base_url,
-            },
-            "speech": {
-                "enabled": self.speech.enabled,
-                "provider": self.speech.provider,
-                "api_key": self.speech.api_key,
-                "model": self.speech.model,
-                "base_url": self.speech.base_url,
-            },
-            "video": {
-                "enabled": self.video.enabled,
-                "provider": self.video.provider,
-                "api_key": self.video.api_key,
-                "model": self.video.model,
-                "base_url": self.video.base_url,
             },
         }
         self._write_json_file(path, data)

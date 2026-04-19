@@ -30,6 +30,7 @@
   },
   "channels_file": "channels.json",
   "search_file": "search.json",
+  "media_file": "media.json",
   "log": {
     "enabled": true,
     "retention_days": 365,
@@ -81,26 +82,5 @@
     "token_threshold": 30000,
     "lookback_messages": 120,
     "keep_last_messages": 40
-  },
-  "vision": {
-    "enabled": false,
-    "provider": "minimax",
-    "api_key": "",
-    "model": "",
-    "base_url": null
-  },
-  "speech": {
-    "enabled": false,
-    "provider": "minimax",
-    "api_key": "",
-    "model": "",
-    "base_url": null
-  },
-  "video": {
-    "enabled": false,
-    "provider": "minimax",
-    "api_key": "",
-    "model": "",
-    "base_url": null
   }
 }

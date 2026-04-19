@@ -210,6 +210,9 @@ def _prepare_config_data(result: OnboardResult, config_path: Path, force: bool) 
     hydrated = copy.deepcopy(data)
     hydrated["channels"] = loaded.channels.model_dump()
     hydrated["search"] = loaded.search.model_dump()
+    hydrated["vision"] = loaded.vision.model_dump()
+    hydrated["speech"] = loaded.speech.model_dump()
+    hydrated["video"] = loaded.video.model_dump()
     return hydrated
 
 
@@ -218,6 +221,9 @@ def _persist_config_data(config_path: Path, config_data: dict[str, Any]) -> None
     main_data = copy.deepcopy(config_data)
     channels_data = main_data.pop("channels", None)
     search_data = main_data.pop("search", None)
+    vision_data = main_data.pop("vision", None)
+    speech_data = main_data.pop("speech", None)
+    video_data = main_data.pop("video", None)
 
     _write_json(config_path, main_data)
     Config.ensure_channels_file(config_path, main_data)
@@ -226,6 +232,17 @@ def _persist_config_data(config_path: Path, config_data: dict[str, Any]) -> None
     Config.ensure_search_file(config_path, main_data)
     if isinstance(search_data, dict):
         Config.write_search_file(config_path, search_data, main_data)
+    Config.ensure_media_file(config_path, {**main_data, "vision": vision_data, "speech": speech_data, "video": video_data})
+    if any(isinstance(section, dict) for section in (vision_data, speech_data, video_data)):
+        Config.write_media_file(
+            config_path,
+            {
+                "vision": vision_data if isinstance(vision_data, dict) else {},
+                "speech": speech_data if isinstance(speech_data, dict) else {},
+                "video": video_data if isinstance(video_data, dict) else {},
+            },
+            main_data,
+        )
     Config.ensure_mcp_servers_file(config_path, main_data)
 
 
