@@ -248,7 +248,8 @@ class Config:
                  memory: MemoryConfig | None = None, search: SearchConfig | None = None,
                  user_profile: UserProfileConfig | None = None, vision: VisionConfig | None = None,
                  speech: SpeechConfig | None = None, video: VideoConfig | None = None,
-                 recent_summary: RecentSummaryConfig | None = None, source_path: str | Path | None = None):
+                 recent_summary: RecentSummaryConfig | None = None, source_path: str | Path | None = None,
+                 channels_file: str = "channels.json"):
         self.llm = llm
         self.agent = agent
         self.storage = storage
@@ -263,6 +264,7 @@ class Config:
         self.speech = speech or SpeechConfig()
         self.video = video or VideoConfig()
         self.source_path = Path(source_path).expanduser().resolve() if source_path is not None else None
+        self.channels_file = channels_file
 
         if self.agent is None:
             self.agent = AgentConfig()
@@ -277,6 +279,16 @@ class Config:
             candidate = (config_path.parent / candidate).resolve()
         return candidate
 
+    @staticmethod
+    def _resolve_channels_file(config_path: Path, channels_file: str | None) -> Path | None:
+        if not channels_file:
+            return None
+
+        candidate = Path(channels_file).expanduser()
+        if not candidate.is_absolute():
+            candidate = (config_path.parent / candidate).resolve()
+        return candidate
+
     @classmethod
     def _load_mcp_servers_data(cls, path: Path) -> dict[str, Any]:
         if not path.exists():
@@ -287,6 +299,19 @@ class Config:
 
         if not isinstance(data, dict):
             raise ValueError(f"MCP 設定檔必須是 JSON object：{path}")
+
+        return data
+
+    @classmethod
+    def _load_channels_data(cls, path: Path) -> dict[str, Any]:
+        if not path.exists():
+            return {}
+
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        if not isinstance(data, dict):
+            raise ValueError(f"Channels 設定檔必須是 JSON object：{path}")
 
         return data
 
@@ -326,6 +351,10 @@ class Config:
         return config_path.parent / "mcp_servers.json"
 
     @classmethod
+    def _build_default_channels_path(cls, config_path: Path) -> Path:
+        return config_path.parent / "channels.json"
+
+    @classmethod
     def get_mcp_servers_file_path(
         cls,
         config_path: str | Path,
@@ -345,12 +374,52 @@ class Config:
         return target_path
 
     @classmethod
+    def get_channels_file_path(
+        cls,
+        config_path: str | Path,
+        config_data: dict[str, Any] | None = None,
+        channels_file: str | None = None,
+    ) -> Path:
+        resolved_config_path = Path(config_path).expanduser().resolve()
+        configured_path = channels_file
+        if configured_path is None and isinstance(config_data, dict):
+            configured_path = config_data.get("channels_file")
+
+        target_path = cls._resolve_channels_file(resolved_config_path, configured_path)
+        if target_path is None:
+            target_path = cls._build_default_channels_path(resolved_config_path)
+        return target_path
+
+    @classmethod
     def ensure_mcp_servers_file(cls, config_path: str | Path, config_data: dict[str, Any] | None = None) -> Path:
         tools_data = config_data.get("tools", {}) if isinstance(config_data, dict) else None
         target_path = cls.get_mcp_servers_file_path(config_path, tools_data)
 
         if not target_path.exists():
             cls._write_json_file(target_path, {})
+
+        return target_path
+
+    @classmethod
+    def write_channels_file(
+        cls,
+        config_path: str | Path,
+        channels_data: dict[str, Any],
+        config_data: dict[str, Any] | None = None,
+        channels_file: str | None = None,
+    ) -> Path:
+        target_path = cls.get_channels_file_path(config_path, config_data, channels_file)
+        cls._write_json_file(target_path, channels_data)
+        return target_path
+
+    @classmethod
+    def ensure_channels_file(cls, config_path: str | Path, config_data: dict[str, Any] | None = None) -> Path:
+        channels_data = config_data.get("channels") if isinstance(config_data, dict) else None
+        target_path = cls.get_channels_file_path(config_path, config_data)
+
+        if not target_path.exists():
+            default_channels = channels_data if isinstance(channels_data, dict) else ChannelsConfig().model_dump()
+            cls._write_json_file(target_path, default_channels)
 
         return target_path
 
@@ -363,9 +432,16 @@ class Config:
             data: dict[str, Any] = json.load(f)
         if not data:
             raise ValueError(f"設定檔是空的：{path}")
-        for section in ["llm", "storage", "channels"]:
+        for section in ["llm", "storage"]:
             if section not in data:
                 raise ValueError(f"設定檔缺少必要區塊：{section}")
+        inline_channels = data.get("channels", {})
+        channels_path = cls._resolve_channels_file(path, data.get("channels_file"))
+        external_channels = cls._load_channels_data(channels_path) if channels_path is not None else {}
+        merged_channels = dict(inline_channels) if isinstance(inline_channels, dict) else {}
+        merged_channels.update(external_channels)
+        if not merged_channels:
+            raise ValueError("設定檔缺少必要區塊：channels 或 channels_file")
         tools_data = dict(data.get("tools", {})) if "tools" in data else {}
         inline_mcp_servers = tools_data.get("mcp_servers", {})
         mcp_servers_path = cls._resolve_mcp_servers_file(path, tools_data.get("mcp_servers_file"))
@@ -381,7 +457,7 @@ class Config:
             llm=LLMsConfig(**data["llm"]),
             agent=AgentConfig(**data["agent"]) if "agent" in data else None,
             storage=StorageConfig(**data["storage"]),
-            channels=ChannelsConfig(**data["channels"]),
+            channels=ChannelsConfig(**merged_channels),
             log=LogConfig(**data["log"]) if "log" in data else None,
             tools=ToolsConfig(**tools_data) if "tools" in data else None,
             memory=MemoryConfig(**data.get("memory", {})) if "memory" in data else None,
@@ -392,6 +468,7 @@ class Config:
             speech=SpeechConfig(**data.get("speech", {})) if "speech" in data else None,
             video=VideoConfig(**data.get("video", {})) if "video" in data else None,
             source_path=path,
+            channels_file=data.get("channels_file") or "channels.json",
         )
 
     @classmethod
@@ -441,6 +518,7 @@ class Config:
 
         if template_path.exists():
             shutil.copy2(template_path, path)
+            cls.ensure_channels_file(path, cls.load_template_data())
             cls.ensure_mcp_servers_file(path, cls.load_template_data())
 
         return path
@@ -450,6 +528,14 @@ class Config:
         path = Path(path).expanduser().resolve()
         if path.suffix != ".json":
             raise ValueError(f"不支援的格式：{path.suffix}")
+        self.write_channels_file(
+            path,
+            {
+                "telegram": dict(self.channels.telegram),
+                "console": dict(self.channels.console),
+            },
+            channels_file=self.channels_file,
+        )
         mcp_servers_path = self._resolve_mcp_servers_file(path, self.tools.mcp_servers_file)
         if mcp_servers_path is not None:
             self._write_json_file(
@@ -464,10 +550,7 @@ class Config:
                 "max_tokens": self.llm.max_tokens,
             },
             "storage": {"type": self.storage.type, "path": self.storage.path},
-            "channels": {
-                "telegram": dict(self.channels.telegram),
-                "console": dict(self.channels.console),
-            },
+            "channels_file": self.channels_file,
             "log": {"enabled": self.log.enabled, "retention_days": self.log.retention_days, "level": self.log.level, "log_system_prompt": self.log.log_system_prompt, "log_system_prompt_lines": self.log.log_system_prompt_lines},
             "tools": {
                 "max_tool_iterations": self.tools.max_tool_iterations,

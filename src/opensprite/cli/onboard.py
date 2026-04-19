@@ -205,9 +205,23 @@ def _prepare_config_data(result: OnboardResult, config_path: Path, force: bool) 
         data = copy.deepcopy(defaults)
         result.created_config = True
 
-    _write_json(config_path, data)
-    Config.ensure_mcp_servers_file(config_path, data)
-    return data
+    _persist_config_data(config_path, data)
+    loaded = Config.from_json(config_path)
+    hydrated = copy.deepcopy(data)
+    hydrated["channels"] = loaded.channels.model_dump()
+    return hydrated
+
+
+def _persist_config_data(config_path: Path, config_data: dict[str, Any]) -> None:
+    """Persist config data while keeping external config sections split out."""
+    main_data = copy.deepcopy(config_data)
+    channels_data = main_data.pop("channels", None)
+
+    _write_json(config_path, main_data)
+    Config.ensure_channels_file(config_path, main_data)
+    if isinstance(channels_data, dict):
+        Config.write_channels_file(config_path, channels_data, main_data)
+    Config.ensure_mcp_servers_file(config_path, main_data)
 
 
 def _get_selected_provider(config_data: dict[str, Any]) -> str | None:
@@ -406,8 +420,7 @@ def run_onboard(
         except (EOFError, KeyboardInterrupt) as exc:
             raise RuntimeError("Interactive onboarding cancelled.") from exc
         if updated != config_data:
-            _write_json(resolved_config, updated)
-            Config.ensure_mcp_servers_file(resolved_config, updated)
+            _persist_config_data(resolved_config, updated)
         config_data = updated
 
     _apply_result_snapshot(result, config_data, interactive=interactive)

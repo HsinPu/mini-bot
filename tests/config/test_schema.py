@@ -1,9 +1,10 @@
 import json
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-from opensprite.config.schema import Config, MCPServerConfig, SearchConfig, SearchEmbeddingConfig, SpeechConfig, StorageConfig, ToolsConfig, VideoConfig, VisionConfig
+from opensprite.config.schema import ChannelsConfig, Config, MCPServerConfig, SearchConfig, SearchEmbeddingConfig, SpeechConfig, StorageConfig, ToolsConfig, VideoConfig, VisionConfig
 
 
 def test_storage_config_accepts_supported_types():
@@ -150,6 +151,64 @@ def test_config_load_defaults_agent_when_section_missing(tmp_path):
     assert config.tools.cron.default_timezone == "UTC"
 
 
+def test_config_load_reads_channels_from_external_file(tmp_path):
+    config_path = tmp_path / "opensprite.json"
+    channels_path = tmp_path / "channels.json"
+    channels_path.write_text(
+        json.dumps(
+            {
+                "telegram": {"enabled": True, "token": "abc"},
+                "console": {"enabled": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+    config_path.write_text(
+        json.dumps(
+            {
+                "llm": {"api_key": "key", "model": "gpt", "temperature": 0.7, "max_tokens": 2048},
+                "storage": {"type": "memory", "path": "memory.db"},
+                "channels_file": "channels.json",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = Config.from_json(config_path)
+
+    assert config.channels.telegram["enabled"] is True
+    assert config.channels.telegram["token"] == "abc"
+    assert config.channels.console["enabled"] is False
+    assert config.channels_file == "channels.json"
+
+
+def test_config_save_writes_channels_to_external_file(tmp_path):
+    config_path = tmp_path / "opensprite.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "llm": {"api_key": "key", "model": "gpt", "temperature": 0.7, "max_tokens": 2048},
+                "storage": {"type": "memory", "path": "memory.db"},
+                "channels": {"telegram": {"enabled": False}, "console": {"enabled": True}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = Config.from_json(config_path)
+    config.channels.telegram["enabled"] = True
+    config.channels.telegram["token"] = "secret"
+    config.save(config_path)
+
+    saved_main = json.loads(config_path.read_text(encoding="utf-8"))
+    saved_channels = json.loads((tmp_path / "channels.json").read_text(encoding="utf-8"))
+
+    assert saved_main["channels_file"] == "channels.json"
+    assert "channels" not in saved_main
+    assert saved_channels["telegram"]["enabled"] is True
+    assert saved_channels["telegram"]["token"] == "secret"
+
+
 def test_config_load_merges_external_mcp_servers_file(tmp_path):
     config_path = tmp_path / "opensprite.json"
     mcp_path = tmp_path / "mcp_servers.json"
@@ -246,3 +305,16 @@ def test_copy_template_creates_external_mcp_servers_file(tmp_path):
     assert template_data["tools"]["mcp_servers_file"] == "mcp_servers.json"
     assert mcp_path.exists()
     assert json.loads(mcp_path.read_text(encoding="utf-8")) == {}
+
+
+def test_copy_template_creates_external_channels_file(tmp_path):
+    config_path = tmp_path / "opensprite.json"
+
+    Config.copy_template(config_path)
+
+    template_data = json.loads(config_path.read_text(encoding="utf-8"))
+    channels_path = tmp_path / "channels.json"
+
+    assert template_data["channels_file"] == "channels.json"
+    assert channels_path.exists()
+    assert json.loads(channels_path.read_text(encoding="utf-8")) == ChannelsConfig().model_dump()
