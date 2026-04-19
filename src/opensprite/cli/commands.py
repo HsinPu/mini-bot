@@ -34,6 +34,8 @@ cron_app = typer.Typer(help="Manage per-session scheduled jobs.")
 app.add_typer(cron_app, name="cron")
 search_app = typer.Typer(help="Manage the SQLite search index.")
 app.add_typer(search_app, name="search")
+config_app = typer.Typer(help="Inspect and validate configuration files.")
+app.add_typer(config_app, name="config")
 
 
 def version_callback(value: bool) -> None:
@@ -141,6 +143,128 @@ def _emit_status(payload: dict[str, object], json_output: bool) -> None:
     typer.echo(
         "Channels: " + (", ".join(enabled_channels) if enabled_channels else "none enabled")
     )
+
+
+def _build_config_validate_payload(config: str | None = None) -> dict[str, object]:
+    """Validate the main config and external split config files."""
+    from ..config import Config
+
+    config_path = _resolve_config_path(config)
+    payload: dict[str, object] = {
+        "config_path": str(config_path),
+        "config_exists": config_path.exists(),
+        "valid": False,
+        "files": [],
+    }
+
+    if not config_path.exists():
+        payload["error"] = f"Config file does not exist: {config_path}"
+        return payload
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            raw_data = json.load(f)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        payload["error"] = str(exc)
+        return payload
+
+    if not isinstance(raw_data, dict):
+        payload["error"] = f"Config file must contain a JSON object: {config_path}"
+        return payload
+
+    files = [
+        ("main", config_path),
+        ("llm.providers", Config.get_llm_providers_file_path(config_path, raw_data.get("llm", {}))),
+        ("channels", Config.get_channels_file_path(config_path, raw_data)),
+        ("search", Config.get_search_file_path(config_path, raw_data)),
+        ("media", Config.get_media_file_path(config_path, raw_data)),
+        ("mcp_servers", Config.get_mcp_servers_file_path(config_path, raw_data.get("tools", {}))),
+    ]
+
+    file_payloads: list[dict[str, object]] = []
+    missing_files: list[str] = []
+    parse_errors: list[str] = []
+    for label, file_path in files:
+        exists = file_path.exists()
+        entry: dict[str, object] = {
+            "name": label,
+            "path": str(file_path),
+            "exists": exists,
+            "valid_json": False,
+        }
+        if exists:
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                entry["valid_json"] = isinstance(loaded, dict)
+                if not isinstance(loaded, dict):
+                    entry["error"] = "JSON root must be an object"
+                    parse_errors.append(f"{label}: JSON root must be an object")
+            except (OSError, json.JSONDecodeError, ValueError) as exc:
+                entry["error"] = str(exc)
+                parse_errors.append(f"{label}: {exc}")
+        else:
+            missing_files.append(label)
+        file_payloads.append(entry)
+
+    payload["files"] = file_payloads
+
+    if missing_files:
+        payload["error"] = "Missing config files: " + ", ".join(missing_files)
+        return payload
+    if parse_errors:
+        payload["error"] = "; ".join(parse_errors)
+        return payload
+
+    try:
+        loaded = Config.load(config_path)
+    except (FileNotFoundError, ValueError) as exc:
+        payload["error"] = str(exc)
+        return payload
+
+    payload.update(
+        {
+            "valid": True,
+            "llm_default": loaded.llm.default,
+            "enabled_channels": [name for name, enabled in _iter_channel_status(loaded) if enabled],
+            "search_enabled": loaded.search.enabled,
+            "mcp_servers": sorted(loaded.tools.mcp_servers),
+        }
+    )
+    return payload
+
+
+def _emit_config_validate(payload: dict[str, object], json_output: bool) -> None:
+    """Render config validation output."""
+    if json_output:
+        typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+
+    typer.echo("OpenSprite Config Validation")
+    typer.echo(f"Config: {payload['config_path']}")
+    typer.echo(f"Exists: {_format_presence(bool(payload.get('config_exists')))}")
+    typer.echo(f"Valid: {_format_presence(bool(payload.get('valid')))}")
+    for entry in payload.get("files", []):
+        if not isinstance(entry, dict):
+            continue
+        status = _format_presence(bool(entry.get("exists")))
+        valid_json = _format_presence(bool(entry.get("valid_json")))
+        typer.echo(f"- {entry.get('name')}: {entry.get('path')} [exists={status}, json={valid_json}]")
+        error = entry.get("error")
+        if isinstance(error, str) and error:
+            typer.echo(f"  error: {error}")
+
+    if payload.get("valid"):
+        typer.echo(f"LLM default: {payload.get('llm_default') or '<unset>'}")
+        enabled_channels = payload.get("enabled_channels") or []
+        typer.echo("Enabled channels: " + (", ".join(enabled_channels) if enabled_channels else "none"))
+        typer.echo(f"Search enabled: {_format_presence(bool(payload.get('search_enabled')))}")
+        typer.echo("MCP servers: " + (", ".join(payload.get("mcp_servers") or []) or "none"))
+        return
+
+    error = payload.get("error")
+    if isinstance(error, str) and error:
+        typer.echo(f"Error: {error}")
 
 
 def _run_onboard(
@@ -315,6 +439,27 @@ def gateway(
 ) -> None:
     """Start the OpenSprite gateway."""
     _start_gateway(config=config)
+
+
+@config_app.command("validate")
+def config_validate(
+    config: str | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to an OpenSprite JSON config file.",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Output validation details as JSON.",
+    ),
+) -> None:
+    """Validate the main config and all split external config files."""
+    payload = _build_config_validate_payload(config)
+    _emit_config_validate(payload, json_output)
+    if not bool(payload.get("valid")):
+        raise typer.Exit(code=1)
 
 
 @search_app.command("rebuild")
