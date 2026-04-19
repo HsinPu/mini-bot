@@ -13,6 +13,12 @@ WorkspaceResolver = Callable[[], Path]
 ConfigPathResolver = Callable[[], Path | None]
 
 
+_CONFIG_WRITE_GUARD_MSG = (
+    "Error: Cannot modify OpenSprite configuration files with write_file or edit_file. "
+    "Edit them outside the agent or use `opensprite onboard`."
+)
+
+
 def path_touches_protected_system_config(
     file_path: Path,
     *,
@@ -23,24 +29,24 @@ def path_touches_protected_system_config(
         resolved = file_path.resolve(strict=False)
     except OSError:
         return None
-    if resolved.name.lower() == "opensprite.json":
-        return (
-            "Error: Cannot modify opensprite.json with write_file or edit_file. "
-            "Edit ~/.opensprite/opensprite.json (or your configured config path) outside the agent, "
-            "or use `opensprite onboard`."
-        )
+
+    blocked: frozenset[Path] | None = None
     if config_path_resolver is not None:
         cfg = config_path_resolver()
         if cfg is not None:
             try:
-                cfg_resolved = Path(cfg).expanduser().resolve(strict=False)
-                if resolved == cfg_resolved:
-                    return (
-                        "Error: Cannot modify the OpenSprite main configuration file with write_file or edit_file. "
-                        "Edit it outside the agent or use `opensprite onboard`."
-                    )
-            except OSError:
-                pass
+                from ..config.schema import Config
+
+                blocked = Config.tool_write_blocked_paths(cfg)
+            except Exception:
+                blocked = None
+
+            if blocked is not None and resolved in blocked:
+                return _CONFIG_WRITE_GUARD_MSG
+
+    if resolved.name.lower() == "opensprite.json":
+        return _CONFIG_WRITE_GUARD_MSG
+
     return None
 
 
@@ -181,7 +187,8 @@ class WriteFileTool(Tool):
             "Write content to one file inside the current workspace. "
             "Always provide both 'path' and 'content'. Creates parent directories and the file if needed. "
             "Cannot write under skills/<bundled_system_skill_id>/ (read-only); use read_skill for those skills. "
-            "Cannot write opensprite.json or the active main config path (edit outside the agent or use onboard)."
+            "Cannot write opensprite.json, split JSON config files (channels, search, MCP, media, LLM providers), "
+            "or the active config paths (edit outside the agent or use onboard)."
         )
 
     @property
@@ -312,7 +319,7 @@ class EditFileTool(Tool):
             "Edit one file inside the current workspace by replacing 'old_text' with 'new_text'. "
             "Always provide 'path', 'old_text', and 'new_text'. The old_text must match existing file content exactly. "
             "Cannot edit under skills/<bundled_system_skill_id>/ (read-only). "
-            "Cannot edit opensprite.json or the active main config path."
+            "Cannot edit opensprite.json or other OpenSprite JSON configuration files."
         )
 
     @property

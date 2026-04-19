@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 from typing import Any, Literal
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 
 class ProviderConfig(BaseModel):
@@ -527,6 +527,52 @@ class Config:
         if target_path is None:
             target_path = cls._build_default_llm_providers_path(resolved_config_path)
         return target_path
+
+    @classmethod
+    def tool_write_blocked_paths(cls, config_path: str | Path) -> frozenset[Path]:
+        """Absolute paths that must not be modified via agent write_file/edit_file."""
+        root = Path(config_path).expanduser().resolve(strict=False)
+        default_siblings = (
+            root,
+            cls._build_default_channels_path(root),
+            cls._build_default_search_path(root),
+            cls._build_default_media_path(root),
+            cls._build_default_mcp_servers_path(root),
+            cls._build_default_llm_providers_path(root),
+        )
+
+        def _freeze(paths: tuple[Path, ...]) -> frozenset[Path]:
+            out: set[Path] = set()
+            for p in paths:
+                try:
+                    out.add(p.expanduser().resolve(strict=False))
+                except OSError:
+                    continue
+            return frozenset(out)
+
+        try:
+            config = cls.load(root)
+        except (FileNotFoundError, OSError, ValueError, TypeError, KeyError, json.JSONDecodeError, ValidationError):
+            return _freeze(default_siblings)
+
+        collected: set[Path] = set()
+        try:
+            collected.add(root.resolve(strict=False))
+        except OSError:
+            collected.add(root)
+
+        for p in (
+            cls.get_channels_file_path(root, channels_file=config.channels_file),
+            cls.get_search_file_path(root, search_file=config.search_file),
+            cls.get_media_file_path(root, media_file=config.media_file),
+            cls.get_mcp_servers_file_path(root, config.tools),
+            cls.get_llm_providers_file_path(root, config.llm),
+        ):
+            try:
+                collected.add(Path(p).expanduser().resolve(strict=False))
+            except OSError:
+                continue
+        return frozenset(collected)
 
     @classmethod
     def ensure_mcp_servers_file(cls, config_path: str | Path, config_data: dict[str, Any] | None = None) -> Path:

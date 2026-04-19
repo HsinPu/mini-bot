@@ -1,6 +1,7 @@
-"""write_file / edit_file refuse opensprite.json and the resolved main config path."""
+"""write_file / edit_file refuse OpenSprite main and split JSON config paths."""
 
 import asyncio
+import json
 
 from opensprite.tools.filesystem import EditFileTool, WriteFileTool
 
@@ -8,7 +9,7 @@ from opensprite.tools.filesystem import EditFileTool, WriteFileTool
 def test_write_file_blocks_opensprite_json_basename(tmp_path):
     tool = WriteFileTool(workspace=tmp_path)
     out = asyncio.run(tool.execute(path="opensprite.json", content="{}"))
-    assert "opensprite.json" in out.lower()
+    assert "configuration files" in out.lower()
     assert "cannot modify" in out.lower()
     assert not (tmp_path / "opensprite.json").exists()
 
@@ -37,6 +38,45 @@ def test_write_file_allows_other_json(tmp_path):
     out = asyncio.run(tool.execute(path="notes.json", content="[]"))
     assert "Successfully wrote" in out
     assert (tmp_path / "notes.json").read_text() == "[]"
+
+
+def test_write_file_blocks_channels_json_when_split_config(tmp_path):
+    cfg_path = tmp_path / "opensprite.json"
+    cfg_path.write_text(
+        json.dumps(
+            {
+                "llm": {"temperature": 0.7, "max_tokens": 8192, "providers": {}},
+                "storage": {"type": "memory", "path": ":memory:"},
+                "channels": {"telegram": {"enabled": False, "token": ""}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "channels.json").write_text("{}", encoding="utf-8")
+    tool = WriteFileTool(workspace=tmp_path, config_path_resolver=lambda: cfg_path)
+    out = asyncio.run(tool.execute(path="channels.json", content='{"x": 1}'))
+    assert "configuration files" in out.lower()
+    assert (tmp_path / "channels.json").read_text() == "{}"
+
+
+def test_write_file_blocks_custom_channels_file_name(tmp_path):
+    cfg_path = tmp_path / "opensprite.json"
+    cfg_path.write_text(
+        json.dumps(
+            {
+                "llm": {"temperature": 0.7, "max_tokens": 8192, "providers": {}},
+                "storage": {"type": "memory", "path": ":memory:"},
+                "channels_file": "my_channels.json",
+                "channels": {"telegram": {"enabled": False, "token": ""}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "my_channels.json").write_text("{}", encoding="utf-8")
+    tool = WriteFileTool(workspace=tmp_path, config_path_resolver=lambda: cfg_path)
+    out = asyncio.run(tool.execute(path="my_channels.json", content='{"x": 1}'))
+    assert "configuration files" in out.lower()
+    assert (tmp_path / "my_channels.json").read_text() == "{}"
 
 
 def test_edit_file_blocks_opensprite_json(tmp_path):
