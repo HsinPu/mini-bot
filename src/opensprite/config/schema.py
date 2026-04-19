@@ -441,7 +441,7 @@ class Config:
         target_path = cls.get_mcp_servers_file_path(config_path, tools_data)
 
         if not target_path.exists():
-            cls._write_json_file(target_path, {})
+            cls._copy_external_template(target_path, "mcp_servers")
 
         return target_path
 
@@ -463,8 +463,9 @@ class Config:
         target_path = cls.get_channels_file_path(config_path, config_data)
 
         if not target_path.exists():
-            default_channels = channels_data if isinstance(channels_data, dict) else ChannelsConfig().model_dump()
-            cls._write_json_file(target_path, default_channels)
+            cls._copy_external_template(target_path, "channels")
+            if isinstance(channels_data, dict):
+                cls._write_json_file(target_path, channels_data)
 
         return target_path
 
@@ -486,8 +487,9 @@ class Config:
         target_path = cls.get_search_file_path(config_path, config_data)
 
         if not target_path.exists():
-            default_search = search_data if isinstance(search_data, dict) else SearchConfig().model_dump()
-            cls._write_json_file(target_path, default_search)
+            cls._copy_external_template(target_path, "search")
+            if isinstance(search_data, dict):
+                cls._write_json_file(target_path, search_data)
 
         return target_path
 
@@ -574,12 +576,36 @@ class Config:
         return Path(__file__).parent / "opensprite.json.template"
 
     @classmethod
+    def external_template_path(cls, name: str) -> Path:
+        """Return one packaged external JSON template path."""
+        return Path(__file__).parent / f"{name}.json.template"
+
+    @classmethod
     def load_template_data(cls) -> dict[str, Any]:
         """Load the packaged JSON config template."""
         template_path = cls.template_path()
         with open(template_path, "r", encoding="utf-8") as f:
             data: dict[str, Any] = json.load(f)
         return data
+
+    @classmethod
+    def load_external_template_data(cls, name: str) -> dict[str, Any]:
+        """Load one packaged external JSON template."""
+        template_path = cls.external_template_path(name)
+        with open(template_path, "r", encoding="utf-8") as f:
+            data: dict[str, Any] = json.load(f)
+        return data
+
+    @classmethod
+    def _copy_external_template(cls, target_path: Path, template_name: str) -> None:
+        """Copy a packaged external template to the target path."""
+        import shutil
+
+        template_path = cls.external_template_path(template_name)
+        if not template_path.exists():
+            raise FileNotFoundError(f"設定模板不存在：{template_path}")
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(template_path, target_path)
 
     @classmethod
     def copy_template(cls, path: str | Path) -> Path:

@@ -377,7 +377,7 @@ def test_copy_template_creates_external_mcp_servers_file(tmp_path):
 
     assert template_data["tools"]["mcp_servers_file"] == "mcp_servers.json"
     assert mcp_path.exists()
-    assert json.loads(mcp_path.read_text(encoding="utf-8")) == {}
+    assert json.loads(mcp_path.read_text(encoding="utf-8")) == Config.load_external_template_data("mcp_servers")
 
 
 def test_copy_template_creates_external_channels_file(tmp_path):
@@ -390,7 +390,7 @@ def test_copy_template_creates_external_channels_file(tmp_path):
 
     assert template_data["channels_file"] == "channels.json"
     assert channels_path.exists()
-    assert json.loads(channels_path.read_text(encoding="utf-8")) == ChannelsConfig().model_dump()
+    assert json.loads(channels_path.read_text(encoding="utf-8")) == Config.load_external_template_data("channels")
 
 
 def test_copy_template_creates_external_search_file(tmp_path):
@@ -403,4 +403,10 @@ def test_copy_template_creates_external_search_file(tmp_path):
 
     assert template_data["search_file"] == "search.json"
     assert search_path.exists()
-    assert json.loads(search_path.read_text(encoding="utf-8")) == SearchConfig().model_dump()
+    assert json.loads(search_path.read_text(encoding="utf-8")) == Config.load_external_template_data("search")
+
+
+def test_external_template_paths_exist():
+    assert Config.external_template_path("channels").exists()
+    assert Config.external_template_path("search").exists()
+    assert Config.external_template_path("mcp_servers").exists()
