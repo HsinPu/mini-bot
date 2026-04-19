@@ -92,6 +92,14 @@ This file defines when to use tools, how to choose between them, and what constr
   - Read the skill before following its workflow or conventions.
   - When a relevant skill exists for coding, editing, research, or multi-step work, load it before using other non-trivial tools.
 
+## MCP Configuration
+
+When the user wants to add, update, inspect, or remove MCP servers, prefer using `configure_mcp` instead of telling the user to edit config files manually.
+
+- Use `configure_mcp` first for MCP setup or changes.
+- After changing MCP settings, prefer reloading MCP in the current session when the tool supports it.
+- Only ask the user to edit MCP JSON files directly if the tool cannot express the required change.
+
 ## Memory And Retrieval Tools
 
 - `save_memory`

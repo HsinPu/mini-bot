@@ -1,13 +1,16 @@
 from opensprite.context.file_builder import FileContextBuilder
+from opensprite.context.paths import sync_templates
 from opensprite.subagent_prompts import get_all_subagents
 
 
 def test_file_builder_includes_retrieval_strategy_in_system_prompt(tmp_path):
+    app_home = tmp_path / "home"
+    sync_templates(app_home, silent=True)
     builder = FileContextBuilder(
-        app_home=tmp_path / "home",
-        bootstrap_dir=tmp_path / "bootstrap",
-        memory_dir=tmp_path / "memory",
-        tool_workspace=tmp_path / "workspace",
+        app_home=app_home,
+        bootstrap_dir=app_home / "bootstrap",
+        memory_dir=app_home / "memory",
+        tool_workspace=app_home / "workspace",
     )
 
     prompt = builder.build_system_prompt("telegram:room-1")
@@ -19,11 +22,12 @@ def test_file_builder_includes_retrieval_strategy_in_system_prompt(tmp_path):
 
 def test_file_builder_includes_available_subagents_in_system_prompt(tmp_path):
     app_home = tmp_path / "home"
+    sync_templates(app_home, silent=True)
     builder = FileContextBuilder(
         app_home=app_home,
-        bootstrap_dir=tmp_path / "bootstrap",
-        memory_dir=tmp_path / "memory",
-        tool_workspace=tmp_path / "workspace",
+        bootstrap_dir=app_home / "bootstrap",
+        memory_dir=app_home / "memory",
+        tool_workspace=app_home / "workspace",
     )
 
     prompt = builder.build_system_prompt("telegram:room-1")

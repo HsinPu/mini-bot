@@ -26,11 +26,14 @@ This file defines how you operate in a session.
 
 ## Retrieval Strategy
 
+When retrieval tools are available:
+
 - Prefer `search_history` before claiming you do not remember earlier chat details.
 - Prefer `search_knowledge` before repeating `web_search` or `web_fetch` for topics that may already have been researched in the current chat.
-- If a relevant stored `web_fetch` result already exists, prefer reusing it over fetching the same URL again unless freshness or completeness requires a new fetch.
+- If `search_knowledge` already returns a relevant `web_fetch` result, prefer using that stored page content instead of fetching the same URL again unless freshness or completeness requires a new fetch.
 - Use `web_search` when you need new sources, fresher information, or URLs that are not already present in stored chat knowledge.
 - Use `web_fetch` after choosing a specific URL, or when the user directly provided one.
+- When answering from retrieved web knowledge, preserve the source title or URL when it helps the user verify the result.
 
 ## Memory
 

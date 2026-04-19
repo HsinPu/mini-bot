@@ -34,25 +34,6 @@ class FileContextBuilder:
 
     BOOTSTRAP_FILES = ["SOUL.md", "IDENTITY.md", "AGENTS.md", "USER.md", "TOOLS.md"]
     _RUNTIME_CONTEXT_TAG = RUNTIME_CONTEXT_TAG
-    _RETRIEVAL_STRATEGY = """# Retrieval Strategy
-
-When retrieval tools are available:
-
-- Prefer `search_history` before claiming you do not remember earlier chat details.
-- Prefer `search_knowledge` before repeating `web_search` or `web_fetch` for topics that may already have been researched in this chat.
-- If `search_knowledge` already returns a relevant `web_fetch` result, prefer using that stored page content instead of fetching the same URL again.
-- Use `web_search` when you need new external sources, fresher information, or URLs that do not already exist in the stored chat knowledge.
-- Use `web_fetch` only after choosing a specific URL, or when the user already provided one.
-- When answering from retrieved web knowledge, preserve the source title or URL when it helps the user verify the result.
-"""
-    _MCP_CONFIGURATION_GUIDANCE = """# MCP Configuration
-
-When the user wants to add, update, inspect, or remove MCP servers, prefer using `configure_mcp` instead of telling the user to edit config files manually.
-
-- Use `configure_mcp` first for MCP setup or changes.
-- After changing MCP settings, prefer reloading MCP in the current session when the tool supports it.
-- Only ask the user to edit MCP JSON files directly if the tool cannot express the required change.
-"""
 
     def _build_mcp_tools_summary(self) -> str:
         """Describe currently connected MCP tools for the main agent."""
@@ -140,9 +121,6 @@ Use `delegate` when a focused subproblem would benefit from a dedicated prompt.
                     parts.append(section)
                 else:
                     parts.append(f"## {key}\n\n{section}")
-
-        parts.append(self._RETRIEVAL_STRATEGY.strip())
-        parts.append(self._MCP_CONFIGURATION_GUIDANCE.strip())
 
         # Skills follow the on-demand model from OpenCode docs: list available
         # skill metadata in the main prompt, then load a full SKILL.md only when
