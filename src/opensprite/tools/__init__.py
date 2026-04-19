@@ -6,6 +6,7 @@ from .audio import TranscribeAudioTool
 from .video import AnalyzeVideoTool
 from .filesystem import ReadFileTool, WriteFileTool, ListDirTool, EditFileTool
 from .skill import ReadSkillTool
+from .skill_config import ConfigureSkillTool
 from .shell import ExecTool
 from .search import SearchHistoryTool, SearchKnowledgeTool
 from .web_search import WebSearchTool
@@ -25,6 +26,7 @@ __all__ = [
     "ListDirTool",
     "EditFileTool",
     "ReadSkillTool",
+    "ConfigureSkillTool",
     "ExecTool",
     "SearchHistoryTool",
     "SearchKnowledgeTool",

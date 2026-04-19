@@ -5,6 +5,7 @@ from typing import Any, Callable
 
 from ..skills import SkillsLoader
 from .base import Tool
+from .skill_config import path_touches_protected_system_skill
 from .validation import NON_EMPTY_STRING_PATTERN
 
 
@@ -144,7 +145,8 @@ class WriteFileTool(Tool):
     def description(self) -> str:
         return (
             "Write content to one file inside the current workspace. "
-            "Always provide both 'path' and 'content'. Creates parent directories and the file if needed."
+            "Always provide both 'path' and 'content'. Creates parent directories and the file if needed. "
+            "Cannot write under skills/<bundled_system_skill_id>/ (read-only); use read_skill for those skills."
         )
 
     @property
@@ -173,7 +175,11 @@ class WriteFileTool(Tool):
             file_path = _resolve_workspace_path(workspace, path)
             if file_path is None:
                 return f"Error: Access denied. Path must be within workspace: {workspace}"
-            
+
+            prot = path_touches_protected_system_skill(file_path)
+            if prot:
+                return prot
+
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(content, encoding="utf-8")
             return f"Successfully wrote to {path} ({len(content)} chars)"
@@ -261,7 +267,8 @@ class EditFileTool(Tool):
     def description(self) -> str:
         return (
             "Edit one file inside the current workspace by replacing 'old_text' with 'new_text'. "
-            "Always provide 'path', 'old_text', and 'new_text'. The old_text must match existing file content exactly."
+            "Always provide 'path', 'old_text', and 'new_text'. The old_text must match existing file content exactly. "
+            "Cannot edit under skills/<bundled_system_skill_id>/ (read-only)."
         )
 
     @property
@@ -285,6 +292,10 @@ class EditFileTool(Tool):
             file_path = _resolve_workspace_path(workspace, path)
             if file_path is None:
                 return f"Error: Access denied. Path must be within workspace: {workspace}"
+
+            prot = path_touches_protected_system_skill(file_path)
+            if prot:
+                return prot
 
             if not file_path.exists():
                 return f"Error: File not found: {path}"

@@ -92,6 +92,15 @@ This file defines when to use tools, how to choose between them, and what constr
   - Read the skill before following its workflow or conventions.
   - When a relevant skill exists for coding, editing, research, or multi-step work, load it before using other non-trivial tools.
 
+- `configure_skill`
+  - Use when the user wants to add, update, inspect, or remove skills (each skill is a folder with `SKILL.md`).
+  - Prefer `configure_skill` instead of asking the user to create or edit skill files manually.
+  - Before designing a **new** skill, load **`read_skill`** with **`skill-creator-design`** (bundled guide: metadata, English frontmatter, triggers in `description`, lean body, progressive disclosure, optional `scripts/` / `references/` / `assets/`).
+  - Do **not** edit bundled **system** skills: **`skill-creator-design`**, **`agent-creator-design`**, **`memory`**. `configure_skill` refuses `add` / `upsert` / `remove` for those ids; `write_file` and `edit_file` also refuse paths under `skills/<those_ids>/` inside the workspace.
+  - Use `action=add` to create a new skill only (fails if it already exists); use `action=upsert` to create or overwrite.
+  - Enforced by the tool: `skill_name` must be lowercase ASCII, letter-first, hyphen-separated segments; `description` and `body` must meet minimum lengths; `description` also needs enough English words, substantive vocabulary (not only glue words), and must not be repetitive padding (see tool schema).
+  - Use `scope=global` for user-wide skills under `~/.opensprite/skills/`; use `scope=chat` for skills in the current chat workspace `skills/` folder.
+
 ## MCP Configuration
 
 When the user wants to add, update, inspect, or remove MCP servers, prefer using `configure_mcp` instead of telling the user to edit config files manually.

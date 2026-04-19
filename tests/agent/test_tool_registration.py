@@ -2,8 +2,10 @@ from pathlib import Path
 
 from opensprite.agent.tool_registration import register_default_tools
 from opensprite.config.schema import SearchConfig, ToolsConfig
+from opensprite.skills import SkillsLoader
 from opensprite.tools.cron import CronTool
 from opensprite.tools.mcp_config import ConfigureMCPTool
+from opensprite.tools.skill_config import ConfigureSkillTool
 from opensprite.tools.shell import ExecTool
 from opensprite.tools.search import SearchKnowledgeTool
 from opensprite.tools.web_fetch import WebFetchTool
@@ -27,7 +29,7 @@ class FakeSearchStore:
         return []
 
 
-def test_register_default_tools_includes_optional_skill_and_search_tools():
+def test_register_default_tools_includes_optional_skill_and_search_tools(tmp_path):
     registry = ToolRegistry()
 
     register_default_tools(
@@ -37,7 +39,7 @@ def test_register_default_tools_includes_optional_skill_and_search_tools():
         run_subagent=_fake_run_subagent,
         config_path_resolver=lambda: Path.cwd() / "opensprite.json",
         reload_mcp=_fake_reload_mcp,
-        skills_loader=object(),
+        skills_loader=SkillsLoader(default_skills_dir=tmp_path / "skills"),
         search_store=FakeSearchStore(),
         search_config=SearchConfig(history_top_k=7, knowledge_top_k=9),
     )
@@ -48,6 +50,7 @@ def test_register_default_tools_includes_optional_skill_and_search_tools():
         "edit_file",
         "list_dir",
         "read_skill",
+        "configure_skill",
         "configure_mcp",
         "exec",
         "web_search",
@@ -61,6 +64,7 @@ def test_register_default_tools_includes_optional_skill_and_search_tools():
         "search_knowledge",
         "cron",
     ]
+    assert isinstance(registry.get("configure_skill"), ConfigureSkillTool)
 
 
 def test_register_default_tools_skips_optional_skill_and_search_tools_when_dependencies_missing():

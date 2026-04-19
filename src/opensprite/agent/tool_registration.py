@@ -28,6 +28,7 @@ from ..tools import (
     WebSearchTool,
     WebFetchTool,
     ReadSkillTool,
+    ConfigureSkillTool,
     ConfigureMCPTool,
 )
 from ..tools.delegate import DelegateTool
@@ -93,6 +94,12 @@ def register_skill_tools(
             ReadSkillTool(
                 skills_loader=skills_loader,
                 personal_skills_dir_resolver=lambda: workspace_resolver() / "skills",
+            )
+        )
+        registry.register(
+            ConfigureSkillTool(
+                skills_loader=skills_loader,
+                workspace_resolver=workspace_resolver,
             )
         )
 
