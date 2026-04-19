@@ -772,7 +772,7 @@ class AgentLoop:
 
     def _build_subagent_tools(self) -> ToolRegistry:
         """Build the tool registry exposed to subagents."""
-        return self.tools.filtered(exclude_names={"delegate", "cron"})
+        return self.tools.filtered(exclude_names={"delegate", "cron", "configure_mcp"})
 
     def _get_current_images(self) -> list[str] | None:
         """Return images attached to the current active turn."""
