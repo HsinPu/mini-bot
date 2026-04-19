@@ -6,6 +6,7 @@ from opensprite.skills import SkillsLoader
 from opensprite.tools.cron import CronTool
 from opensprite.tools.mcp_config import ConfigureMCPTool
 from opensprite.tools.skill_config import ConfigureSkillTool
+from opensprite.tools.subagent_config import ConfigureSubagentTool
 from opensprite.tools.shell import ExecTool
 from opensprite.tools.search import SearchKnowledgeTool
 from opensprite.tools.web_fetch import WebFetchTool
@@ -52,6 +53,7 @@ def test_register_default_tools_includes_optional_skill_and_search_tools(tmp_pat
         "read_skill",
         "configure_skill",
         "configure_mcp",
+        "configure_subagent",
         "exec",
         "web_search",
         "web_fetch",
@@ -65,6 +67,7 @@ def test_register_default_tools_includes_optional_skill_and_search_tools(tmp_pat
         "cron",
     ]
     assert isinstance(registry.get("configure_skill"), ConfigureSkillTool)
+    assert isinstance(registry.get("configure_subagent"), ConfigureSubagentTool)
 
 
 def test_register_default_tools_skips_optional_skill_and_search_tools_when_dependencies_missing():
@@ -85,6 +88,7 @@ def test_register_default_tools_skips_optional_skill_and_search_tools_when_depen
         "edit_file",
         "list_dir",
         "configure_mcp",
+        "configure_subagent",
         "exec",
         "web_search",
         "web_fetch",

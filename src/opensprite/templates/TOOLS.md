@@ -101,6 +101,16 @@ This file defines when to use tools, how to choose between them, and what constr
   - Enforced by the tool: `skill_name` must be lowercase ASCII, letter-first, hyphen-separated segments; `description` and `body` must meet minimum lengths; `description` also needs enough English words, substantive vocabulary (not only glue words), and must not be repetitive padding (see tool schema).
   - Use `scope=global` for user-wide skills under `~/.opensprite/skills/`; use `scope=chat` for skills in the current chat workspace `skills/` folder.
 
+## Subagent prompt tool
+
+- `configure_subagent`
+  - Use when the user wants to add, update, inspect, or remove **subagent** prompts (one markdown file per id under `~/.opensprite/subagent_prompts/`).
+  - Prefer this instead of `write_file` / `edit_file` for those paths.
+  - Before designing a **new** subagent prompt, load **`read_skill`** with **`agent-creator-design`** (Role, Task, Constraints, Output; metadata and naming rules).
+  - Use `action=add` only when **no** prompt exists yet (no user file and no bundled file with that id). If a bundled prompt already exists, use `action=upsert` to write a **user override** in `subagent_prompts/`.
+  - `action=remove` deletes **only** the user-managed file; it cannot remove bundled package prompts.
+  - Same strict `subagent_id` format as `skill_name` for `configure_skill`; `description` and `body` follow the same minimum quality rules as `configure_skill` (see tool schema).
+
 ## MCP Configuration
 
 When the user wants to add, update, inspect, or remove MCP servers, prefer using `configure_mcp` instead of telling the user to edit config files manually.
@@ -146,6 +156,7 @@ When the user wants to add, update, inspect, or remove MCP servers, prefer using
   - Use to hand off a bounded task to a specialized subagent.
   - Prefer this for focused subproblems that benefit from a dedicated prompt.
   - Do not delegate trivial work that can be completed directly.
+  - `prompt_type` must be an **existing** subagent id (see the tool description list). To add or change a subagent, use **`configure_subagent`** first (and **`read_skill`** with **`agent-creator-design`** before authoring a new prompt); then call `delegate` with the new id.
 
 ## Scope Boundaries
 

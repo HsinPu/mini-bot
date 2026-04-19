@@ -15,10 +15,14 @@ def _build_description(subagents: dict[str, str]) -> str:
     subagent_list = "\n".join([f"- {name}: {desc}" for name, desc in subagents.items()])
     return f"""委派任務給子代理執行。
 
-可用子代理類型：
+可用子代理類型（prompt_type 必須是下列其中一個已存在的 id）：
 {subagent_list}
 
 子代理會自行載入對應 prompt 並組合執行時 context。
+
+若使用者要新增或改版子代理：請先用主代理的 `configure_subagent`（add／upsert）寫入 `~/.opensprite/subagent_prompts/<id>.md`，
+新建前建議先 `read_skill` 讀取 `agent-creator-design`；完成後此清單會在下次載入工具描述時包含新 id，再呼叫 `delegate`。
+不要要求使用者手動改該目錄的 markdown，也不要用 `write_file`／`edit_file` 繞過（與設定檔防護一致時應避免）。
 """
 
 
@@ -49,7 +53,10 @@ class DelegateTool(Tool):
                 "task": {"type": "string", "description": "要委派的工作描述", "pattern": NON_EMPTY_STRING_PATTERN},
                 "prompt_type": {
                     "type": "string",
-                    "description": f"子代理類型，可選: {list(subs.keys())}",
+                    "description": (
+                        f"子代理 id，必須是目前已存在的類型之一: {list(subs.keys())}。"
+                        "若要新增類型，請先用 configure_subagent 建立 prompt，再使用新的 id 呼叫 delegate。"
+                    ),
                     "default": "writer",
                 },
             },

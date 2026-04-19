@@ -94,6 +94,14 @@ def has_prompt(prompt_type: str, *, app_home: Path | None = None) -> bool:
     return _get_prompt_path(prompt_type, app_home).exists()
 
 
+def read_prompt_document(prompt_type: str, *, app_home: Path | None = None) -> tuple[Path | None, str]:
+    """Return (resolved_path, full_file_text) for user or bundled prompt; path None if missing."""
+    md_path = _get_prompt_path(prompt_type, app_home)
+    if not md_path.exists():
+        return None, ""
+    return md_path, md_path.read_text(encoding="utf-8")
+
+
 def __getattr__(name: str):
     if name == "ALL_SUBAGENTS":
         return load_all_metadata()
@@ -108,5 +116,6 @@ __all__ = [
     "get_all_subagents",
     "get_prompt_types",
     "has_prompt",
+    "read_prompt_document",
     "ALL_SUBAGENTS",
 ]
