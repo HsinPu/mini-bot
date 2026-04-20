@@ -1021,14 +1021,14 @@ class AgentLoop:
         from .subagent_builder import SubagentMessageBuilder
         from ..subagent_prompts import get_all_subagents
 
-        subagents = get_all_subagents(self.app_home)
+        workspace = self._get_current_workspace()
+        subagents = get_all_subagents(self.app_home, session_workspace=workspace)
         if prompt_type not in subagents:
             available = ", ".join(subagents)
             return f"Error: unknown subagent type '{prompt_type}'. Available: {available}"
 
         parent_chat_id = self._get_current_chat_id() or "default"
         log_id = f"{parent_chat_id}:subagent:{prompt_type}"
-        workspace = self._get_current_workspace()
 
         subagent_builder = SubagentMessageBuilder(
             skills_loader=getattr(self._context_builder, "skills_loader", None)

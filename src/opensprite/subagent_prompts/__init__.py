@@ -2,9 +2,14 @@
 
 from pathlib import Path
 
-from ..context.paths import get_app_home, get_subagent_prompts_dir, sync_subagent_prompts_from_package
+from ..context.paths import (
+    SUBAGENT_PROMPTS_DIRNAME,
+    get_app_home,
+    get_subagent_prompts_dir,
+    sync_subagent_prompts_from_package,
+)
 
-# Bundled package directory (fallback if user removed a file from app home)
+# Bundled package directory (for configure_subagent / tooling; runtime loads only session + app home)
 BUNDLED_PROMPTS_DIR = Path(__file__).parent
 
 
@@ -30,20 +35,38 @@ def _parse_frontmatter(content: str) -> dict:
     return metadata
 
 
-def _get_prompt_path(prompt_type: str, app_home: Path | None) -> Path:
-    """Resolve the markdown path for a prompt type (user app home first, else bundled)."""
+def _session_subagent_dir(session_workspace: Path | str | None) -> Path | None:
+    if session_workspace is None:
+        return None
+    return Path(session_workspace).expanduser() / SUBAGENT_PROMPTS_DIRNAME
+
+
+def _get_prompt_path(
+    prompt_type: str,
+    app_home: Path | None,
+    *,
+    session_workspace: Path | str | None = None,
+) -> Path:
+    """Resolve markdown: session workspace overrides app home (~/.opensprite/subagent_prompts)."""
     home = get_app_home(app_home)
     sync_subagent_prompts_from_package(home)
+    session_dir = _session_subagent_dir(session_workspace)
+    if session_dir is not None:
+        session_path = session_dir / f"{prompt_type}.md"
+        if session_path.exists():
+            return session_path
     user_path = get_subagent_prompts_dir(home) / f"{prompt_type}.md"
-    if user_path.exists():
-        return user_path
-    bundled = BUNDLED_PROMPTS_DIR / f"{prompt_type}.md"
-    return bundled if bundled.exists() else user_path
+    return user_path
 
 
-def load_metadata(prompt_type: str = "writer", *, app_home: Path | None = None) -> dict:
+def load_metadata(
+    prompt_type: str = "writer",
+    *,
+    app_home: Path | None = None,
+    session_workspace: Path | str | None = None,
+) -> dict:
     """Load frontmatter metadata for a prompt type."""
-    md_path = _get_prompt_path(prompt_type, app_home)
+    md_path = _get_prompt_path(prompt_type, app_home, session_workspace=session_workspace)
     if not md_path.exists():
         return {}
 
@@ -53,9 +76,14 @@ def load_metadata(prompt_type: str = "writer", *, app_home: Path | None = None) 
     return _parse_frontmatter(content)
 
 
-def load_prompt(prompt_type: str = "writer", *, app_home: Path | None = None) -> str:
+def load_prompt(
+    prompt_type: str = "writer",
+    *,
+    app_home: Path | None = None,
+    session_workspace: Path | str | None = None,
+) -> str:
     """Load prompt markdown content without frontmatter."""
-    md_path = _get_prompt_path(prompt_type, app_home)
+    md_path = _get_prompt_path(prompt_type, app_home, session_workspace=session_workspace)
     if not md_path.exists():
         return ""
 
@@ -66,37 +94,66 @@ def load_prompt(prompt_type: str = "writer", *, app_home: Path | None = None) ->
     return body.strip()
 
 
-def load_all_metadata(*, app_home: Path | None = None) -> dict[str, str]:
-    """Load prompt descriptions as {prompt_type: description} from ~/.opensprite/subagent_prompts."""
+def load_all_metadata(
+    *,
+    app_home: Path | None = None,
+    session_workspace: Path | str | None = None,
+) -> dict[str, str]:
+    """Load subagent ids and descriptions from app home plus optional session overrides."""
     home = get_app_home(app_home)
     sync_subagent_prompts_from_package(home)
     user_dir = get_subagent_prompts_dir(home)
     result: dict[str, str] = {}
     for md_file in sorted(user_dir.glob("*.md")):
-        metadata = load_metadata(md_file.stem, app_home=home)
+        metadata = load_metadata(md_file.stem, app_home=home, session_workspace=session_workspace)
         description = metadata.get("description", md_file.stem)
         result[md_file.stem] = description
+    session_dir = _session_subagent_dir(session_workspace)
+    if session_dir is not None and session_dir.is_dir():
+        for md_file in sorted(session_dir.glob("*.md")):
+            if md_file.stem in result:
+                continue
+            metadata = load_metadata(md_file.stem, app_home=home, session_workspace=session_workspace)
+            result[md_file.stem] = metadata.get("description", md_file.stem)
     return dict(sorted(result.items()))
 
 
-def get_all_subagents(app_home: Path | None = None) -> dict[str, str]:
+def get_all_subagents(
+    app_home: Path | None = None,
+    *,
+    session_workspace: Path | str | None = None,
+) -> dict[str, str]:
     """Return available subagent types and short descriptions (same as load_all_metadata)."""
-    return load_all_metadata(app_home=app_home)
+    return load_all_metadata(app_home=app_home, session_workspace=session_workspace)
 
 
-def get_prompt_types(app_home: Path | None = None) -> list[str]:
+def get_prompt_types(
+    app_home: Path | None = None,
+    *,
+    session_workspace: Path | str | None = None,
+) -> list[str]:
     """Return all available prompt types."""
-    return list(load_all_metadata(app_home=app_home).keys())
+    return list(load_all_metadata(app_home=app_home, session_workspace=session_workspace).keys())
 
 
-def has_prompt(prompt_type: str, *, app_home: Path | None = None) -> bool:
+def has_prompt(
+    prompt_type: str,
+    *,
+    app_home: Path | None = None,
+    session_workspace: Path | str | None = None,
+) -> bool:
     """Check whether a prompt file exists for the given type."""
-    return _get_prompt_path(prompt_type, app_home).exists()
+    return _get_prompt_path(prompt_type, app_home, session_workspace=session_workspace).exists()
 
 
-def read_prompt_document(prompt_type: str, *, app_home: Path | None = None) -> tuple[Path | None, str]:
-    """Return (resolved_path, full_file_text) for user or bundled prompt; path None if missing."""
-    md_path = _get_prompt_path(prompt_type, app_home)
+def read_prompt_document(
+    prompt_type: str,
+    *,
+    app_home: Path | None = None,
+    session_workspace: Path | str | None = None,
+) -> tuple[Path | None, str]:
+    """Return (resolved_path, full_file_text); path None if no file under session or app home."""
+    md_path = _get_prompt_path(prompt_type, app_home, session_workspace=session_workspace)
     if not md_path.exists():
         return None, ""
     return md_path, md_path.read_text(encoding="utf-8")

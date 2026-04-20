@@ -9,6 +9,7 @@ Path layout:
 - recent summary: ~/.opensprite/memory/<chat>/RECENT_SUMMARY.md
 - bundled skills (read-only, synced from package): ~/.opensprite/skills/<skill_id>/SKILL.md
 - session workspace skills (mutable): ~/.opensprite/workspace/chats/{channel}/{chat_id}/skills/*/SKILL.md
+- session subagent overrides: ~/.opensprite/workspace/chats/{channel}/{chat_id}/subagent_prompts/*.md
 - workspace root: ~/.opensprite/workspace
 - per-chat workspaces: ~/.opensprite/workspace/chats/{channel}/{chat_id}
 """
@@ -159,6 +160,16 @@ def get_chat_skills_dir(
 ) -> Path:
     """Get the personal/per-chat skills directory for a chat session."""
     return get_chat_workspace(chat_id, workspace_root=workspace_root, app_home=app_home) / SKILLS_DIRNAME
+
+
+def get_chat_subagent_prompts_dir(
+    chat_id: str | None,
+    *,
+    workspace_root: str | Path | None = None,
+    app_home: str | Path | None = None,
+) -> Path:
+    """Per-chat subagent prompt overrides under the session workspace (mirrors app-home layout)."""
+    return get_chat_workspace(chat_id, workspace_root=workspace_root, app_home=app_home) / SUBAGENT_PROMPTS_DIRNAME
 
 
 def get_memory_file(memory_dir: str | Path, chat_id: str = "default") -> Path:

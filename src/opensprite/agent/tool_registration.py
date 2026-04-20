@@ -210,9 +210,16 @@ def register_delegate_tools(
     *,
     run_subagent: Callable[[str, str], Awaitable[str]],
     app_home: Path | None = None,
+    workspace_resolver: Callable[[], Path] | None = None,
 ) -> None:
     """Register delegated subagent execution tools."""
-    registry.register(DelegateTool(run_subagent=run_subagent, app_home=app_home))
+    registry.register(
+        DelegateTool(
+            run_subagent=run_subagent,
+            app_home=app_home,
+            workspace_resolver=workspace_resolver,
+        )
+    )
 
 
 def register_search_tools(
@@ -307,7 +314,12 @@ def register_default_tools(
         get_current_audios=get_current_audios or (lambda: None),
         get_current_videos=get_current_videos or (lambda: None),
     )
-    register_delegate_tools(registry, run_subagent=run_subagent, app_home=app_home)
+    register_delegate_tools(
+        registry,
+        run_subagent=run_subagent,
+        app_home=app_home,
+        workspace_resolver=workspace_resolver,
+    )
     register_search_tools(
         registry,
         search_store=search_store,

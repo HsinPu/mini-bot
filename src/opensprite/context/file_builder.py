@@ -50,9 +50,10 @@ These MCP tools are already connected and available through normal tool calling.
 {tool_lines}
 """
 
-    def _build_subagent_summary(self) -> str:
+    def _build_subagent_summary(self, chat_id: str) -> str:
         """Describe the available delegate prompt types for the main agent."""
-        subagents = get_all_subagents(self.app_home)
+        session_ws = self.get_chat_workspace(chat_id)
+        subagents = get_all_subagents(self.app_home, session_workspace=session_ws)
         if not subagents:
             return ""
 
@@ -136,7 +137,7 @@ To use a skill, read its SKILL.md file using the read_skill tool.
 {skills_summary}
 """)
 
-        subagent_summary = self._build_subagent_summary()
+        subagent_summary = self._build_subagent_summary(chat_id)
         if subagent_summary:
             parts.append(subagent_summary)
 

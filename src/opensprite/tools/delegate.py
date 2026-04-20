@@ -20,7 +20,8 @@ def _build_description(subagents: dict[str, str]) -> str:
 
 子代理會自行載入對應 prompt 並組合執行時 context。
 
-若使用者要新增或改版子代理：請先用主代理的 `configure_subagent`（add／upsert）寫入 `~/.opensprite/subagent_prompts/<id>.md`，
+若使用者要新增或改版子代理：可用主代理的 `configure_subagent`（add／upsert）寫入 `~/.opensprite/subagent_prompts/<id>.md`，
+或在目前工作階段 workspace 底下的 `subagent_prompts/<id>.md`（同一 id 時以工作階段檔案為準）；
 新建前建議先 `read_skill` 讀取 `agent-creator-design`；**全新 id 的 add 必須在參數帶 `user_confirmed: true`（且使用者已同意）**，否則會被拒絕。
 完成後此清單會在下次載入工具描述時包含新 id，再呼叫 `delegate`。
 不要要求使用者手動改該目錄的 markdown，也不要用 `write_file`／`edit_file` 繞過（與設定檔防護一致時應避免）。
@@ -37,17 +38,25 @@ class DelegateTool(Tool):
         run_subagent: Callable[[str, str], Awaitable[str]],
         *,
         app_home: Path | None = None,
+        workspace_resolver: Callable[[], Path] | None = None,
     ):
         self._run_subagent = run_subagent
         self._app_home = app_home
+        self._workspace_resolver = workspace_resolver
+
+    def _subagents_for_current_session(self) -> dict[str, str]:
+        session_ws = None
+        if self._workspace_resolver is not None:
+            session_ws = self._workspace_resolver()
+        return get_all_subagents(self._app_home, session_workspace=session_ws)
 
     @property
     def description(self) -> str:
-        return _build_description(get_all_subagents(self._app_home))
+        return _build_description(self._subagents_for_current_session())
 
     @property
     def parameters(self) -> dict[str, Any]:
-        subs = get_all_subagents(self._app_home)
+        subs = self._subagents_for_current_session()
         return {
             "type": "object",
             "properties": {

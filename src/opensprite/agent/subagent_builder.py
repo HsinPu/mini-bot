@@ -19,7 +19,11 @@ class SubagentMessageBuilder:
         workspace: str | Path | None = None,
         app_home: Path | None = None,
     ) -> str:
-        prompt_body = self.prompt_loader(prompt_type, app_home=app_home)
+        prompt_body = self.prompt_loader(
+            prompt_type,
+            app_home=app_home,
+            session_workspace=workspace,
+        )
         runtime_context = build_runtime_context(workspace=workspace)
         workspace_path = Path(workspace) if workspace is not None else None
         skills_summary = ""
