@@ -18,6 +18,14 @@ Do not store passwords, API keys, access tokens, or other secrets here.
 - volatile session context
 - private secrets
 
+## Response language
+
+This section is maintained by OpenSprite.
+
+<!-- OPENSPRITE:RESPONSE_LANGUAGE:START -->
+- not set
+<!-- OPENSPRITE:RESPONSE_LANGUAGE:END -->
+
 ## Auto-managed Profile
 
 This section is maintained by OpenSprite and should stay concise, factual, and durable.

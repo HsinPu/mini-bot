@@ -25,6 +25,12 @@ This file defines how you operate in a session.
 - Be explicit about uncertainty.
 - If you would create a **new** subagent id (`configure_subagent` `action=add`, no prompt under `~/.opensprite/subagent_prompts/` yet), ask the user once for approval first unless they already asked for that expert; then pass `user_confirmed: true` on add (required). See `TOOLS.md` under `configure_subagent`.
 
+## Language
+
+- For all user-facing prose (explanations, steps, summaries, and interpreting errors or tool output for the user), follow the **response language** in the auto-managed `## Response language` block of `USER.md` (between the OpenSprite markers) when it names a preference (not `- not set`).
+- If the block is `- not set` or equivalent, match the **language of the user's current message** for this turn.
+- Code, identifiers, file paths, and quoted tool or API output may stay in their original language; wrap explanations in the chosen response language.
+
 ## Retrieval Strategy
 
 When retrieval tools are available:
@@ -39,12 +45,14 @@ When retrieval tools are available:
 ## Memory
 
 Use `memory/{chat_id}/MEMORY.md` for durable chat-specific context:
+
 - important decisions
 - stable preferences
 - ongoing tasks or constraints
 - facts that will likely matter again later
 
 Do not store:
+
 - secrets
 - temporary noise
 - easily reproducible details
@@ -54,7 +62,7 @@ Do not store:
 `MEMORY.md` is for durable chat-specific continuity.
 
 Reusable **how-to** workflows belong in **skills** (`configure_skill` in `TOOLS.md`), not as long procedural dumps in memory unless the user explicitly wants them there.
-Per-chat **subagent** prompt overrides belong under the session `subagent_prompts/` tree via **`configure_subagent`** (`TOOLS.md`); defaults still come from `~/.opensprite/subagent_prompts/` until a session file overrides an id.
+Per-chat **subagent** prompt overrides belong under the session `subagent_prompts/` tree via `**configure_subagent`** (`TOOLS.md`); defaults still come from `~/.opensprite/subagent_prompts/` until a session file overrides an id.
 
 ## Safety
 

@@ -14,6 +14,12 @@ from .managed import ManagedMarkdownDocument
 from .state import JsonProgressStore
 
 
+RESPONSE_LANGUAGE_HEADER = "## Response language"
+RL_START_MARKER = "<!-- OPENSPRITE:RESPONSE_LANGUAGE:START -->"
+RL_END_MARKER = "<!-- OPENSPRITE:RESPONSE_LANGUAGE:END -->"
+DEFAULT_RESPONSE_LANGUAGE_CONTENT = "- not set"
+RESPONSE_LANGUAGE_INTRO = "This section is maintained by OpenSprite."
+
 AUTO_PROFILE_HEADER = "## Auto-managed Profile"
 START_MARKER = "<!-- OPENSPRITE:USER_PROFILE:START -->"
 END_MARKER = "<!-- OPENSPRITE:USER_PROFILE:END -->"
@@ -27,7 +33,17 @@ class UserProfileStore:
     def __init__(self, user_profile_file: Path, state_file: Path, *, bootstrap_text: str = "# User Profile\n\n"):
         self.user_profile_file = Path(user_profile_file).expanduser()
         self.state = JsonProgressStore(state_file)
-        self.document = ManagedMarkdownDocument(
+        self.response_document = ManagedMarkdownDocument(
+            self.user_profile_file,
+            start_marker=RL_START_MARKER,
+            end_marker=RL_END_MARKER,
+            default_content=DEFAULT_RESPONSE_LANGUAGE_CONTENT,
+            heading=RESPONSE_LANGUAGE_HEADER,
+            intro=RESPONSE_LANGUAGE_INTRO,
+            anchor_heading=AUTO_PROFILE_HEADER,
+            bootstrap_text=bootstrap_text,
+        )
+        self.profile_document = ManagedMarkdownDocument(
             self.user_profile_file,
             start_marker=START_MARKER,
             end_marker=END_MARKER,
@@ -39,13 +55,22 @@ class UserProfileStore:
         )
 
     def read_text(self) -> str:
-        return self.document.read_text()
+        # Ensure both managed regions exist (order: response language before profile).
+        self.response_document.read_text()
+        self.profile_document.read_text()
+        return self.user_profile_file.read_text(encoding="utf-8")
+
+    def read_response_language_block(self) -> str:
+        return self.response_document.read_managed_block()
+
+    def write_response_language_block(self, content: str) -> None:
+        self.response_document.write_managed_block(content)
 
     def read_managed_block(self) -> str:
-        return self.document.read_managed_block()
+        return self.profile_document.read_managed_block()
 
     def write_managed_block(self, content: str) -> None:
-        self.document.write_managed_block(content)
+        self.profile_document.write_managed_block(content)
 
     def load_state(self) -> dict[str, int]:
         return self.state.load_state()
@@ -65,17 +90,29 @@ _SAVE_USER_PROFILE_TOOL = [
         "type": "function",
         "function": {
             "name": "save_user_profile",
-            "description": "Update the auto-managed USER.md profile block.",
+            "description": (
+                "Update auto-managed USER.md blocks: the profile block (required) and optionally "
+                "the Response language block."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "profile_update": {
                         "type": "string",
                         "description": (
-                            "Replacement markdown for the auto-managed USER.md block. "
+                            "Replacement markdown for the auto-managed USER.md profile block "
+                            "(under the Auto-managed Profile markers). "
                             "Keep it concise, stable, and free of secrets."
                         ),
-                    }
+                    },
+                    "response_language_update": {
+                        "type": "string",
+                        "description": (
+                            "Replacement markdown for the auto-managed Response language block only "
+                            "(typically one bullet line, e.g. '- Traditional Chinese (Taiwan)' or '- not set'). "
+                            "Omit this field entirely if that block should stay unchanged."
+                        ),
+                    },
                 },
                 "required": ["profile_update"],
             },
@@ -84,16 +121,26 @@ _SAVE_USER_PROFILE_TOOL = [
 ]
 
 
-def _reset_managed_block(content: str) -> str:
-    """Reset the auto-managed block so new profiles do not inherit another user's data."""
-    text = content or ""
-    start = text.find(START_MARKER)
-    end = text.find(END_MARKER)
+def _reset_between_markers(
+    text: str, start_marker: str, end_marker: str, inner: str
+) -> str:
+    """Replace the inner content between markers, or return text unchanged if markers are missing."""
+    start = text.find(start_marker)
+    end = text.find(end_marker)
     if start == -1 or end == -1 or end <= start:
         return text
+    start += len(start_marker)
+    return text[:start] + "\n" + inner + "\n" + text[end:]
 
-    start += len(START_MARKER)
-    return text[:start] + "\n" + DEFAULT_MANAGED_CONTENT + "\n" + text[end:]
+
+def _reset_managed_block(content: str) -> str:
+    """Reset auto-managed blocks so new profiles do not inherit another user's data."""
+    text = content or ""
+    text = _reset_between_markers(
+        text, RL_START_MARKER, RL_END_MARKER, DEFAULT_RESPONSE_LANGUAGE_CONTENT
+    )
+    text = _reset_between_markers(text, START_MARKER, END_MARKER, DEFAULT_MANAGED_CONTENT)
+    return text
 
 
 def load_user_profile_bootstrap_text(
@@ -145,26 +192,31 @@ async def consolidate_user_profile(
         return True
 
     current_profile = profile_store.read_managed_block()
+    current_response_language = profile_store.read_response_language_block()
     transcript = _format_messages(messages)
     if not transcript:
         return True
 
     prompt = f"""Review this conversation and update this user's profile.
 
-Current auto-managed USER.md block:
+Current auto-managed Response language block:
+{current_response_language or '(empty)'}
+
+Current auto-managed USER.md profile block:
 {current_profile or '(empty)'}
 
 Conversation to analyze:
 {transcript}
 
 Rules:
-- Capture only stable preferences, work context, or repeated habits.
+- Capture only stable preferences, work context, or repeated habits in the profile block.
+- Update the Response language block when the user clearly states a preferred assistant language or consistently uses one language for requests (e.g. one bullet line: `- Traditional Chinese (Taiwan)` or `- English`). Use `- not set` when preference should follow each message's language.
 - Do not store secrets, API keys, access tokens, passwords, or private file contents.
 - Do not store one-off tasks or temporary requests.
 - Prefer explicit facts and durable preferences over guesses.
-- Return concise markdown bullets or short sections suitable for USER.md.
-- Write in clear, concise English.
-- If nothing meaningful changed, return the current profile unchanged.
+- Return concise markdown bullets or short sections suitable for USER.md profile.
+- Write profile content in clear, concise English unless the user explicitly prefers another language for that block.
+- If nothing meaningful changed in a block, return that block unchanged.
 """
 
     try:
@@ -173,9 +225,10 @@ Rules:
                 {
                     "role": "system",
                     "content": (
-                        "You maintain one user's USER.md profile for an assistant. "
-                        "Write in clear, concise English. "
-                        "Call save_user_profile with the updated auto-managed block."
+                        "You maintain one user's USER.md for an assistant: the Response language block "
+                        "and the Auto-managed Profile block. "
+                        "Call save_user_profile with profile_update (required) and, when needed, "
+                        "response_language_update for the Response language section only."
                     ),
                 },
                 {"role": "user", "content": prompt},
@@ -202,6 +255,13 @@ Rules:
         if update != current_profile:
             profile_store.write_managed_block(update)
             logger.info("USER.md profile updated ({} chars)", len(update))
+
+        lang_raw = args.get("response_language_update", None)
+        if lang_raw is not None:
+            lang_stripped = str(lang_raw).strip()
+            if lang_stripped and lang_stripped != current_response_language:
+                profile_store.write_response_language_block(lang_stripped)
+                logger.info("USER.md response language updated ({} chars)", len(lang_stripped))
 
         return True
     except Exception as exc:
