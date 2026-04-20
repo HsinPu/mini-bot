@@ -24,12 +24,23 @@ def test_configure_subagent_list_and_add(tmp_path):
     assert "subagents" in payload
     assert Path(payload["subagent_prompts_dir"]).is_dir()
 
+    denied = asyncio.run(
+        tool.execute(
+            action="add",
+            subagent_id="my-reviewer",
+            description=_VALID_DESCRIPTION,
+            body=_VALID_BODY,
+        )
+    )
+    assert "user_confirmed" in denied.lower()
+
     out = asyncio.run(
         tool.execute(
             action="add",
             subagent_id="my-reviewer",
             description=_VALID_DESCRIPTION,
             body=_VALID_BODY,
+            user_confirmed=True,
         )
     )
     assert "Added subagent" in out
@@ -40,6 +51,7 @@ def test_configure_subagent_list_and_add(tmp_path):
             subagent_id="my-reviewer",
             description=_VALID_DESCRIPTION,
             body=_VALID_BODY,
+            user_confirmed=True,
         )
     )
     assert "already exists" in dup.lower()
@@ -61,6 +73,7 @@ def test_configure_subagent_upsert_then_remove(tmp_path):
             subagent_id="doc-writer",
             description=_VALID_DESCRIPTION,
             body=_VALID_BODY,
+            user_confirmed=True,
         )
     )
     upsert_desc = (

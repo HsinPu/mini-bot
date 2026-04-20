@@ -98,6 +98,14 @@ class ConfigureSubagentTool(Tool):
                     "Same minimum length rules as configure_skill body."
                 ),
             },
+            "user_confirmed": {
+                "type": "boolean",
+                "description": (
+                    "For action=add only, when creating a brand-new subagent id (no user file and no bundled file): "
+                    "must be true after the user explicitly agreed in chat. False or omitted is rejected for that case. "
+                    "Ignored for list, get, upsert, and remove."
+                ),
+            },
         },
         "required": ["action"],
     }
@@ -173,6 +181,12 @@ class ConfigureSubagentTool(Tool):
                     return (
                         f"Error: subagent '{subagent_id}' already exists as a bundled prompt. "
                         "Use action=upsert to create a user override in ~/.opensprite/subagent_prompts/."
+                    )
+                # Net-new id (no user overlay, no bundled file): require explicit user consent in the tool call.
+                if where is None and kwargs.get("user_confirmed") is not True:
+                    return (
+                        "Error: action=add for a new subagent_id requires user_confirmed=true in the tool arguments "
+                        "after the user explicitly agreed in the conversation. Ask first; do not set true without consent."
                     )
 
             existed_user = user_path.is_file()

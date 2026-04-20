@@ -114,8 +114,8 @@ This file defines when to use tools, how to choose between them, and what constr
 
   - You may decide on your own that a **new, reusable** subagent id would help (e.g. a standing code-review or security-review expert) when repeated work would benefit from a dedicated prompt and `delegate` with existing ids is not enough.
   - Before `action=add` for a **new** `subagent_id`, **ask the user for confirmation in plain text** unless they already explicitly asked you to create that subagent (same id or same role). One short message: what the subagent would do, the proposed `subagent_id`, and a clear yes/no (or equivalent). **Do not** call `configure_subagent` with `add` until they agree.
+  - After they agree (or they already asked): load `read_skill` with `agent-creator-design`, then call `configure_subagent` with `action=add`, **`user_confirmed: true`**, plus `description` and `body`. For a **brand-new** id (no user file and no bundled file), the tool **rejects** `add` without `user_confirmed: true` (hard gate).
   - If they decline or ignore, do not create the file; continue with a one-off answer or `delegate` to an existing `prompt_type` instead.
-  - After they approve, load `read_skill` with `agent-creator-design`, then `configure_subagent` add, and use `delegate` with the new id on later turns.
 
 ## MCP Configuration
 

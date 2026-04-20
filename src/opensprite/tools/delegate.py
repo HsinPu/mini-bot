@@ -21,7 +21,8 @@ def _build_description(subagents: dict[str, str]) -> str:
 子代理會自行載入對應 prompt 並組合執行時 context。
 
 若使用者要新增或改版子代理：請先用主代理的 `configure_subagent`（add／upsert）寫入 `~/.opensprite/subagent_prompts/<id>.md`，
-新建前建議先 `read_skill` 讀取 `agent-creator-design`；完成後此清單會在下次載入工具描述時包含新 id，再呼叫 `delegate`。
+新建前建議先 `read_skill` 讀取 `agent-creator-design`；**全新 id 的 add 必須在參數帶 `user_confirmed: true`（且使用者已同意）**，否則會被拒絕。
+完成後此清單會在下次載入工具描述時包含新 id，再呼叫 `delegate`。
 不要要求使用者手動改該目錄的 markdown，也不要用 `write_file`／`edit_file` 繞過（與設定檔防護一致時應避免）。
 """
 
