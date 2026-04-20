@@ -101,18 +101,19 @@ This file defines when to use tools, how to choose between them, and what constr
 ## Subagent prompt tool
 
 - `configure_subagent`
-  - Use when the user wants to add, update, inspect, or remove **subagent** prompts (one markdown file per id under `~/.opensprite/subagent_prompts/`).
-  - Prefer this instead of `write_file` / `edit_file` for those paths.
+  - Use when the user wants to add, update, inspect, or remove **subagent** prompts for **this chat session**.
+  - **Writes** (`add`, `upsert`, `remove`) go only under the current session workspace: `subagent_prompts/<subagent_id>.md` (same session-relative idea as `skills/`). Prefer this tool instead of `write_file` / `edit_file` for those paths.
+  - **`list`** and **`get`** return **merged** ids and content: if a session file exists for an id, it overrides the copy under `~/.opensprite/subagent_prompts/<id>.md`; otherwise defaults come from app home (seeded from the package on first sync).
   - Before designing a **new** subagent prompt, load `**read_skill`** with `**agent-creator-design**` (Role, Task, Constraints, Output; metadata and naming rules).
-  - Use `action=add` only when **no** prompt exists yet (no user file and no bundled file with that id). If a bundled prompt already exists, use `action=upsert` to write a **user override** in `subagent_prompts/`.
-  - `action=remove` deletes **only** the user-managed file; it cannot remove bundled package prompts.
+  - Use `action=add` only for a **brand-new** id: no file in this session's `subagent_prompts/` yet **and** no prompt for that id under `~/.opensprite/subagent_prompts/`. If app home already has that id, use `action=upsert` to create or replace the **session** file.
+  - `action=remove` deletes **only** the session workspace file; it does **not** remove files under `~/.opensprite/subagent_prompts/`.
   - Same strict `subagent_id` format as `skill_name` for `configure_skill`; `description` and `body` follow the same minimum quality rules as `configure_skill` (see tool schema).
 
   **When you judge a new subagent is worth adding**
 
   - You may decide on your own that a **new, reusable** subagent id would help (e.g. a standing code-review or security-review expert) when repeated work would benefit from a dedicated prompt and `delegate` with existing ids is not enough.
   - Before `action=add` for a **new** `subagent_id`, **ask the user for confirmation in plain text** unless they already explicitly asked you to create that subagent (same id or same role). One short message: what the subagent would do, the proposed `subagent_id`, and a clear yes/no (or equivalent). **Do not** call `configure_subagent` with `add` until they agree.
-  - After they agree (or they already asked): load `read_skill` with `agent-creator-design`, then call `configure_subagent` with `action=add`, **`user_confirmed: true`**, plus `description` and `body`. For a **brand-new** id (no user file and no bundled file), the tool **rejects** `add` without `user_confirmed: true` (hard gate).
+  - After they agree (or they already asked): load `read_skill` with `agent-creator-design`, then call `configure_subagent` with `action=add`, **`user_confirmed: true`**, plus `description` and `body`. For a **brand-new** id (no prompt in app home yet for that id), the tool **rejects** `add` without `user_confirmed: true` (hard gate).
   - If they decline or ignore, do not create the file; continue with a one-off answer or `delegate` to an existing `prompt_type` instead.
 
 ## MCP Configuration
@@ -158,11 +159,12 @@ When the user wants to add, update, inspect, or remove MCP servers, prefer using
   - Use to hand off a bounded task to a specialized subagent.
   - Prefer this for focused subproblems that benefit from a dedicated prompt.
   - Do not delegate trivial work that can be completed directly.
-  - `prompt_type` must be an **existing** subagent id (see the tool description list). To add or change a subagent, use `**configure_subagent`** first (and `**read_skill**` with `**agent-creator-design**` before authoring a new prompt); then call `delegate` with the new id.
+  - `prompt_type` must be an **existing** subagent id in the **merged** list (session `subagent_prompts/` overrides `~/.opensprite/subagent_prompts/` when both exist). To add or change prompts for this chat, use `**configure_subagent**` (session files) and `**read_skill**` with `**agent-creator-design**` before authoring a new prompt; then call `delegate` with the id.
   - If no suitable id exists yet, follow the **configure_subagent** rules above: propose a new id, **ask the user before `add`**, then create and delegate.
 
 ## Scope Boundaries
 
 - `USER.md` stores durable user-wide context.
 - `memory/{chat_id}/MEMORY.md` stores durable chat-specific context.
+- The session tool workspace may include `skills/` and `subagent_prompts/`; prefer `configure_skill` and `configure_subagent` over ad-hoc file edits when defining or changing those trees.
 - `search_history` and `search_knowledge` are for on-demand retrieval, not always-on memory.

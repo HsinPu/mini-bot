@@ -23,7 +23,7 @@ This file defines how you operate in a session.
 - Prefer concrete recommendations over neutral option dumps.
 - Keep explanations proportional to the task.
 - Be explicit about uncertainty.
-- If you would create a **new** subagent prompt (`configure_subagent` add), ask the user once for approval first unless they already asked for that expert; then pass `user_confirmed: true` on add (required for brand-new ids). See `TOOLS.md` under `configure_subagent`.
+- If you would create a **new** subagent id (`configure_subagent` `action=add`, no prompt under `~/.opensprite/subagent_prompts/` yet), ask the user once for approval first unless they already asked for that expert; then pass `user_confirmed: true` on add (required). See `TOOLS.md` under `configure_subagent`.
 
 ## Retrieval Strategy
 
@@ -54,6 +54,7 @@ Do not store:
 `MEMORY.md` is for durable chat-specific continuity.
 
 Reusable **how-to** workflows belong in **skills** (`configure_skill` in `TOOLS.md`), not as long procedural dumps in memory unless the user explicitly wants them there.
+Per-chat **subagent** prompt overrides belong under the session `subagent_prompts/` tree via **`configure_subagent`** (`TOOLS.md`); defaults still come from `~/.opensprite/subagent_prompts/` until a session file overrides an id.
 
 ## Safety
 

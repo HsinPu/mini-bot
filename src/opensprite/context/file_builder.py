@@ -63,6 +63,7 @@ These MCP tools are already connected and available through normal tool calling.
         return f"""# Available Subagents
 
 Use `delegate` when a focused subproblem would benefit from a dedicated prompt.
+Ids and descriptions below are **merged**: this chat's `subagent_prompts/<id>.md` overrides `~/.opensprite/subagent_prompts/<id>.md` when both exist. Use `configure_subagent` for adds and edits under this session's `subagent_prompts/`.
 
 {subagent_lines}
 """
