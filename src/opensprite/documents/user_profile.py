@@ -1,11 +1,12 @@
-"""Global USER.md profile store and consolidator."""
+"""Per-user USER.md profile store and consolidator."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
+from ..context.paths import get_bootstrap_dir, get_user_profile_file, get_user_profile_state_file
 from ..storage import StoredMessage, StorageProvider
 from ..utils.log import logger
 from .base import ConversationConsolidator
@@ -21,9 +22,9 @@ AUTO_PROFILE_INTRO = "This section is maintained by OpenSprite."
 
 
 class UserProfileStore:
-    """Persist the global USER.md profile and its consolidation state."""
+    """Persist one user's USER.md profile and its consolidation state."""
 
-    def __init__(self, user_profile_file: Path, state_file: Path):
+    def __init__(self, user_profile_file: Path, state_file: Path, *, bootstrap_text: str = "# User Profile\n\n"):
         self.user_profile_file = Path(user_profile_file).expanduser()
         self.state = JsonProgressStore(state_file)
         self.document = ManagedMarkdownDocument(
@@ -34,7 +35,7 @@ class UserProfileStore:
             heading=AUTO_PROFILE_HEADER,
             intro=AUTO_PROFILE_INTRO,
             anchor_heading=None,
-            bootstrap_text="# User Profile\n\n",
+            bootstrap_text=bootstrap_text,
         )
 
     def read_text(self) -> str:
@@ -83,6 +84,45 @@ _SAVE_USER_PROFILE_TOOL = [
 ]
 
 
+def _reset_managed_block(content: str) -> str:
+    """Reset the auto-managed block so new profiles do not inherit another user's data."""
+    text = content or ""
+    start = text.find(START_MARKER)
+    end = text.find(END_MARKER)
+    if start == -1 or end == -1 or end <= start:
+        return text
+
+    start += len(START_MARKER)
+    return text[:start] + "\n" + DEFAULT_MANAGED_CONTENT + "\n" + text[end:]
+
+
+def load_user_profile_bootstrap_text(
+    app_home: str | Path | None = None,
+    *,
+    bootstrap_dir: str | Path | None = None,
+) -> str:
+    """Load the USER.md template text used to seed a new per-user profile."""
+    template_root = Path(bootstrap_dir).expanduser() if bootstrap_dir is not None else get_bootstrap_dir(app_home)
+    template_file = template_root / "USER.md"
+    if not template_file.exists():
+        return "# User Profile\n\n"
+    return _reset_managed_block(template_file.read_text(encoding="utf-8"))
+
+
+def create_user_profile_store(
+    app_home: str | Path | None,
+    chat_id: str | None,
+    *,
+    bootstrap_dir: str | Path | None = None,
+) -> UserProfileStore:
+    """Create the per-user USER.md store for the given user/session scope."""
+    return UserProfileStore(
+        user_profile_file=get_user_profile_file(app_home, chat_id=chat_id),
+        state_file=get_user_profile_state_file(app_home, chat_id=chat_id),
+        bootstrap_text=load_user_profile_bootstrap_text(app_home, bootstrap_dir=bootstrap_dir),
+    )
+
+
 def _format_messages(messages: list[dict[str, Any]]) -> str:
     lines: list[str] = []
     for message in messages:
@@ -100,7 +140,7 @@ async def consolidate_user_profile(
     provider,
     model: str,
 ) -> bool:
-    """Update the global USER.md managed block from conversation history."""
+    """Update one user's USER.md managed block from conversation history."""
     if not messages:
         return True
 
@@ -109,7 +149,7 @@ async def consolidate_user_profile(
     if not transcript:
         return True
 
-    prompt = f"""Review this conversation and update the global user profile.
+    prompt = f"""Review this conversation and update this user's profile.
 
 Current auto-managed USER.md block:
 {current_profile or '(empty)'}
@@ -133,7 +173,7 @@ Rules:
                 {
                     "role": "system",
                     "content": (
-                        "You maintain the global USER.md profile for an assistant. "
+                        "You maintain one user's USER.md profile for an assistant. "
                         "Write in clear, concise English. "
                         "Call save_user_profile with the updated auto-managed block."
                     ),
@@ -170,7 +210,7 @@ Rules:
 
 
 class UserProfileConsolidator(ConversationConsolidator):
-    """Manage incremental USER.md updates from stored chat history."""
+    """Manage incremental per-user USER.md updates from stored chat history."""
 
     def __init__(
         self,
@@ -178,7 +218,7 @@ class UserProfileConsolidator(ConversationConsolidator):
         storage: StorageProvider,
         provider,
         model: str,
-        profile_store: UserProfileStore,
+        profile_store_factory: Callable[[str], UserProfileStore],
         threshold: int = 30,
         lookback_messages: int = 50,
         enabled: bool = True,
@@ -186,7 +226,7 @@ class UserProfileConsolidator(ConversationConsolidator):
         self.storage = storage
         self.provider = provider
         self.model = model
-        self.profile_store = profile_store
+        self.profile_store_factory = profile_store_factory
         self.threshold = max(1, threshold)
         self.lookback_messages = max(1, lookback_messages)
         self.enabled = enabled
@@ -204,11 +244,12 @@ class UserProfileConsolidator(ConversationConsolidator):
         if not self.enabled:
             return
 
+        profile_store = self.profile_store_factory(chat_id)
         messages = await self.storage.get_messages(chat_id)
         message_count = len(messages)
-        last_processed = self.profile_store.get_processed_index(chat_id)
+        last_processed = profile_store.get_processed_index(chat_id)
         if last_processed > message_count:
-            self.profile_store.set_processed_index(chat_id, message_count)
+            profile_store.set_processed_index(chat_id, message_count)
             return
 
         pending = message_count - last_processed
@@ -222,10 +263,10 @@ class UserProfileConsolidator(ConversationConsolidator):
 
         logger.info("[{}] Updating USER.md profile from {} messages", chat_id, len(chunk))
         success = await consolidate_user_profile(
-            profile_store=self.profile_store,
+            profile_store=profile_store,
             messages=[self._to_message_dict(message) for message in chunk],
             provider=self.provider,
             model=self.model,
         )
         if success:
-            self.profile_store.set_processed_index(chat_id, end_index)
+            profile_store.set_processed_index(chat_id, end_index)

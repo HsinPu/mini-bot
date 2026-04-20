@@ -3,6 +3,7 @@ opensprite/context/file_builder.py - File-based ContextBuilder.
 
 Assembles the system prompt from:
 - bootstrap/*.md startup files
+- users/{session}/USER.md durable per-user profile
 - global + per-chat skill metadata summaries (full skill content loads on demand)
 - memory/<chat>/MEMORY.md long-term memory
 """
@@ -20,11 +21,13 @@ from .paths import (
     get_memory_file,
     get_skills_dir,
     get_tool_workspace,
+    get_user_profile_file,
     load_bootstrap_files,
 )
 from .runtime import RUNTIME_CONTEXT_TAG, build_runtime_context
 from ..documents.memory import MemoryStore
 from ..documents.recent_summary import RecentSummaryStore
+from ..documents.user_profile import create_user_profile_store
 from ..skills import SkillsLoader
 from ..subagent_prompts import get_all_subagents
 
@@ -111,11 +114,20 @@ Ids and descriptions below are **merged**: this chat's `subagent_prompts/<id>.md
         """Resolve the personal skills directory for the current chat."""
         return get_chat_skills_dir(chat_id, workspace_root=self.tool_workspace)
 
+    def get_user_profile_path(self, chat_id: str = "default") -> Path:
+        """Resolve the USER.md path for the current user/session scope."""
+        return get_user_profile_file(self.app_home, chat_id=chat_id)
+
+    def _read_user_profile(self, chat_id: str) -> str:
+        """Load the current user/session profile text, creating it from the template when needed."""
+        return create_user_profile_store(self.app_home, chat_id, bootstrap_dir=self.bootstrap_dir).read_text()
+
     def build_system_prompt(self, chat_id: str = "default") -> str:
         """Build the system prompt from bootstrap files, skills, and memory."""
         parts = [self._build_session_context(chat_id)]
 
         bootstrap = load_bootstrap_files(self.bootstrap_dir)
+        bootstrap["USER"] = self._read_user_profile(chat_id)
         for key, content in bootstrap.items():
             if content:
                 section = content.strip()
@@ -161,6 +173,7 @@ To use a skill, read its SKILL.md file using the read_skill tool.
         app_home_path = str(self.app_home.expanduser().resolve())
         bootstrap_path = str(self.bootstrap_dir.expanduser().resolve())
         workspace_path = str(self.get_chat_workspace(chat_id).expanduser().resolve())
+        user_profile_path = str(self.get_user_profile_path(chat_id).expanduser().resolve())
         memory_path = str(get_memory_file(self.memory_dir, chat_id).expanduser().resolve())
         system = platform.system()
         runtime = f"{system} {platform.machine()}, Python {platform.python_version()}"
@@ -175,6 +188,7 @@ You are OpenSprite.
 ## App Paths
 - App home: {app_home_path}
 - Bootstrap files: {bootstrap_path}
+- User profile: {user_profile_path}
 - Long-term memory: {memory_path}
 
 ## Active Workspace

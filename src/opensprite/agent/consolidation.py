@@ -88,7 +88,7 @@ class UserProfileUpdateService:
         self.consolidator = consolidator
 
     async def maybe_update(self, chat_id: str) -> None:
-        """Refresh the global USER.md managed block when enough new history exists."""
+        """Refresh this user's USER.md managed block when enough new history exists."""
         if self.consolidator is None:
             return
 

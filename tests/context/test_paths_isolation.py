@@ -1,4 +1,4 @@
-from opensprite.context.paths import get_chat_skills_dir, get_chat_workspace
+from opensprite.context.paths import get_chat_skills_dir, get_chat_workspace, get_user_profile_file
 
 
 def test_chat_workspace_is_stable_per_session_and_separates_sessions(tmp_path):
@@ -21,3 +21,16 @@ def test_chat_skills_dir_is_nested_under_the_same_session_workspace(tmp_path):
 
     assert skills_dir.parent == workspace
     assert skills_dir.name == "skills"
+
+
+def test_user_profile_file_is_stable_per_session_and_separates_sessions(tmp_path):
+    app_home = tmp_path / "home"
+
+    profile_a_first = get_user_profile_file(app_home=app_home, chat_id="telegram:user-a")
+    profile_a_second = get_user_profile_file(app_home=app_home, chat_id="telegram:user-a")
+    profile_b = get_user_profile_file(app_home=app_home, chat_id="telegram:user-b")
+
+    assert profile_a_first == profile_a_second
+    assert profile_a_first != profile_b
+    assert profile_a_first.parent != profile_b.parent
+    assert profile_a_first.name == "USER.md"

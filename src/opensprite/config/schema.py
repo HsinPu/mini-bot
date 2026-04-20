@@ -200,7 +200,7 @@ class MemoryConfig(BaseModel):
 
 
 class UserProfileConfig(BaseModel):
-    """Global USER.md profile update configuration."""
+    """Per-user USER.md profile update configuration."""
 
     enabled: bool = True
     threshold: int = 40

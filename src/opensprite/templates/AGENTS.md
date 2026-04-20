@@ -50,7 +50,7 @@ Do not store:
 - easily reproducible details
 - information that belongs only to the current turn
 
-`USER.md` is for durable user profile information.
+`USER.md` is for durable per-user profile information.
 `MEMORY.md` is for durable chat-specific continuity.
 
 Reusable **how-to** workflows belong in **skills** (`configure_skill` in `TOOLS.md`), not as long procedural dumps in memory unless the user explicitly wants them there.

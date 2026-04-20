@@ -5,6 +5,7 @@ Path layout:
 - app home: ~/.opensprite
 - subagent prompts: ~/.opensprite/subagent_prompts/*.md (seeded from bundled templates on first sync)
 - bootstrap files: ~/.opensprite/bootstrap/*.md
+- per-user profiles: ~/.opensprite/users/{channel}/{chat_id}/USER.md
 - memory: ~/.opensprite/memory/<chat>/MEMORY.md
 - recent summary: ~/.opensprite/memory/<chat>/RECENT_SUMMARY.md
 - bundled skills (read-only, synced from package): ~/.opensprite/skills/<skill_id>/SKILL.md
@@ -29,6 +30,7 @@ MEMORY_DIRNAME = "memory"
 SKILLS_DIRNAME = "skills"
 WORKSPACE_DIRNAME = "workspace"
 WORKSPACE_CHATS_DIRNAME = "chats"
+USER_PROFILES_DIRNAME = "users"
 SUBAGENT_PROMPTS_DIRNAME = "subagent_prompts"
 USER_PROFILE_STATE_FILENAME = ".user_profile_state.json"
 RECENT_SUMMARY_STATE_FILENAME = ".recent_summary_state.json"
@@ -53,14 +55,40 @@ def get_bootstrap_dir(app_home: str | Path | None = None) -> Path:
     return ensure_dir(get_app_home(app_home) / BOOTSTRAP_DIRNAME)
 
 
-def get_user_profile_file(app_home: str | Path | None = None) -> Path:
-    """Get the global USER.md profile file path."""
-    return get_bootstrap_dir(app_home) / "USER.md"
+def get_user_profiles_dir(app_home: str | Path | None = None) -> Path:
+    """Get the root directory that stores per-user USER.md files."""
+    return ensure_dir(get_app_home(app_home) / USER_PROFILES_DIRNAME)
 
 
-def get_user_profile_state_file(app_home: str | Path | None = None) -> Path:
-    """Get the persisted state file for USER.md auto-updates."""
-    return get_bootstrap_dir(app_home) / USER_PROFILE_STATE_FILENAME
+def get_user_profile_dir(
+    chat_id: str | None,
+    *,
+    app_home: str | Path | None = None,
+) -> Path:
+    """Get the per-profile directory for USER.md and its update state."""
+    root = get_user_profiles_dir(app_home)
+    channel, raw_chat_id = split_session_chat_id(chat_id)
+    safe_channel = _sanitize_path_segment(channel, default="default", max_length=32)
+    safe_chat_id = _sanitize_path_segment(raw_chat_id, default="default")
+    return ensure_dir(root / safe_channel / safe_chat_id)
+
+
+def get_user_profile_file(
+    app_home: str | Path | None = None,
+    *,
+    chat_id: str | None = None,
+) -> Path:
+    """Get the per-user USER.md profile file path."""
+    return get_user_profile_dir(chat_id, app_home=app_home) / "USER.md"
+
+
+def get_user_profile_state_file(
+    app_home: str | Path | None = None,
+    *,
+    chat_id: str | None = None,
+) -> Path:
+    """Get the persisted state file for a per-user USER.md auto-update."""
+    return get_user_profile_dir(chat_id, app_home=app_home) / USER_PROFILE_STATE_FILENAME
 
 
 def get_memory_dir(app_home: str | Path | None = None) -> Path:

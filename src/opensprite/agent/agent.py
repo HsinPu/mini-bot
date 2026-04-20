@@ -38,7 +38,7 @@ from ..documents.memory import MemoryStore
 from ..context.paths import get_recent_summary_state_file
 from ..documents.recent_summary import RecentSummaryConsolidator, RecentSummaryStore
 from ..media import MediaRouter
-from ..documents.user_profile import UserProfileConsolidator, UserProfileStore
+from ..documents.user_profile import UserProfileConsolidator, create_user_profile_store
 from ..search.base import SearchStore
 from ..tools import ToolRegistry
 from ..utils import count_messages_tokens, count_text_tokens, sanitize_assistant_visible_text, strip_assistant_internal_scaffolding
@@ -454,17 +454,16 @@ class AgentLoop:
         """Create the optional USER.md update service."""
         consolidator: UserProfileConsolidator | None = None
         if self.app_home is not None:
-            from ..context.paths import get_user_profile_file, get_user_profile_state_file
-
-            profile_store = UserProfileStore(
-                user_profile_file=get_user_profile_file(self.app_home),
-                state_file=get_user_profile_state_file(self.app_home),
-            )
+            bootstrap_dir = getattr(self._context_builder, "bootstrap_dir", None)
             consolidator = UserProfileConsolidator(
                 storage=self.storage,
                 provider=self.provider,
                 model=self.provider.get_default_model(),
-                profile_store=profile_store,
+                profile_store_factory=lambda chat_id: create_user_profile_store(
+                    self.app_home,
+                    chat_id,
+                    bootstrap_dir=bootstrap_dir,
+                ),
                 threshold=self.user_profile_config.threshold,
                 lookback_messages=self.user_profile_config.lookback_messages,
                 enabled=self.user_profile_config.enabled,
@@ -1168,7 +1167,7 @@ class AgentLoop:
         await self.memory_consolidation.maybe_consolidate(chat_id)
 
     async def _maybe_update_user_profile(self, chat_id: str) -> None:
-        """Check whether the global USER.md profile should be refreshed."""
+        """Check whether this user's USER.md profile should be refreshed."""
         await self.user_profile_update.maybe_update(chat_id)
 
     async def _maybe_update_recent_summary(self, chat_id: str) -> None:

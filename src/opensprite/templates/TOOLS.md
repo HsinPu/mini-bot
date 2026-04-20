@@ -164,7 +164,7 @@ When the user wants to add, update, inspect, or remove MCP servers, prefer using
 
 ## Scope Boundaries
 
-- `USER.md` stores durable user-wide context.
+- `USER.md` stores durable per-user context.
 - `memory/{chat_id}/MEMORY.md` stores durable chat-specific context.
 - The session tool workspace may include `skills/` and `subagent_prompts/`; prefer `configure_skill` and `configure_subagent` over ad-hoc file edits when defining or changing those trees.
 - `search_history` and `search_knowledge` are for on-demand retrieval, not always-on memory.
