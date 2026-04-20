@@ -38,6 +38,11 @@ class AgentConfig(BaseModel):
     
     max_history: int = 300
     history_token_budget: int = 140000
+    # After the main reply, optionally run a quiet LLM pass to upsert skills (extra API cost).
+    skill_review_enabled: bool = True
+    skill_review_min_tool_calls: int = Field(default=5, ge=1)
+    skill_review_max_tool_iterations: int = Field(default=6, ge=1, le=100)
+    skill_review_transcript_messages: int = Field(default=50, ge=5, le=500)
 
 
 class StorageConfig(BaseModel):
@@ -904,6 +909,10 @@ class Config:
             "agent": {
                 "max_history": self.agent.max_history,
                 "history_token_budget": self.agent.history_token_budget,
+                "skill_review_enabled": self.agent.skill_review_enabled,
+                "skill_review_min_tool_calls": self.agent.skill_review_min_tool_calls,
+                "skill_review_max_tool_iterations": self.agent.skill_review_max_tool_iterations,
+                "skill_review_transcript_messages": self.agent.skill_review_transcript_messages,
             },
             "memory": {
                 "threshold": self.memory.threshold,

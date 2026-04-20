@@ -45,7 +45,12 @@ from ..utils import count_messages_tokens, count_text_tokens, sanitize_assistant
 from ..utils.log import logger
 from ..config import AgentConfig, MemoryConfig, ToolsConfig, LogConfig, SearchConfig, UserProfileConfig, RecentSummaryConfig, Config
 from .consolidation import MemoryConsolidationService, RecentSummaryUpdateService, UserProfileUpdateService
-from .execution import ExecutionEngine
+from .execution import ExecutionEngine, ExecutionResult
+from .skill_review import (
+    SKILL_REVIEW_SYSTEM,
+    build_skill_review_user_content,
+    format_stored_messages_for_transcript,
+)
 from .tool_registration import register_default_tools, register_memory_tool
 
 
@@ -294,6 +299,7 @@ class AgentLoop:
         self._mcp_connected = False
         self._mcp_connecting = False
         self._mcp_connect_lock = asyncio.Lock()
+        self._skill_review_lock = asyncio.Lock()
         # Set by runtime after MessageQueue is created; used for interim tool progress outbound messages.
         self._message_bus: Any = None
 
@@ -760,7 +766,8 @@ class AgentLoop:
         tool_registry: ToolRegistry | None = None,
         on_tool_before_execute: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
         refresh_system_prompt: Callable[[], str] | None = None,
-    ) -> str:
+        max_tool_iterations: int | None = None,
+    ) -> ExecutionResult:
         """Run the shared LLM execution loop for main and delegated agents."""
         return await self.execution_engine.execute_messages(
             log_id,
@@ -770,6 +777,7 @@ class AgentLoop:
             tool_registry=tool_registry,
             on_tool_before_execute=on_tool_before_execute,
             refresh_system_prompt=refresh_system_prompt,
+            max_tool_iterations=max_tool_iterations,
         )
 
     def _build_subagent_tools(self) -> ToolRegistry:
@@ -831,7 +839,7 @@ class AgentLoop:
         *,
         transport_chat_id: str | None = None,
         emit_tool_progress: bool = False,
-    ) -> str:
+    ) -> ExecutionResult:
         """
         呼叫 LLM 生成對話回應。
         
@@ -851,7 +859,7 @@ class AgentLoop:
                          Whether to allow tool execution.
         
         Returns:
-            LLM 的文字回應。The LLM's text response.
+            ExecutionResult：可見文字與本輪工具執行統計（供背景 skill 複盤觸發）。
         
         Raises:
             RuntimeError: 如果工具執行失敗或超過最大迭代次數。
@@ -944,6 +952,70 @@ class AgentLoop:
             refresh_system_prompt=lambda: self._context_builder.build_system_prompt(chat_id),
         )
 
+    def _skill_review_tool_registry(self) -> ToolRegistry | None:
+        """Tools allowed during background skill review (subset of main registry)."""
+        allowed = frozenset({"read_skill", "configure_skill"})
+        available = set(self.tools.tool_names)
+        if not allowed.issubset(available):
+            return None
+        excluded = available - allowed
+        return self.tools.filtered(exclude_names=excluded)
+
+    def _maybe_schedule_skill_review(self, chat_id: str, result: ExecutionResult) -> None:
+        """Fire-and-forget background pass after a heavy tool turn without skill upsert."""
+        if not self.config.skill_review_enabled:
+            return
+        if result.used_configure_skill:
+            return
+        if result.executed_tool_calls < self.config.skill_review_min_tool_calls:
+            return
+        if self._skill_review_tool_registry() is None:
+            return
+        try:
+            asyncio.get_running_loop().create_task(self._skill_review_guarded(chat_id))
+        except RuntimeError:
+            logger.warning("[%s] skill.review.skip | reason=no-running-event-loop", chat_id)
+
+    async def _skill_review_guarded(self, chat_id: str) -> None:
+        async with self._skill_review_lock:
+            try:
+                await self._run_skill_review(chat_id)
+            except Exception:
+                logger.exception("[%s] skill.review.failed", chat_id)
+
+    async def _run_skill_review(self, chat_id: str) -> None:
+        tool_registry = self._skill_review_tool_registry()
+        if tool_registry is None:
+            return
+
+        stored = await self.storage.get_messages(chat_id, limit=self.config.skill_review_transcript_messages)
+        transcript = format_stored_messages_for_transcript(stored)
+        if len(transcript) < 80:
+            logger.info("[%s] skill.review.skip | reason=transcript-too-short", chat_id)
+            return
+
+        user_content = build_skill_review_user_content(transcript)
+        chat_messages = [
+            ChatMessage(role="system", content=SKILL_REVIEW_SYSTEM),
+            ChatMessage(role="user", content=user_content),
+        ]
+        log_id = f"{chat_id}:skill-review"
+        token = self._current_chat_id.set(chat_id)
+        try:
+            await self._execute_messages(
+                log_id,
+                chat_messages,
+                allow_tools=True,
+                tool_result_chat_id=None,
+                tool_registry=tool_registry,
+                on_tool_before_execute=None,
+                refresh_system_prompt=lambda: self._context_builder.build_system_prompt(chat_id),
+                max_tool_iterations=self.config.skill_review_max_tool_iterations,
+            )
+        finally:
+            self._current_chat_id.reset(token)
+        logger.info("[%s] skill.review.done", chat_id)
+
     async def run_subagent(self, task: str, prompt_type: str = "writer") -> str:
         """Run a delegated subagent task through the shared execution core."""
         from .subagent_builder import SubagentMessageBuilder
@@ -972,13 +1044,14 @@ class AgentLoop:
             f"[{log_id}] subagent.run | workspace={workspace} task={self._format_log_preview(task, max_chars=200)}"
         )
         subagent_tools = self._build_subagent_tools()
-        return await self._execute_messages(
+        sub_result = await self._execute_messages(
             log_id,
             chat_messages,
             allow_tools=bool(subagent_tools.tool_names),
             tool_result_chat_id=parent_chat_id,
             tool_registry=subagent_tools,
         )
+        return sub_result.content
 
     async def process(self, user_message: UserMessage) -> AssistantMessage:
         """
@@ -1029,7 +1102,7 @@ class AgentLoop:
 
             # 2. 呼叫 LLM（傳入 channel 和圖片）
             logger.info(f"[{session_chat_id}] agent.run | status=processing")
-            response = await self.call_llm(
+            exec_result = await self.call_llm(
                 session_chat_id,
                 current_message=user_message.text,
                 channel=channel,
@@ -1037,7 +1110,8 @@ class AgentLoop:
                 transport_chat_id=str(user_message.chat_id) if user_message.chat_id is not None else None,
                 emit_tool_progress=True,
             )
-            
+            response = exec_result.content
+
             logger.info(
                 f"[{session_chat_id}] outbound | text={self._format_log_preview(response, max_chars=200)}"
             )
@@ -1055,6 +1129,8 @@ class AgentLoop:
             await self._maybe_consolidate_memory(session_chat_id)
             await self._maybe_update_recent_summary(session_chat_id)
             await self._maybe_update_user_profile(session_chat_id)
+
+            self._maybe_schedule_skill_review(session_chat_id, exec_result)
 
             # 5. 回傳
             return AssistantMessage(

@@ -46,7 +46,11 @@
   },
   "agent": {
     "max_history": 300,
-    "history_token_budget": 140000
+    "history_token_budget": 140000,
+    "skill_review_enabled": true,
+    "skill_review_min_tool_calls": 5,
+    "skill_review_max_tool_iterations": 6,
+    "skill_review_transcript_messages": 50
   },
   "memory": {
     "threshold": 50,

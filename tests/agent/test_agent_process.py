@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 
 from opensprite.agent.agent import AgentLoop
+from opensprite.agent.execution import ExecutionResult
 from opensprite.config.schema import AgentConfig, LogConfig, MemoryConfig, RecentSummaryConfig, SearchConfig, ToolsConfig, UserProfileConfig
 from opensprite.bus.message import UserMessage
 from opensprite.storage.base import StoredMessage
@@ -135,7 +136,7 @@ def test_agent_process_persists_user_then_assistant_then_runs_maintenance(tmp_pa
     async def fake_call_llm(chat_id, current_message, channel=None, user_images=None, allow_tools=True, **kwargs):
         call_order.append(("call_llm", chat_id, current_message, channel, list(user_images or [])))
         assert storage.saved[0][1] == "user"
-        return "assistant reply"
+        return ExecutionResult(content="assistant reply", executed_tool_calls=0, used_configure_skill=False)
 
     async def fake_consolidate(chat_id):
         call_order.append(("memory", chat_id))
@@ -214,15 +215,16 @@ def test_call_llm_trims_old_history_to_token_budget(tmp_path):
         tool_registry=None,
         on_tool_before_execute=None,
         refresh_system_prompt=None,
+        max_tool_iterations=None,
     ):
         captured["messages"] = list(chat_messages)
-        return "ok"
+        return ExecutionResult(content="ok", executed_tool_calls=0, used_configure_skill=False)
 
     agent._execute_messages = fake_execute_messages
 
     result = asyncio.run(agent.call_llm("telegram:room-1", "current input", channel="telegram", allow_tools=False))
 
-    assert result == "ok"
+    assert result.content == "ok"
     assert context_builder.last_history == [{"role": "assistant", "content": "recent message"}]
     assert [message.role for message in captured["messages"]] == ["user"]
 

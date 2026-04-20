@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 
 from opensprite.agent.agent import AgentLoop
+from opensprite.agent.execution import ExecutionResult
 from opensprite.config.schema import AgentConfig, LogConfig, MemoryConfig, SearchConfig, ToolsConfig, UserProfileConfig
 from opensprite.tools.base import Tool
 from opensprite.tools.registry import ToolRegistry
@@ -77,9 +78,10 @@ def test_call_llm_replaces_direct_image_payload_with_tool_hint(tmp_path):
         tool_registry=None,
         on_tool_before_execute=None,
         refresh_system_prompt=None,
+        max_tool_iterations=None,
     ):
         captured["content"] = chat_messages[0].content
-        return "ok"
+        return ExecutionResult(content="ok", executed_tool_calls=0, used_configure_skill=False)
 
     agent._execute_messages = fake_execute  # type: ignore[method-assign]
 
@@ -92,7 +94,7 @@ def test_call_llm_replaces_direct_image_payload_with_tool_hint(tmp_path):
         )
     )
 
-    assert result == "ok"
+    assert result.content == "ok"
     assert "User attached 1 image(s). Use analyze_image or ocr_image if visual understanding is needed." in captured["content"]
 
 
@@ -123,9 +125,10 @@ def test_call_llm_adds_audio_tool_hint_to_prompt(tmp_path):
         tool_registry=None,
         on_tool_before_execute=None,
         refresh_system_prompt=None,
+        max_tool_iterations=None,
     ):
         captured["content"] = chat_messages[0].content
-        return "ok"
+        return ExecutionResult(content="ok", executed_tool_calls=0, used_configure_skill=False)
 
     agent._execute_messages = fake_execute  # type: ignore[method-assign]
     audio_token = agent._current_audios.set(["aud-a"])
@@ -141,7 +144,7 @@ def test_call_llm_adds_audio_tool_hint_to_prompt(tmp_path):
     finally:
         agent._current_audios.reset(audio_token)
 
-    assert result == "ok"
+    assert result.content == "ok"
     assert "User attached 1 audio clip(s). Use transcribe_audio if spoken content is needed." in captured["content"]
 
 
@@ -172,9 +175,10 @@ def test_call_llm_adds_video_tool_hint_to_prompt(tmp_path):
         tool_registry=None,
         on_tool_before_execute=None,
         refresh_system_prompt=None,
+        max_tool_iterations=None,
     ):
         captured["content"] = chat_messages[0].content
-        return "ok"
+        return ExecutionResult(content="ok", executed_tool_calls=0, used_configure_skill=False)
 
     agent._execute_messages = fake_execute  # type: ignore[method-assign]
     video_token = agent._current_videos.set(["vid-a"])
@@ -190,5 +194,5 @@ def test_call_llm_adds_video_tool_hint_to_prompt(tmp_path):
     finally:
         agent._current_videos.reset(video_token)
 
-    assert result == "ok"
+    assert result.content == "ok"
     assert "User attached 1 video clip(s). Use analyze_video if understanding the video content is needed." in captured["content"]

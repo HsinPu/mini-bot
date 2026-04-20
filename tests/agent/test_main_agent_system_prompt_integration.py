@@ -135,7 +135,7 @@ def test_main_agent_call_llm_passes_full_file_builder_system_prompt_to_provider(
 
     result = asyncio.run(_run())
 
-    assert result == "done"
+    assert result.content == "done"
     assert len(provider.calls) == 1
 
     llm_messages = provider.calls[0]
@@ -197,7 +197,7 @@ def test_main_agent_system_prompt_lists_connected_mcp_tools(tmp_path: Path) -> N
 
     result = asyncio.run(_run())
 
-    assert result == "done"
+    assert result.content == "done"
     system_text = provider.calls[0][0].content
     assert "# MCP Configuration" in system_text
     assert "Use `configure_mcp` first for MCP setup or changes." in system_text

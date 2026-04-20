@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
 from ..config import ToolsConfig
@@ -10,6 +11,15 @@ from ..llms import ChatMessage, LLMProvider
 from ..search.base import SearchStore
 from ..tools import ToolRegistry
 from ..utils.log import logger
+
+
+@dataclass
+class ExecutionResult:
+    """Outcome of one execute_messages run (visible reply plus tool-use telemetry)."""
+
+    content: str
+    executed_tool_calls: int = 0
+    used_configure_skill: bool = False
 
 
 class ToolResultPersistence:
@@ -185,7 +195,8 @@ class ExecutionEngine:
         tool_registry: ToolRegistry | None = None,
         on_tool_before_execute: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
         refresh_system_prompt: Callable[[], str] | None = None,
-    ) -> str:
+        max_tool_iterations: int | None = None,
+    ) -> ExecutionResult:
         """Execute the prepared messages, including tool calls when enabled."""
         active_tools = tool_registry or self.tools
         tools = None
@@ -197,8 +208,13 @@ class ExecutionEngine:
         empty_response_retried = False
         repeated_tool_error_key: tuple[str, str] | None = None
         repeated_tool_error_count = 0
+        executed_tool_calls = 0
+        used_configure_skill = False
+        iteration_limit = (
+            max_tool_iterations if max_tool_iterations is not None else self.tools_config.max_tool_iterations
+        )
 
-        for iteration in range(self.tools_config.max_tool_iterations):
+        for iteration in range(iteration_limit):
             logger.info(
                 f"[{log_id}] llm.request | iter={iteration + 1} messages={len(chat_messages)} "
                 f"tools={'on' if tools else 'off'} tail={self.summarize_messages(chat_messages)}"
@@ -251,9 +267,17 @@ class ExecutionEngine:
                         f"[{log_id}] llm.tool-calls-ignored | iter={iteration + 1} count={len(response.tool_calls)} tools=off"
                     )
                     if not response.content:
-                        return self.empty_response_fallback
+                        return ExecutionResult(
+                            content=self.empty_response_fallback,
+                            executed_tool_calls=executed_tool_calls,
+                            used_configure_skill=used_configure_skill,
+                        )
 
-                    return response.content
+                    return ExecutionResult(
+                        content=response.content,
+                        executed_tool_calls=executed_tool_calls,
+                        used_configure_skill=used_configure_skill,
+                    )
 
                 logger.info(
                     f"[{log_id}] llm.tool-calls | iter={iteration + 1} count={len(response.tool_calls)} "
@@ -292,6 +316,9 @@ class ExecutionEngine:
                             )
 
                     result = await active_tools.execute(tool_name, tool_args)
+                    executed_tool_calls += 1
+                    if tool_name == "configure_skill" and tool_args.get("action") in ("add", "upsert"):
+                        used_configure_skill = True
                     logger.info(
                         f"[{log_id}] tool.result | name={tool_name} preview={self.format_log_preview(result, max_chars=200)}"
                     )
@@ -310,9 +337,13 @@ class ExecutionEngine:
                             logger.warning(
                                 f"[{log_id}] tool.repeated-error | name={tool_name} count={repeated_tool_error_count} stopping_early=true"
                             )
-                            return (
-                                "我重複嘗試呼叫工具，但工具參數仍然無效而無法繼續。"
-                                f"最新錯誤：{result}"
+                            return ExecutionResult(
+                                content=(
+                                    "我重複嘗試呼叫工具，但工具參數仍然無效而無法繼續。"
+                                    f"最新錯誤：{result}"
+                                ),
+                                executed_tool_calls=executed_tool_calls,
+                                used_configure_skill=used_configure_skill,
                             )
                     else:
                         repeated_tool_error_key = None
@@ -377,11 +408,19 @@ class ExecutionEngine:
                     f"sanitized_from_nonempty={'true' if sanitized_became_empty else 'false'} "
                     f"tool_history_count={len(tool_results_history)}"
                 )
-                return self.empty_response_fallback
+                return ExecutionResult(
+                    content=self.empty_response_fallback,
+                    executed_tool_calls=executed_tool_calls,
+                    used_configure_skill=used_configure_skill,
+                )
 
-            return response.content
+            return ExecutionResult(
+                content=response.content,
+                executed_tool_calls=executed_tool_calls,
+                used_configure_skill=used_configure_skill,
+            )
 
-        logger.warning(f"[{log_id}] llm.max-iterations | limit={self.tools_config.max_tool_iterations}")
+        logger.warning(f"[{log_id}] llm.max-iterations | limit={iteration_limit}")
 
         history_msg = ""
         if tool_results_history:
@@ -389,7 +428,11 @@ class ExecutionEngine:
                 f"- {result}" for result in tool_results_history[-5:]
             )
 
-        return (
-            f"我嘗試完成你的請求，但超過了最大迭代次數（{self.tools_config.max_tool_iterations}次）。"
-            f"請將任務拆分為較小的步驟。{history_msg}"
+        return ExecutionResult(
+            content=(
+                f"我嘗試完成你的請求，但超過了最大迭代次數（{iteration_limit}次）。"
+                f"請將任務拆分為較小的步驟。{history_msg}"
+            ),
+            executed_tool_calls=executed_tool_calls,
+            used_configure_skill=used_configure_skill,
         )

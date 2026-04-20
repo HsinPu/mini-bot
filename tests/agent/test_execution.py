@@ -74,7 +74,9 @@ def test_execution_engine_runs_tool_loop_and_persists_tool_result():
         engine.execute_messages("chat-1", messages, allow_tools=True, tool_result_chat_id="chat-1")
     )
 
-    assert result == "done"
+    assert result.content == "done"
+    assert result.executed_tool_calls == 1
+    assert result.used_configure_skill is False
     assert save_calls == [("chat-1", "tool", "tool:abc", "demo_tool")]
     assert [message.role for message in messages] == ["user", "assistant", "tool"]
     assert messages[1].tool_calls[0]["function"]["name"] == "demo_tool"
@@ -111,7 +113,7 @@ def test_execution_engine_calls_on_tool_before_execute_before_tool_run():
         )
     )
 
-    assert result == "done"
+    assert result.content == "done"
     assert order == [("before", "demo_tool", {"value": "abc"})]
 
 
@@ -128,7 +130,7 @@ def test_execution_engine_uses_empty_fallback_for_blank_visible_response():
         engine.execute_messages("chat-1", [ChatMessage(role="user", content="hi")], allow_tools=False)
     )
 
-    assert result == "retry ok"
+    assert result.content == "retry ok"
     assert len(provider.calls) == 2
     assert provider.calls[1]["messages"][-1].content == ExecutionEngine.EMPTY_RESPONSE_RETRY_MESSAGE
 
@@ -147,7 +149,7 @@ def test_execution_engine_uses_sanitized_empty_retry_message_for_hidden_only_con
         engine.execute_messages("chat-1", [ChatMessage(role="user", content="hi")], allow_tools=False)
     )
 
-    assert result == "retry ok"
+    assert result.content == "retry ok"
     assert len(provider.calls) == 2
     assert provider.calls[1]["messages"][-1].content == ExecutionEngine.SANITIZED_EMPTY_RESPONSE_RETRY_MESSAGE
 
@@ -165,7 +167,7 @@ def test_execution_engine_falls_back_after_second_blank_visible_response():
         engine.execute_messages("chat-1", [ChatMessage(role="user", content="hi")], allow_tools=False)
     )
 
-    assert result == "EMPTY"
+    assert result.content == "EMPTY"
     assert len(provider.calls) == 2
 
 
@@ -187,8 +189,8 @@ def test_execution_engine_returns_max_iteration_message_when_tool_loop_never_fin
         engine.execute_messages("chat-1", [ChatMessage(role="user", content="hi")], allow_tools=True)
     )
 
-    assert "超過了最大迭代次數（1次）" in result
-    assert "demo_tool: tool:abc" in result
+    assert "超過了最大迭代次數（1次）" in result.content
+    assert "demo_tool: tool:abc" in result.content
 
 
 def test_execution_engine_stops_after_repeated_missing_required_tool_errors():
@@ -237,8 +239,8 @@ def test_execution_engine_stops_after_repeated_missing_required_tool_errors():
         engine.execute_messages("chat-1", [ChatMessage(role="user", content="hi")], allow_tools=True)
     )
 
-    assert "我重複嘗試呼叫工具，但工具參數仍然無效而無法繼續。" in result
-    assert "Invalid arguments for write_file" in result
+    assert "我重複嘗試呼叫工具，但工具參數仍然無效而無法繼續。" in result.content
+    assert "Invalid arguments for write_file" in result.content
     assert len(provider.calls) == 2
 
 
@@ -279,7 +281,7 @@ def test_execution_engine_slims_tool_result_for_context_but_persists_full_result
         engine.execute_messages("chat-1", messages, allow_tools=True, tool_result_chat_id="chat-1")
     )
 
-    assert result == "done"
+    assert result.content == "done"
     assert save_calls == [("chat-1", "tool", "A" * 2000 + "TAIL", "verbose_tool")]
     assert messages[-1].role == "tool"
     assert "Output truncated for context" in messages[-1].content
@@ -386,10 +388,39 @@ def test_execution_refreshes_system_and_tools_after_configure_skill_success():
         )
     )
 
-    assert result == "done"
+    assert result.content == "done"
+    assert result.used_configure_skill is True
+    assert result.executed_tool_calls == 1
     assert messages[0].content == "SYSTEM_V2"
     assert len(provider.calls) == 2
     assert provider.calls[1]["messages"][0].content == "SYSTEM_V2"
     second_tools = provider.calls[1]["tools"]
     assert second_tools is not None
     assert any(t["function"]["name"] == "configure_skill" for t in second_tools)
+
+
+def test_execution_respects_max_tool_iterations_override():
+    registry = ToolRegistry()
+    registry.register(DummyTool())
+    provider = FakeProvider(
+        [
+            LLMResponse(
+                content="loop",
+                model="fake-model",
+                tool_calls=[ToolCall(id="tc1", name="demo_tool", arguments={"value": "abc"})],
+            )
+        ]
+    )
+    engine = _make_engine(provider, registry, [], tools_config=ToolsConfig(max_tool_iterations=99))
+
+    result = asyncio.run(
+        engine.execute_messages(
+            "chat-1",
+            [ChatMessage(role="user", content="hi")],
+            allow_tools=True,
+            max_tool_iterations=1,
+        )
+    )
+
+    assert "超過了最大迭代次數（1次）" in result.content
+    assert result.executed_tool_calls == 1
