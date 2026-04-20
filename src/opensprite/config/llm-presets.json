@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "provider_order": ["openrouter", "openai", "minimax"],
+  "providers": {
+    "openrouter": {
+      "display_name": "OpenRouter",
+      "default_base_url": "https://openrouter.ai/api/v1",
+      "model_choices": [
+        "openai/gpt-4o-mini",
+        "anthropic/claude-3.5-haiku",
+        "google/gemini-2.0-flash-001"
+      ]
+    },
+    "openai": {
+      "display_name": "OpenAI",
+      "default_base_url": "https://api.openai.com/v1",
+      "model_choices": ["gpt-4.1-mini", "gpt-4o-mini", "gpt-4.1"]
+    },
+    "minimax": {
+      "display_name": "MiniMax",
+      "default_base_url": "https://api.minimax.io/v1",
+      "model_choices": ["MiniMax-M2.5"]
+    }
+  }
+}

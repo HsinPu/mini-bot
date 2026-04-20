@@ -45,6 +45,7 @@ package-dir = { "" = "src" }
 
 [tool.setuptools.package-data]
 opensprite = [
+    "config/llm-presets.json",
     "config/*.template",
     "templates/*.md",
     "templates/memory/*.md",

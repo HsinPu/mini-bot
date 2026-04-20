@@ -2,6 +2,7 @@
 opensprite/config/__init__.py - 設定模組
 """
 
+from .llm_presets import LLMPresets, ProviderPreset, load_llm_presets
 from .schema import (
     Config,
     LLMsConfig,
@@ -26,6 +27,9 @@ from .schema import (
 )
 
 __all__ = [
+    "LLMPresets",
+    "ProviderPreset",
+    "load_llm_presets",
     "Config",
     "LLMsConfig",
     "ProviderConfig",

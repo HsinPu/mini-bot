@@ -33,6 +33,11 @@ def test_run_onboard_interactive_persists_external_config_updates(monkeypatch, t
 
     def fake_interactive(config_data: dict):
         updated = json.loads(json.dumps(config_data))
+        updated["llm"].setdefault("providers", {})
+        updated["llm"]["providers"].setdefault(
+            "openai",
+            {"api_key": "", "enabled": False, "model": "", "base_url": "https://api.openai.com/v1"},
+        )
         updated["llm"]["default"] = "openai"
         updated["llm"]["providers"]["openai"]["enabled"] = True
         updated["llm"]["providers"]["openai"]["model"] = "gpt-4.1-mini"
