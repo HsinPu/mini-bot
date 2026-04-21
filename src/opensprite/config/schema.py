@@ -39,8 +39,8 @@ class LLMsConfig(BaseModel):
 class AgentConfig(BaseModel):
     """Agent configuration."""
     
-    max_history: int = 300
-    history_token_budget: int = 140000
+    max_history: int = 120
+    history_token_budget: int = 64000
     # After the main reply, optionally run a quiet LLM pass to upsert skills (extra API cost).
     skill_review_enabled: bool = True
     skill_review_min_tool_calls: int = Field(default=5, ge=1)

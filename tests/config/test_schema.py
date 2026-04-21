@@ -262,7 +262,8 @@ def test_config_load_defaults_agent_when_section_missing(tmp_path):
     config = Config.from_json(path)
 
     assert config.agent is not None
-    assert config.agent.history_token_budget == 140000
+    assert config.agent.max_history == 120
+    assert config.agent.history_token_budget == 64000
     assert config.tools.exec_tool.timeout == 60
     assert config.tools.web_search.max_results == 10
     assert config.tools.web_fetch.timeout == 30
