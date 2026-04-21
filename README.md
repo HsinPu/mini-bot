@@ -328,9 +328,9 @@ Main file snippet:
 
 ## Architecture · 架構摘要
 
-**English:** Agent-centric design with ports-and-adapters boundaries: **AgentLoop** orchestrates storage, context, execution, maintenance, and replies; **ExecutionEngine** runs the LLM/tool loop; **ToolResultPersistence** writes tool output back and optionally indexes; **tool_registration** wires default tools; **consolidation** maintains long-term memory and `USER.md`; **channels / llms / storage / search / media** isolate external systems.
+**English:** Agent-centric design with ports-and-adapters boundaries: **AgentLoop** orchestrates storage, context, execution, maintenance, and replies; **ExecutionEngine** runs the LLM/tool loop; **ToolResultPersistence** writes tool output back and optionally indexes; **tool_registration** wires default tools; **consolidation** maintains long-term memory under `~/.opensprite/memory/` and per-chat `USER.md` at `~/.opensprite/workspace/chats/<channel>/<chat_id>/USER.md`; **channels / llms / storage / search / media** isolate external systems.
 
-**中文：** 採用代理為核心、連接埠與適配器分層：**AgentLoop** 負責訊息儲存、組上下文、執行引擎、維護與回覆；**ExecutionEngine** 負責 LLM 與工具迴圈；**ToolResultPersistence** 將工具輸出寫回並可選索引；**tool_registration** 註冊預設工具；**consolidation** 維護長期記憶與 `USER.md`；**channels／llms／storage／search／media** 為對外適配層。
+**中文：** 採用代理為核心、連接埠與適配器分層：**AgentLoop** 負責訊息儲存、組上下文、執行引擎、維護與回覆；**ExecutionEngine** 負責 LLM 與工具迴圈；**ToolResultPersistence** 將工具輸出寫回並可選索引；**tool_registration** 註冊預設工具；**consolidation** 維護 `~/.opensprite/memory/` 下的長期記憶，以及各對話工作區 `~/.opensprite/workspace/chats/<channel>/<chat_id>/USER.md`；**channels／llms／storage／search／media** 為對外適配層。
 
 ```text
 Channel Adapter -> MessageQueue -> AgentLoop -> ExecutionEngine -> LLM / Tools

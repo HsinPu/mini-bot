@@ -1,7 +1,7 @@
 # USER.md - Durable User Context
 
-This file stores stable user-specific context that should carry across chats.
-It is for durable preferences, recurring constraints, and background context that improve future collaboration.
+This file lives at **this chat session’s workspace root** (next to `skills/` and `subagent_prompts/`).
+It stores stable user-specific context **for this session**: durable preferences, recurring constraints, and background that improve ongoing collaboration here.
 Do not store passwords, API keys, access tokens, or other secrets here.
 
 ## What Belongs Here

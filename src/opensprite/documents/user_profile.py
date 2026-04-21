@@ -1,4 +1,4 @@
-"""Per-user USER.md profile store and consolidator."""
+"""Per-chat USER.md profile store and consolidator (session workspace root)."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ AUTO_PROFILE_INTRO = "This section is maintained by OpenSprite."
 
 
 class UserProfileStore:
-    """Persist one user's USER.md profile and its consolidation state."""
+    """Persist one chat session's USER.md profile and its consolidation state."""
 
     def __init__(self, user_profile_file: Path, state_file: Path, *, bootstrap_text: str = "# User Profile\n\n"):
         self.user_profile_file = Path(user_profile_file).expanduser()
@@ -148,7 +148,7 @@ def load_user_profile_bootstrap_text(
     *,
     bootstrap_dir: str | Path | None = None,
 ) -> str:
-    """Load the USER.md template text used to seed a new per-user profile."""
+    """Load the bootstrap USER.md template used to seed a new per-chat profile file."""
     template_root = Path(bootstrap_dir).expanduser() if bootstrap_dir is not None else get_bootstrap_dir(app_home)
     template_file = template_root / "USER.md"
     if not template_file.exists():
@@ -161,11 +161,12 @@ def create_user_profile_store(
     chat_id: str | None,
     *,
     bootstrap_dir: str | Path | None = None,
+    workspace_root: str | Path | None = None,
 ) -> UserProfileStore:
-    """Create the per-user USER.md store for the given user/session scope."""
+    """Create the per-chat USER.md store for the given user/session scope."""
     return UserProfileStore(
-        user_profile_file=get_user_profile_file(app_home, chat_id=chat_id),
-        state_file=get_user_profile_state_file(app_home, chat_id=chat_id),
+        user_profile_file=get_user_profile_file(app_home, chat_id=chat_id, workspace_root=workspace_root),
+        state_file=get_user_profile_state_file(app_home, chat_id=chat_id, workspace_root=workspace_root),
         bootstrap_text=load_user_profile_bootstrap_text(app_home, bootstrap_dir=bootstrap_dir),
     )
 
@@ -187,7 +188,7 @@ async def consolidate_user_profile(
     provider,
     model: str,
 ) -> bool:
-    """Update one user's USER.md managed block from conversation history."""
+    """Update this chat's USER.md managed blocks from conversation history."""
     if not messages:
         return True
 
@@ -270,7 +271,7 @@ Rules:
 
 
 class UserProfileConsolidator(ConversationConsolidator):
-    """Manage incremental per-user USER.md updates from stored chat history."""
+    """Manage incremental USER.md updates from stored chat history (per chat, session workspace file)."""
 
     def __init__(
         self,

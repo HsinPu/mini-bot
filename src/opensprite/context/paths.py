@@ -5,7 +5,7 @@ Path layout:
 - app home: ~/.opensprite
 - subagent prompts: ~/.opensprite/subagent_prompts/*.md (seeded from bundled templates on first sync)
 - bootstrap files: ~/.opensprite/bootstrap/*.md
-- per-user profiles: ~/.opensprite/users/{channel}/{chat_id}/USER.md
+- per-chat user profile: ~/.opensprite/workspace/chats/{channel}/{chat_id}/USER.md (alongside skills/ and subagent_prompts/)
 - memory: ~/.opensprite/memory/<chat>/MEMORY.md
 - recent summary: ~/.opensprite/memory/<chat>/RECENT_SUMMARY.md
 - bundled skills (read-only, synced from package): ~/.opensprite/skills/<skill_id>/SKILL.md
@@ -30,7 +30,7 @@ MEMORY_DIRNAME = "memory"
 SKILLS_DIRNAME = "skills"
 WORKSPACE_DIRNAME = "workspace"
 WORKSPACE_CHATS_DIRNAME = "chats"
-USER_PROFILES_DIRNAME = "users"
+LEGACY_USER_PROFILES_DIRNAME = "users"
 SUBAGENT_PROMPTS_DIRNAME = "subagent_prompts"
 USER_PROFILE_STATE_FILENAME = ".user_profile_state.json"
 RECENT_SUMMARY_STATE_FILENAME = ".recent_summary_state.json"
@@ -55,40 +55,24 @@ def get_bootstrap_dir(app_home: str | Path | None = None) -> Path:
     return ensure_dir(get_app_home(app_home) / BOOTSTRAP_DIRNAME)
 
 
-def get_user_profiles_dir(app_home: str | Path | None = None) -> Path:
-    """Get the root directory that stores per-user USER.md files."""
-    return ensure_dir(get_app_home(app_home) / USER_PROFILES_DIRNAME)
-
-
-def get_user_profile_dir(
-    chat_id: str | None,
-    *,
-    app_home: str | Path | None = None,
-) -> Path:
-    """Get the per-profile directory for USER.md and its update state."""
-    root = get_user_profiles_dir(app_home)
-    channel, raw_chat_id = split_session_chat_id(chat_id)
-    safe_channel = _sanitize_path_segment(channel, default="default", max_length=32)
-    safe_chat_id = _sanitize_path_segment(raw_chat_id, default="default")
-    return ensure_dir(root / safe_channel / safe_chat_id)
-
-
 def get_user_profile_file(
     app_home: str | Path | None = None,
     *,
     chat_id: str | None = None,
+    workspace_root: str | Path | None = None,
 ) -> Path:
-    """Get the per-user USER.md profile file path."""
-    return get_user_profile_dir(chat_id, app_home=app_home) / "USER.md"
+    """Get the per-chat USER.md profile file path (under the session workspace)."""
+    return get_chat_workspace(chat_id, workspace_root=workspace_root, app_home=app_home) / "USER.md"
 
 
 def get_user_profile_state_file(
     app_home: str | Path | None = None,
     *,
     chat_id: str | None = None,
+    workspace_root: str | Path | None = None,
 ) -> Path:
-    """Get the persisted state file for a per-user USER.md auto-update."""
-    return get_user_profile_dir(chat_id, app_home=app_home) / USER_PROFILE_STATE_FILENAME
+    """Get the persisted state file for per-chat USER.md auto-update."""
+    return get_chat_workspace(chat_id, workspace_root=workspace_root, app_home=app_home) / USER_PROFILE_STATE_FILENAME
 
 
 def get_memory_dir(app_home: str | Path | None = None) -> Path:
@@ -304,6 +288,39 @@ def migrate_legacy_memory(app_home: str | Path | None = None, silent: bool = Fal
     return migrated
 
 
+def migrate_legacy_user_profiles(app_home: str | Path | None = None, silent: bool = False) -> list[str]:
+    """Copy legacy ~/.opensprite/users/... profiles into workspace/chats/... (same relative paths)."""
+    home = get_app_home(app_home)
+    legacy_root = home / LEGACY_USER_PROFILES_DIRNAME
+    workspace_root = get_tool_workspace(home)
+    dest_root = workspace_root / WORKSPACE_CHATS_DIRNAME
+    migrated: list[str] = []
+
+    if not legacy_root.is_dir():
+        return migrated
+
+    for source in legacy_root.rglob("*"):
+        if source.is_dir():
+            continue
+        if source.name not in ("USER.md", USER_PROFILE_STATE_FILENAME):
+            continue
+        try:
+            rel = source.relative_to(legacy_root)
+        except ValueError:
+            continue
+        dest = dest_root / rel
+        if dest.exists():
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, dest)
+        migrated.append(_relative_path(dest, home))
+
+    if migrated and not silent:
+        logger.info("Migrated legacy user profile files: %s", migrated)
+
+    return migrated
+
+
 def sync_templates(app_home: str | Path | None = None, silent: bool = False) -> list[str]:
     """Sync bundled templates into ~/.opensprite app directories."""
     home = get_app_home(app_home)
@@ -315,6 +332,7 @@ def sync_templates(app_home: str | Path | None = None, silent: bool = False) -> 
     changed: list[str] = []
     changed.extend(migrate_legacy_bootstrap(home, silent=True))
     changed.extend(migrate_legacy_memory(home, silent=True))
+    changed.extend(migrate_legacy_user_profiles(home, silent=True))
 
     try:
         from importlib.resources import files as pkg_files

@@ -3,7 +3,7 @@
 This file defines how you operate in a session.
 `SOUL.md` defines voice, tone, and interpersonal stance.
 `IDENTITY.md` defines stable assistant identity and scope.
-`USER.md` defines durable user context.
+`USER.md` defines durable user context **for this chat session**; it is stored at `**~/.opensprite/workspace/chats/<channel>/<chat_id>/USER.md`** (session workspace root, beside `skills/` and `subagent_prompts/`).
 `TOOLS.md` defines tool-specific constraints.
 
 ## Request Handling
@@ -58,8 +58,8 @@ Do not store:
 - easily reproducible details
 - information that belongs only to the current turn
 
-`USER.md` is for durable per-user profile information.
-`MEMORY.md` is for durable chat-specific continuity.
+`USER.md` is for durable **user-focused profile** detail **scoped to this session’s workspace**.
+`MEMORY.md` is for durable chat-specific continuity under `**~/.opensprite/memory/`**.
 
 Reusable **how-to** workflows belong in **skills** (`configure_skill` in `TOOLS.md`), not as long procedural dumps in memory unless the user explicitly wants them there.
 Per-chat **subagent** prompt overrides belong under the session `subagent_prompts/` tree via `**configure_subagent`** (`TOOLS.md`); defaults still come from `~/.opensprite/subagent_prompts/` until a session file overrides an id.

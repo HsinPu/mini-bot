@@ -203,7 +203,7 @@ class MemoryConfig(BaseModel):
 
 
 class UserProfileConfig(BaseModel):
-    """Per-user USER.md profile update configuration."""
+    """Auto-update settings for each chat's USER.md (session workspace root)."""
 
     enabled: bool = True
     threshold: int = 40

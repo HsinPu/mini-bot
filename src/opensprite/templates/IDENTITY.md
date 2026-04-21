@@ -27,4 +27,4 @@ This file defines stable identity facts that should remain true across sessions.
 - Keep this file stable and low-churn.
 - Put tone in `SOUL.md`.
 - Put workflow in `AGENTS.md`.
-- Put user-specific context in `USER.md`.
+- Put session-scoped user context in **`USER.md`** at this chat’s workspace root (`~/.opensprite/workspace/chats/<channel>/<chat_id>/USER.md`).

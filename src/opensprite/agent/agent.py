@@ -507,6 +507,7 @@ class AgentLoop:
                     self.app_home,
                     chat_id,
                     bootstrap_dir=bootstrap_dir,
+                    workspace_root=self.tool_workspace,
                 ),
                 threshold=self.user_profile_config.threshold,
                 lookback_messages=self.user_profile_config.lookback_messages,
@@ -1220,7 +1221,7 @@ class AgentLoop:
         await self.memory_consolidation.maybe_consolidate(chat_id)
 
     async def _maybe_update_user_profile(self, chat_id: str) -> None:
-        """Check whether this user's USER.md profile should be refreshed."""
+        """Check whether this chat's USER.md (session workspace) should be refreshed."""
         await self.user_profile_update.maybe_update(chat_id)
 
     async def _maybe_update_recent_summary(self, chat_id: str) -> None:

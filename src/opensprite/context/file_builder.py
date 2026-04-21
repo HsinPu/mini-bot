@@ -3,7 +3,7 @@ opensprite/context/file_builder.py - File-based ContextBuilder.
 
 Assembles the system prompt from:
 - bootstrap/*.md startup files
-- users/{session}/USER.md durable per-user profile
+- workspace/chats/{session}/USER.md durable per-chat profile (beside skills/ and subagent_prompts/)
 - global + per-chat skill metadata summaries (full skill content loads on demand)
 - memory/<chat>/MEMORY.md long-term memory
 """
@@ -116,11 +116,16 @@ Ids and descriptions below are **merged**: this chat's `subagent_prompts/<id>.md
 
     def get_user_profile_path(self, chat_id: str = "default") -> Path:
         """Resolve the USER.md path for the current user/session scope."""
-        return get_user_profile_file(self.app_home, chat_id=chat_id)
+        return get_user_profile_file(self.app_home, chat_id=chat_id, workspace_root=self.tool_workspace)
 
     def _read_user_profile(self, chat_id: str) -> str:
         """Load the current user/session profile text, creating it from the template when needed."""
-        return create_user_profile_store(self.app_home, chat_id, bootstrap_dir=self.bootstrap_dir).read_text()
+        return create_user_profile_store(
+            self.app_home,
+            chat_id,
+            bootstrap_dir=self.bootstrap_dir,
+            workspace_root=self.tool_workspace,
+        ).read_text()
 
     def build_system_prompt(self, chat_id: str = "default") -> str:
         """Build the system prompt from bootstrap files, skills, and memory."""

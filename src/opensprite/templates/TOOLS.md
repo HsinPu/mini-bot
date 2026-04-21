@@ -89,12 +89,12 @@ This file defines when to use tools, how to choose between them, and what constr
 - `configure_skill`
   - Use when the user wants to add, update, inspect, or remove skills (each skill is a folder with `SKILL.md`).
   - Prefer `configure_skill` instead of asking the user to create or edit skill files manually.
-  - Before designing a **new** skill, load `**read_skill`** with `**skill-creator-design**` (bundled guide: metadata, English frontmatter, triggers in `description`, lean body, progressive disclosure, optional `scripts/` / `references/` / `assets/`).
+  - Before designing a **new** skill, load `**read_skill`** with `**skill-creator-design`** (bundled guide: metadata, English frontmatter, triggers in `description`, lean body, progressive disclosure, optional `scripts/` / `references/` / `assets/`).
   - Do **not** edit bundled skills on disk: they live under `~/.opensprite/skills/<skill_id>/` (synced from the package), same folder layout as session `skills/<skill_id>/`. Mutable copies live **only** under the current session workspace `skills/`. `configure_skill` always targets that path. `write_file` / `edit_file` refuse any path under `~/.opensprite/skills/`.
   - Use `action=add` to create a new skill only (fails if it already exists); use `action=upsert` to create or overwrite.
   - Enforced by the tool: `skill_name` must be lowercase ASCII, letter-first, hyphen-separated segments; `description` and `body` must meet minimum lengths; `description` also needs enough English words, substantive vocabulary (not only glue words), and must not be repetitive padding (see tool schema).
   **When to persist or refine skills without the user asking**
-  - Skills are **procedural memory**: reusable *how-to* for a class of tasks. Use `**save_memory`** for stable facts, preferences, or chat-specific reminders; use `**configure_skill**` when the workflow itself should be saved for later.
+  - Skills are **procedural memory**: reusable *how-to* for a class of tasks. Use `**save_memory`** for stable facts, preferences, or chat-specific reminders; use `**configure_skill`** when the workflow itself should be saved for later.
   - After you finish a **non-trivial** task (several tool calls, backtracking, or the user corrected your approach), consider whether the successful approach is **reusable**. If yes, `**action=upsert`** a skill (or refine an existing one: `action=get` then `upsert` with merged content). Skip if nothing generalizable was learned.
   - Do not create noisy or one-off skills; one clear skill beats many thin ones.
 
@@ -103,17 +103,15 @@ This file defines when to use tools, how to choose between them, and what constr
 - `configure_subagent`
   - Use when the user wants to add, update, inspect, or remove **subagent** prompts for **this chat session**.
   - **Writes** (`add`, `upsert`, `remove`) go only under the current session workspace: `subagent_prompts/<subagent_id>.md` (same session-relative idea as `skills/`). Prefer this tool instead of `write_file` / `edit_file` for those paths.
-  - **`list`** and **`get`** return **merged** ids and content: if a session file exists for an id, it overrides the copy under `~/.opensprite/subagent_prompts/<id>.md`; otherwise defaults come from app home (seeded from the package on first sync).
-  - Before designing a **new** subagent prompt, load `**read_skill`** with `**agent-creator-design**` (Role, Task, Constraints, Output; metadata and naming rules).
+  - `**list`** and `**get`** return **merged** ids and content: if a session file exists for an id, it overrides the copy under `~/.opensprite/subagent_prompts/<id>.md`; otherwise defaults come from app home (seeded from the package on first sync).
+  - Before designing a **new** subagent prompt, load `**read_skill`** with `**agent-creator-design`** (Role, Task, Constraints, Output; metadata and naming rules).
   - Use `action=add` only for a **brand-new** id: no file in this session's `subagent_prompts/` yet **and** no prompt for that id under `~/.opensprite/subagent_prompts/`. If app home already has that id, use `action=upsert` to create or replace the **session** file.
   - `action=remove` deletes **only** the session workspace file; it does **not** remove files under `~/.opensprite/subagent_prompts/`.
   - Same strict `subagent_id` format as `skill_name` for `configure_skill`; `description` and `body` follow the same minimum quality rules as `configure_skill` (see tool schema).
-
   **When you judge a new subagent is worth adding**
-
   - You may decide on your own that a **new, reusable** subagent id would help (e.g. a standing code-review or security-review expert) when repeated work would benefit from a dedicated prompt and `delegate` with existing ids is not enough.
   - Before `action=add` for a **new** `subagent_id`, **ask the user for confirmation in plain text** unless they already explicitly asked you to create that subagent (same id or same role). One short message: what the subagent would do, the proposed `subagent_id`, and a clear yes/no (or equivalent). **Do not** call `configure_subagent` with `add` until they agree.
-  - After they agree (or they already asked): load `read_skill` with `agent-creator-design`, then call `configure_subagent` with `action=add`, **`user_confirmed: true`**, plus `description` and `body`. For a **brand-new** id (no prompt in app home yet for that id), the tool **rejects** `add` without `user_confirmed: true` (hard gate).
+  - After they agree (or they already asked): load `read_skill` with `agent-creator-design`, then call `configure_subagent` with `action=add`, `**user_confirmed: true`**, plus `description` and `body`. For a **brand-new** id (no prompt in app home yet for that id), the tool **rejects** `add` without `user_confirmed: true` (hard gate).
   - If they decline or ignore, do not create the file; continue with a one-off answer or `delegate` to an existing `prompt_type` instead.
 
 ## MCP Configuration
@@ -159,12 +157,12 @@ When the user wants to add, update, inspect, or remove MCP servers, prefer using
   - Use to hand off a bounded task to a specialized subagent.
   - Prefer this for focused subproblems that benefit from a dedicated prompt.
   - Do not delegate trivial work that can be completed directly.
-  - `prompt_type` must be an **existing** subagent id in the **merged** list (session `subagent_prompts/` overrides `~/.opensprite/subagent_prompts/` when both exist). To add or change prompts for this chat, use `**configure_subagent**` (session files) and `**read_skill**` with `**agent-creator-design**` before authoring a new prompt; then call `delegate` with the id.
+  - `prompt_type` must be an **existing** subagent id in the **merged** list (session `subagent_prompts/` overrides `~/.opensprite/subagent_prompts/` when both exist). To add or change prompts for this chat, use `**configure_subagent`** (session files) and `**read_skill`** with `**agent-creator-design**` before authoring a new prompt; then call `delegate` with the id.
   - If no suitable id exists yet, follow the **configure_subagent** rules above: propose a new id, **ask the user before `add`**, then create and delegate.
 
 ## Scope Boundaries
 
-- `USER.md` stores durable per-user context.
-- `memory/{chat_id}/MEMORY.md` stores durable chat-specific context.
-- The session tool workspace may include `skills/` and `subagent_prompts/`; prefer `configure_skill` and `configure_subagent` over ad-hoc file edits when defining or changing those trees.
+- `**USER.md**` is stored at this **chat session workspace root**: `~/.opensprite/workspace/chats/<channel>/<chat_id>/USER.md` — the same folder as `**skills/`** and `**subagent_prompts/`**. It holds durable user-focused context for **this session** (preferences, constraints, and OpenSprite-maintained blocks).
+- `**MEMORY.md`** lives under `**~/.opensprite/memory/<chat_id>/MEMORY.md`** and holds durable narrative/chat continuity (what you usually think of as long-lived chat memory).
+- Prefer `configure_skill` and `configure_subagent` when defining those trees rather than ad-hoc edits elsewhere.
 - `search_history` and `search_knowledge` are for on-demand retrieval, not always-on memory.
