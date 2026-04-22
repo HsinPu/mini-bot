@@ -36,7 +36,7 @@ class FakeSearchStore:
 
 def test_create_search_store_requires_sqlite_storage_when_enabled():
     config = Config(
-        llm=LLMsConfig(api_key="key", model="gpt", temperature=0.7, max_tokens=2048),
+        llm=LLMsConfig(**{**Config.packaged_llm_flat_dict(), "api_key": "key", "model": "gpt"}),
         agent=AgentConfig(),
         storage=StorageConfig(type="memory", path="memory.db"),
         channels=ChannelsConfig(),
@@ -50,19 +50,20 @@ def test_create_search_store_requires_sqlite_storage_when_enabled():
 def test_create_search_embedding_provider_uses_search_or_llm_credentials():
     config = Config(
         llm=LLMsConfig(
-            providers={
-                "openai": {
-                    "api_key": "llm-key",
-                    "model": "gpt-4o-mini",
-                    "base_url": "https://api.openai.com/v1",
-                    "enabled": True,
-                }
-            },
-            default="openai",
-            api_key="",
-            model="",
-            temperature=0.7,
-            max_tokens=2048,
+            **{
+                **Config.packaged_llm_flat_dict(),
+                "providers": {
+                    "openai": {
+                        "api_key": "llm-key",
+                        "model": "gpt-4o-mini",
+                        "base_url": "https://api.openai.com/v1",
+                        "enabled": True,
+                    }
+                },
+                "default": "openai",
+                "api_key": "",
+                "model": "",
+            }
         ),
         agent=AgentConfig(),
         storage=StorageConfig(type="sqlite", path="sessions.db"),
@@ -84,19 +85,20 @@ def test_create_search_embedding_provider_uses_search_or_llm_credentials():
 def test_create_search_store_passes_retry_failed_embedding_setting(tmp_path):
     config = Config(
         llm=LLMsConfig(
-            providers={
-                "openai": {
-                    "api_key": "llm-key",
-                    "model": "gpt-4o-mini",
-                    "base_url": "https://api.openai.com/v1",
-                    "enabled": True,
-                }
-            },
-            default="openai",
-            api_key="",
-            model="",
-            temperature=0.7,
-            max_tokens=2048,
+            **{
+                **Config.packaged_llm_flat_dict(),
+                "providers": {
+                    "openai": {
+                        "api_key": "llm-key",
+                        "model": "gpt-4o-mini",
+                        "base_url": "https://api.openai.com/v1",
+                        "enabled": True,
+                    }
+                },
+                "default": "openai",
+                "api_key": "",
+                "model": "",
+            }
         ),
         agent=AgentConfig(),
         storage=StorageConfig(type="sqlite", path=str(tmp_path / "sessions.db")),
@@ -121,19 +123,20 @@ def test_create_search_store_passes_retry_failed_embedding_setting(tmp_path):
 def test_create_search_store_passes_embedding_candidate_strategy(tmp_path):
     config = Config(
         llm=LLMsConfig(
-            providers={
-                "openai": {
-                    "api_key": "llm-key",
-                    "model": "gpt-4o-mini",
-                    "base_url": "https://api.openai.com/v1",
-                    "enabled": True,
-                }
-            },
-            default="openai",
-            api_key="",
-            model="",
-            temperature=0.7,
-            max_tokens=2048,
+            **{
+                **Config.packaged_llm_flat_dict(),
+                "providers": {
+                    "openai": {
+                        "api_key": "llm-key",
+                        "model": "gpt-4o-mini",
+                        "base_url": "https://api.openai.com/v1",
+                        "enabled": True,
+                    }
+                },
+                "default": "openai",
+                "api_key": "",
+                "model": "",
+            }
         ),
         agent=AgentConfig(),
         storage=StorageConfig(type="sqlite", path=str(tmp_path / "sessions.db")),

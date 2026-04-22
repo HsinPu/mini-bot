@@ -3,7 +3,7 @@ from pathlib import Path
 
 from opensprite.agent.agent import AgentLoop
 from opensprite.agent.execution import ExecutionResult
-from opensprite.config.schema import AgentConfig, LogConfig, MemoryConfig, SearchConfig, ToolsConfig, UserProfileConfig
+from opensprite.config.schema import AgentConfig, Config, LogConfig, MemoryConfig, SearchConfig, ToolsConfig, UserProfileConfig
 from opensprite.tools.base import Tool
 from opensprite.tools.registry import ToolRegistry
 
@@ -60,11 +60,12 @@ def test_call_llm_replaces_direct_image_payload_with_tool_hint(tmp_path):
         storage=None,
         context_builder=FakeContextBuilder(tmp_path / "workspace"),
         tools=registry,
-        memory_config=MemoryConfig(),
+        memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
         tools_config=ToolsConfig(),
         log_config=LogConfig(),
         search_config=SearchConfig(),
-        user_profile_config=UserProfileConfig(enabled=False),
+        user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+        **Config.packaged_agent_llm_chat_kwargs(),
     )
 
     captured = {}
@@ -77,6 +78,7 @@ def test_call_llm_replaces_direct_image_payload_with_tool_hint(tmp_path):
         tool_result_chat_id=None,
         tool_registry=None,
         on_tool_before_execute=None,
+        on_llm_status=None,
         refresh_system_prompt=None,
         max_tool_iterations=None,
     ):
@@ -107,11 +109,12 @@ def test_call_llm_adds_audio_tool_hint_to_prompt(tmp_path):
         storage=None,
         context_builder=FakeContextBuilder(tmp_path / "workspace"),
         tools=registry,
-        memory_config=MemoryConfig(),
+        memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
         tools_config=ToolsConfig(),
         log_config=LogConfig(),
         search_config=SearchConfig(),
-        user_profile_config=UserProfileConfig(enabled=False),
+        user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+        **Config.packaged_agent_llm_chat_kwargs(),
     )
 
     captured = {}
@@ -124,6 +127,7 @@ def test_call_llm_adds_audio_tool_hint_to_prompt(tmp_path):
         tool_result_chat_id=None,
         tool_registry=None,
         on_tool_before_execute=None,
+        on_llm_status=None,
         refresh_system_prompt=None,
         max_tool_iterations=None,
     ):
@@ -157,11 +161,12 @@ def test_call_llm_adds_video_tool_hint_to_prompt(tmp_path):
         storage=None,
         context_builder=FakeContextBuilder(tmp_path / "workspace"),
         tools=registry,
-        memory_config=MemoryConfig(),
+        memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
         tools_config=ToolsConfig(),
         log_config=LogConfig(),
         search_config=SearchConfig(),
-        user_profile_config=UserProfileConfig(enabled=False),
+        user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+        **Config.packaged_agent_llm_chat_kwargs(),
     )
 
     captured = {}
@@ -174,6 +179,7 @@ def test_call_llm_adds_video_tool_hint_to_prompt(tmp_path):
         tool_result_chat_id=None,
         tool_registry=None,
         on_tool_before_execute=None,
+        on_llm_status=None,
         refresh_system_prompt=None,
         max_tool_iterations=None,
     ):

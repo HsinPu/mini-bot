@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable
 
+from ..config.schema import DocumentLlmConfig
 from ..context.paths import get_bootstrap_dir, get_user_profile_file, get_user_profile_state_file
 from ..storage import StoredMessage, StorageProvider
 from ..utils.log import logger
@@ -187,6 +188,8 @@ async def consolidate_user_profile(
     messages: list[dict[str, Any]],
     provider,
     model: str,
+    *,
+    profile_llm: DocumentLlmConfig,
 ) -> bool:
     """Update this chat's USER.md managed blocks from conversation history."""
     if not messages:
@@ -220,6 +223,7 @@ Rules:
 - If nothing meaningful changed in a block, return that block unchanged.
 """
 
+    llm = profile_llm
     try:
         response = await provider.chat(
             messages=[
@@ -236,8 +240,7 @@ Rules:
             ],
             tools=_SAVE_USER_PROFILE_TOOL,
             model=model,
-            temperature=0.1,
-            max_tokens=1200,
+            **llm.decoding_kwargs(),
         )
 
         if not response.tool_calls:
@@ -283,6 +286,7 @@ class UserProfileConsolidator(ConversationConsolidator):
         threshold: int = 30,
         lookback_messages: int = 50,
         enabled: bool = True,
+        llm: DocumentLlmConfig,
     ):
         self.storage = storage
         self.provider = provider
@@ -291,6 +295,7 @@ class UserProfileConsolidator(ConversationConsolidator):
         self.threshold = max(1, threshold)
         self.lookback_messages = max(1, lookback_messages)
         self.enabled = enabled
+        self.llm = llm
 
     @staticmethod
     def _to_message_dict(message: StoredMessage) -> dict[str, Any]:
@@ -328,6 +333,7 @@ class UserProfileConsolidator(ConversationConsolidator):
             messages=[self._to_message_dict(message) for message in chunk],
             provider=self.provider,
             model=self.model,
+            profile_llm=self.llm,
         )
         if success:
             profile_store.set_processed_index(chat_id, end_index)

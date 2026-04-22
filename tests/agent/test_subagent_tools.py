@@ -2,7 +2,7 @@ import asyncio
 from pathlib import Path
 
 from opensprite.agent.agent import AgentLoop
-from opensprite.config.schema import AgentConfig, LogConfig, MemoryConfig, SearchConfig, ToolsConfig, UserProfileConfig
+from opensprite.config.schema import AgentConfig, Config, LogConfig, MemoryConfig, SearchConfig, ToolsConfig, UserProfileConfig
 from opensprite.llms.base import LLMResponse, ToolCall
 from opensprite.tools.base import Tool
 from opensprite.tools.registry import ToolRegistry
@@ -103,11 +103,12 @@ def test_subagent_can_use_tools_but_not_delegate(tmp_path):
         storage=storage,
         context_builder=FakeContextBuilder(tmp_path / "workspace"),
         tools=registry,
-        memory_config=MemoryConfig(),
+        memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
         tools_config=ToolsConfig(max_tool_iterations=3),
         log_config=LogConfig(),
         search_config=SearchConfig(),
-        user_profile_config=UserProfileConfig(enabled=False),
+        user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+        **Config.packaged_agent_llm_chat_kwargs(),
     )
     agent._current_chat_id.set("telegram:user-a")
     agent.app_home = tmp_path / "opensprite-home"

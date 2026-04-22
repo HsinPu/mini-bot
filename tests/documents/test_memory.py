@@ -1,5 +1,6 @@
 import asyncio
 
+from opensprite.config.schema import Config, DocumentLlmConfig
 from opensprite.documents import memory as memory_module
 from opensprite.llms.base import LLMResponse, ToolCall
 
@@ -59,6 +60,7 @@ def test_consolidate_uses_structured_merge_prompt():
             ],
             provider=provider,
             model="fake-model",
+            memory_llm=DocumentLlmConfig(**Config.load_template_data()["memory"]["llm"]),
         )
     )
 

@@ -3,7 +3,7 @@ from pathlib import Path
 
 from opensprite.agent.agent import AgentLoop
 from opensprite.agent.execution import ExecutionResult
-from opensprite.config.schema import AgentConfig, LogConfig, MemoryConfig, RecentSummaryConfig, SearchConfig, ToolsConfig, UserProfileConfig
+from opensprite.config.schema import AgentConfig, Config, LogConfig, MemoryConfig, RecentSummaryConfig, SearchConfig, ToolsConfig, UserProfileConfig
 from opensprite.bus.message import UserMessage
 from opensprite.storage.base import StoredMessage
 from opensprite.tools.base import Tool
@@ -124,11 +124,12 @@ def test_agent_process_persists_user_then_assistant_then_runs_maintenance(tmp_pa
         storage=storage,
         context_builder=FakeContextBuilder(tmp_path),
         tools=registry,
-        memory_config=MemoryConfig(),
+        memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
         tools_config=ToolsConfig(),
         log_config=LogConfig(),
         search_config=SearchConfig(),
-        user_profile_config=UserProfileConfig(enabled=False),
+        user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+        **Config.packaged_agent_llm_chat_kwargs(),
     )
 
     call_order = []
@@ -196,12 +197,13 @@ def test_call_llm_trims_old_history_to_token_budget(tmp_path):
         storage=storage,
         context_builder=context_builder,
         tools=ToolRegistry(),
-        memory_config=MemoryConfig(),
+        memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
         tools_config=ToolsConfig(),
         log_config=LogConfig(),
         search_config=SearchConfig(),
-        user_profile_config=UserProfileConfig(enabled=False),
-        recent_summary_config=RecentSummaryConfig(enabled=False),
+        user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+        recent_summary_config=RecentSummaryConfig(**{**Config.load_template_data()["recent_summary"], "enabled": False}),
+        **Config.packaged_agent_llm_chat_kwargs(),
     )
 
     captured = {}
@@ -214,6 +216,7 @@ def test_call_llm_trims_old_history_to_token_budget(tmp_path):
         tool_result_chat_id=None,
         tool_registry=None,
         on_tool_before_execute=None,
+        on_llm_status=None,
         refresh_system_prompt=None,
         max_tool_iterations=None,
     ):
@@ -243,12 +246,13 @@ def test_load_history_uses_agent_max_history(tmp_path):
         storage=storage,
         context_builder=FakeContextBuilder(tmp_path),
         tools=ToolRegistry(),
-        memory_config=MemoryConfig(),
+        memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
         tools_config=ToolsConfig(),
         log_config=LogConfig(),
         search_config=SearchConfig(),
-        user_profile_config=UserProfileConfig(enabled=False),
-        recent_summary_config=RecentSummaryConfig(enabled=False),
+        user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+        recent_summary_config=RecentSummaryConfig(**{**Config.load_template_data()["recent_summary"], "enabled": False}),
+        **Config.packaged_agent_llm_chat_kwargs(),
     )
 
     history = asyncio.run(agent._load_history("telegram:room-1"))
@@ -263,12 +267,13 @@ def test_trim_history_reports_base_tokens_without_history(tmp_path):
         storage=FakeStorage(),
         context_builder=FakeContextBuilder(tmp_path),
         tools=ToolRegistry(),
-        memory_config=MemoryConfig(),
+        memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
         tools_config=ToolsConfig(),
         log_config=LogConfig(),
         search_config=SearchConfig(),
-        user_profile_config=UserProfileConfig(enabled=False),
-        recent_summary_config=RecentSummaryConfig(enabled=False),
+        user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+        recent_summary_config=RecentSummaryConfig(**{**Config.load_template_data()["recent_summary"], "enabled": False}),
+        **Config.packaged_agent_llm_chat_kwargs(),
     )
 
     history, base_tokens, history_tokens, final_tokens = agent._trim_history_to_token_budget(
@@ -294,12 +299,13 @@ def test_tool_schema_tokens_reduce_history_budget(tmp_path):
         storage=storage,
         context_builder=FakeContextBuilder(tmp_path),
         tools=registry,
-        memory_config=MemoryConfig(),
+        memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
         tools_config=ToolsConfig(),
         log_config=LogConfig(),
         search_config=SearchConfig(),
-        user_profile_config=UserProfileConfig(enabled=False),
-        recent_summary_config=RecentSummaryConfig(enabled=False),
+        user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+        recent_summary_config=RecentSummaryConfig(**{**Config.load_template_data()["recent_summary"], "enabled": False}),
+        **Config.packaged_agent_llm_chat_kwargs(),
     )
 
     tool_tokens = agent._estimate_tool_schema_tokens(allow_tools=True)

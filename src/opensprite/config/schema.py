@@ -25,11 +25,11 @@ class LLMsConfig(BaseModel):
     base_url: str | None = None
     temperature: float
     max_tokens: int
-    top_p: float = Field(default=1.0, ge=0.0, le=1.0)
-    frequency_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
-    presence_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
+    top_p: float = Field(ge=0.0, le=1.0)
+    frequency_penalty: float = Field(ge=-2.0, le=2.0)
+    presence_penalty: float = Field(ge=-2.0, le=2.0)
     # 主對話（ExecutionEngine）呼叫 LLM 時是否帶入 temperature / max_tokens / top_p / penalties
-    pass_decoding_params: bool = True
+    pass_decoding_params: bool
 
     def get_active(self) -> ProviderConfig:
         """Get the active provider configuration."""
@@ -198,22 +198,44 @@ class ToolsConfig(BaseModel):
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 
 
-class MemoryLlmConfig(BaseModel):
-    """LLM 解碼參數：用於 long-term memory（MEMORY.md）合併時的 API 呼叫。"""
+class DocumentLlmConfig(BaseModel):
+    """LLM 解碼參數：背景文件合併（MEMORY / RECENT_SUMMARY / USER profile）的 API 呼叫。"""
 
-    pass_decoding_params: bool = True
-    temperature: float = 0.7
-    max_tokens: int = 2048
-    top_p: float | None = None
-    frequency_penalty: float | None = None
-    presence_penalty: float | None = None
+    pass_decoding_params: bool
+    temperature: float
+    max_tokens: int
+    top_p: float | None
+    frequency_penalty: float | None
+    presence_penalty: float | None
+
+    def decoding_kwargs(self) -> dict[str, Any]:
+        """供 provider.chat(..., **kwargs) 使用；關閉時五個參數皆為 None。"""
+        if self.pass_decoding_params:
+            return {
+                "temperature": self.temperature,
+                "max_tokens": self.max_tokens,
+                "top_p": self.top_p,
+                "frequency_penalty": self.frequency_penalty,
+                "presence_penalty": self.presence_penalty,
+            }
+        return {
+            "temperature": None,
+            "max_tokens": None,
+            "top_p": None,
+            "frequency_penalty": None,
+            "presence_penalty": None,
+        }
+
+
+# 舊名稱保留，與 memory.llm 設定語意相同
+MemoryLlmConfig = DocumentLlmConfig
 
 
 class MemoryConfig(BaseModel):
     """Memory configurations."""
     threshold: int = 50  # Trigger consolidation after this many messages
     token_threshold: int = 120000
-    llm: MemoryLlmConfig = Field(default_factory=MemoryLlmConfig)
+    llm: DocumentLlmConfig
 
 
 class UserProfileConfig(BaseModel):
@@ -222,6 +244,7 @@ class UserProfileConfig(BaseModel):
     enabled: bool = True
     threshold: int = 40
     lookback_messages: int = 80
+    llm: DocumentLlmConfig
 
 
 class RecentSummaryConfig(BaseModel):
@@ -232,6 +255,7 @@ class RecentSummaryConfig(BaseModel):
     token_threshold: int = 30000
     lookback_messages: int = 120
     keep_last_messages: int = 40
+    llm: DocumentLlmConfig
 
 
 class SearchEmbeddingConfig(BaseModel):
@@ -279,10 +303,16 @@ class Config:
         self.channels = channels
         self.log = log or LogConfig()
         self.tools = tools or ToolsConfig()
-        self.memory = memory or MemoryConfig()
+        self.memory = memory or MemoryConfig(
+            **Config._merge_document_section({}, Config.load_template_data().get("memory", {}))
+        )
         self.search = search or SearchConfig()
-        self.user_profile = user_profile or UserProfileConfig()
-        self.recent_summary = recent_summary or RecentSummaryConfig()
+        self.user_profile = user_profile or UserProfileConfig(
+            **Config._merge_document_section({}, Config.load_template_data().get("user_profile", {}))
+        )
+        self.recent_summary = recent_summary or RecentSummaryConfig(
+            **Config._merge_document_section({}, Config.load_template_data().get("recent_summary", {}))
+        )
         self.vision = vision or VisionConfig()
         self.speech = speech or SpeechConfig()
         self.video = video or VideoConfig()
@@ -724,7 +754,9 @@ class Config:
         for section in ["llm", "storage"]:
             if section not in data:
                 raise ValueError(f"設定檔缺少必要區塊：{section}")
-        llm_data = dict(data.get("llm", {}))
+        template_data = cls.load_template_data()
+        llm_data = dict(template_data.get("llm", {}))
+        llm_data.update(dict(data.get("llm", {})))
         inline_providers = llm_data.get("providers", {})
         llm_providers_path = cls._resolve_llm_providers_file(path, llm_data.get("providers_file"))
         external_providers = cls._load_llm_providers_data(llm_providers_path) if llm_providers_path is not None else {}
@@ -773,10 +805,18 @@ class Config:
             channels=ChannelsConfig(**merged_channels),
             log=LogConfig(**data["log"]) if "log" in data else None,
             tools=ToolsConfig(**tools_data) if "tools" in data else None,
-            memory=MemoryConfig(**data.get("memory", {})) if "memory" in data else None,
+            memory=MemoryConfig(
+                **cls._merge_document_section(dict(data.get("memory", {})), template_data.get("memory", {}))
+            ),
             search=SearchConfig(**merged_search) if (merged_search or "search" in data or search_path is not None) else None,
-            user_profile=UserProfileConfig(**data.get("user_profile", {})) if "user_profile" in data else None,
-            recent_summary=RecentSummaryConfig(**data.get("recent_summary", {})) if "recent_summary" in data else None,
+            user_profile=UserProfileConfig(
+                **cls._merge_document_section(dict(data.get("user_profile", {})), template_data.get("user_profile", {}))
+            ),
+            recent_summary=RecentSummaryConfig(
+                **cls._merge_document_section(
+                    dict(data.get("recent_summary", {})), template_data.get("recent_summary", {})
+                )
+            ),
             vision=VisionConfig(**merged_vision) if (merged_vision or "vision" in data or media_path is not None) else None,
             speech=SpeechConfig(**merged_speech) if (merged_speech or "speech" in data or media_path is not None) else None,
             video=VideoConfig(**merged_video) if (merged_video or "video" in data or media_path is not None) else None,
@@ -826,6 +866,50 @@ class Config:
         with open(template_path, "r", encoding="utf-8") as f:
             data: dict[str, Any] = json.load(f)
         return data
+
+    @staticmethod
+    def _merge_document_section(user: dict[str, Any], template_section: dict[str, Any]) -> dict[str, Any]:
+        """Shallow-merge section keys; nested ``llm`` is deep-merged so partial overrides keep template defaults."""
+        merged = dict(template_section)
+        for key, value in user.items():
+            if key == "llm" and isinstance(value, dict):
+                base_llm = dict(template_section.get("llm", {}))
+                base_llm.update(value)
+                merged["llm"] = base_llm
+            else:
+                merged[key] = value
+        return merged
+
+    @classmethod
+    def packaged_llm_flat_dict(cls) -> dict[str, Any]:
+        """Packaged ``opensprite.json.template`` top-level ``llm`` object (after JSON load)."""
+        return dict(cls.load_template_data().get("llm", {}))
+
+    @classmethod
+    def packaged_agent_llm_chat_kwargs(cls) -> dict[str, Any]:
+        """Map packaged ``llm`` to :class:`opensprite.agent.agent.AgentLoop` keyword arguments."""
+        llm = cls.packaged_llm_flat_dict()
+        return {
+            "llm_chat_temperature": llm["temperature"],
+            "llm_chat_max_tokens": llm["max_tokens"],
+            "llm_chat_top_p": llm["top_p"],
+            "llm_chat_frequency_penalty": llm["frequency_penalty"],
+            "llm_chat_presence_penalty": llm["presence_penalty"],
+            "llm_pass_decoding_params": llm["pass_decoding_params"],
+        }
+
+    @classmethod
+    def packaged_execution_engine_chat_kwargs(cls) -> dict[str, Any]:
+        """Map packaged ``llm`` to :class:`opensprite.agent.execution.ExecutionEngine` keyword arguments."""
+        llm = cls.packaged_llm_flat_dict()
+        return {
+            "chat_temperature": llm["temperature"],
+            "chat_max_tokens": llm["max_tokens"],
+            "chat_top_p": llm["top_p"],
+            "chat_frequency_penalty": llm["frequency_penalty"],
+            "chat_presence_penalty": llm["presence_penalty"],
+            "pass_decoding_params": llm["pass_decoding_params"],
+        }
 
     @classmethod
     def load_external_template_data(cls, name: str) -> dict[str, Any]:
@@ -944,6 +1028,7 @@ class Config:
                 "enabled": self.user_profile.enabled,
                 "threshold": self.user_profile.threshold,
                 "lookback_messages": self.user_profile.lookback_messages,
+                "llm": self.user_profile.llm.model_dump(),
             },
             "recent_summary": {
                 "enabled": self.recent_summary.enabled,
@@ -951,6 +1036,7 @@ class Config:
                 "token_threshold": self.recent_summary.token_threshold,
                 "lookback_messages": self.recent_summary.lookback_messages,
                 "keep_last_messages": self.recent_summary.keep_last_messages,
+                "llm": self.recent_summary.llm.model_dump(),
             },
         }
         self._write_json_file(path, data)

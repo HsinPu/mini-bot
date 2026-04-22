@@ -2,7 +2,12 @@ import asyncio
 
 from opensprite.agent import consolidation as consolidation_module
 from opensprite.agent.consolidation import MemoryConsolidationService
+from opensprite.config.schema import Config, DocumentLlmConfig
 from opensprite.storage.base import StoredMessage
+
+
+def _memory_llm() -> DocumentLlmConfig:
+    return DocumentLlmConfig(**Config.load_template_data()["memory"]["llm"])
 
 
 class FakeStorage:
@@ -49,6 +54,7 @@ def test_memory_consolidation_skips_when_threshold_not_reached(monkeypatch):
         provider=FakeProvider(),
         threshold=3,
         token_threshold=100,
+        memory_llm=_memory_llm(),
     )
 
     asyncio.run(service.maybe_consolidate("chat-1"))
@@ -80,6 +86,7 @@ def test_memory_consolidation_updates_index_after_success(monkeypatch):
         provider=FakeProvider(),
         threshold=2,
         token_threshold=100,
+        memory_llm=_memory_llm(),
     )
 
     asyncio.run(service.maybe_consolidate("chat-1"))
@@ -116,6 +123,7 @@ def test_memory_consolidation_triggers_when_token_threshold_reached(monkeypatch)
         provider=FakeProvider(),
         threshold=10,
         token_threshold=200,
+        memory_llm=_memory_llm(),
     )
 
     asyncio.run(service.maybe_consolidate("chat-1"))
@@ -141,6 +149,7 @@ def test_memory_consolidation_uses_full_history_for_processed_index(monkeypatch)
         provider=FakeProvider(),
         threshold=1,
         token_threshold=0,
+        memory_llm=_memory_llm(),
     )
 
     asyncio.run(service.maybe_consolidate("chat-1"))

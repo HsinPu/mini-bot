@@ -2,7 +2,7 @@ import asyncio
 
 from opensprite.agent.agent import AgentLoop
 from opensprite.bus.message import UserMessage
-from opensprite.config.schema import AgentConfig, LogConfig, MemoryConfig, SearchConfig, ToolsConfig, UserProfileConfig
+from opensprite.config.schema import AgentConfig, Config, LogConfig, MemoryConfig, SearchConfig, ToolsConfig, UserProfileConfig
 from opensprite.context.file_builder import FileContextBuilder
 from opensprite.context.paths import get_chat_workspace
 from opensprite.llms.base import LLMResponse
@@ -60,11 +60,12 @@ def test_agent_process_keeps_workspace_and_sqlite_history_isolated_per_session(t
             storage=storage,
             context_builder=builder,
             tools=registry,
-            memory_config=MemoryConfig(),
+            memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
             tools_config=ToolsConfig(),
             log_config=LogConfig(),
             search_config=SearchConfig(),
-            user_profile_config=UserProfileConfig(enabled=False),
+            user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+            **Config.packaged_agent_llm_chat_kwargs(),
         )
 
         response_a = await agent.process(

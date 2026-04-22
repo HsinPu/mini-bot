@@ -294,12 +294,6 @@ class AgentLoop:
         tools: ToolRegistry | None = None,
         memory_config: MemoryConfig | None = None,
         tools_config: ToolsConfig | None = None,
-        llm_chat_temperature: float = 0.7,
-        llm_chat_max_tokens: int = 2048,
-        llm_chat_top_p: float | None = None,
-        llm_chat_frequency_penalty: float | None = None,
-        llm_chat_presence_penalty: float | None = None,
-        llm_pass_decoding_params: bool = True,
         log_config: LogConfig | None = None,
         search_store: SearchStore | None = None,
         search_config: SearchConfig | None = None,
@@ -308,6 +302,13 @@ class AgentLoop:
         cron_manager: Any | None = None,
         media_router: MediaRouter | None = None,
         config_path: str | Path | None = None,
+        *,
+        llm_chat_temperature: float,
+        llm_chat_max_tokens: int,
+        llm_chat_top_p: float | None,
+        llm_chat_frequency_penalty: float | None,
+        llm_chat_presence_penalty: float | None,
+        llm_pass_decoding_params: bool,
     ):
         ...
         self.config = config
@@ -317,12 +318,18 @@ class AgentLoop:
         self.llm_chat_frequency_penalty = llm_chat_frequency_penalty
         self.llm_chat_presence_penalty = llm_chat_presence_penalty
         self.llm_pass_decoding_params = llm_pass_decoding_params
-        self.memory_config = memory_config or MemoryConfig()
+        self.memory_config = memory_config or MemoryConfig(
+            **Config._merge_document_section({}, Config.load_template_data().get("memory", {}))
+        )
         self.tools_config = tools_config or ToolsConfig()
         self.log_config = log_config or LogConfig()
         self.search_config = search_config or SearchConfig()
-        self.user_profile_config = user_profile_config or UserProfileConfig()
-        self.recent_summary_config = recent_summary_config or RecentSummaryConfig()
+        self.user_profile_config = user_profile_config or UserProfileConfig(
+            **Config._merge_document_section({}, Config.load_template_data().get("user_profile", {}))
+        )
+        self.recent_summary_config = recent_summary_config or RecentSummaryConfig(
+            **Config._merge_document_section({}, Config.load_template_data().get("recent_summary", {}))
+        )
         self.search_store = search_store
         self.cron_manager = cron_manager
         self.media_router = media_router
@@ -516,6 +523,7 @@ class AgentLoop:
                 threshold=self.user_profile_config.threshold,
                 lookback_messages=self.user_profile_config.lookback_messages,
                 enabled=self.user_profile_config.enabled,
+                llm=self.user_profile_config.llm,
             )
 
         return UserProfileUpdateService(consolidator)
@@ -537,6 +545,7 @@ class AgentLoop:
             lookback_messages=self.recent_summary_config.lookback_messages,
             keep_last_messages=self.recent_summary_config.keep_last_messages,
             enabled=self.recent_summary_config.enabled,
+            llm=self.recent_summary_config.llm,
         )
         return RecentSummaryUpdateService(consolidator)
 

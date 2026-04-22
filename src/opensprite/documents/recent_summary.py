@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from ..config.schema import DocumentLlmConfig
 from ..context.paths import get_recent_summary_file, get_recent_summary_state_file
 from ..storage import StoredMessage, StorageProvider
 from ..utils import count_messages_tokens, count_text_tokens
@@ -101,6 +102,8 @@ async def consolidate_recent_summary(
     messages: list[dict[str, Any]],
     provider,
     model: str,
+    *,
+    summary_llm: DocumentLlmConfig,
 ) -> bool:
     """Merge a recent conversation chunk into RECENT_SUMMARY.md."""
     if not messages:
@@ -146,6 +149,7 @@ Required template:
             transcript_tokens,
             len(messages),
         )
+        llm = summary_llm
         response = await provider.chat(
             messages=[
                 {
@@ -158,8 +162,7 @@ Required template:
                 {"role": "user", "content": prompt},
             ],
             model=model,
-            temperature=0.1,
-            max_tokens=1200,
+            **llm.decoding_kwargs(),
         )
 
         update = str(response.content or "").strip()
@@ -205,6 +208,7 @@ class RecentSummaryConsolidator(ConversationConsolidator):
         lookback_messages: int = 120,
         keep_last_messages: int = 40,
         enabled: bool = True,
+        llm: DocumentLlmConfig,
     ):
         self.storage = storage
         self.provider = provider
@@ -215,6 +219,7 @@ class RecentSummaryConsolidator(ConversationConsolidator):
         self.lookback_messages = max(1, lookback_messages)
         self.keep_last_messages = max(1, keep_last_messages)
         self.enabled = enabled
+        self.llm = llm
 
     async def maybe_update(self, chat_id: str) -> None:
         if not self.enabled:
@@ -269,6 +274,7 @@ class RecentSummaryConsolidator(ConversationConsolidator):
             messages=chunk,
             provider=self.provider,
             model=self.model,
+            summary_llm=self.llm,
         )
         if success:
             self.summary_store.set_processed_index(chat_id, end_index)

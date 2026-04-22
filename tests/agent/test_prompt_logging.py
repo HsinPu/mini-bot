@@ -2,7 +2,7 @@ from pathlib import Path
 
 import opensprite.agent.agent as agent_module
 from opensprite.agent.agent import AgentLoop
-from opensprite.config.schema import AgentConfig, LogConfig, MemoryConfig, SearchConfig, ToolsConfig, UserProfileConfig
+from opensprite.config.schema import AgentConfig, Config, LogConfig, MemoryConfig, SearchConfig, ToolsConfig, UserProfileConfig
 from opensprite.tools.base import Tool
 from opensprite.tools.registry import ToolRegistry
 
@@ -79,11 +79,12 @@ def test_system_prompt_logging_writes_one_file_per_prompt(tmp_path):
         storage=FakeStorage(),
         context_builder=FakeContextBuilder(tmp_path / "workspace"),
         tools=registry,
-        memory_config=MemoryConfig(),
+        memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
         tools_config=ToolsConfig(),
         log_config=LogConfig(),
         search_config=SearchConfig(),
-        user_profile_config=UserProfileConfig(enabled=False),
+        user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+        **Config.packaged_agent_llm_chat_kwargs(),
     )
     agent.app_home = tmp_path / "home"
 
@@ -108,11 +109,12 @@ def test_subagent_system_prompt_logging_uses_separate_directory(tmp_path):
         storage=FakeStorage(),
         context_builder=FakeContextBuilder(tmp_path / "workspace"),
         tools=registry,
-        memory_config=MemoryConfig(),
+        memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
         tools_config=ToolsConfig(),
         log_config=LogConfig(),
         search_config=SearchConfig(),
-        user_profile_config=UserProfileConfig(enabled=False),
+        user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+        **Config.packaged_agent_llm_chat_kwargs(),
     )
     agent.app_home = tmp_path / "home"
 
@@ -135,11 +137,12 @@ def test_main_prompt_logging_includes_available_subagent_summary(tmp_path, monke
         storage=FakeStorage(),
         context_builder=FakeContextBuilder(tmp_path / "workspace"),
         tools=registry,
-        memory_config=MemoryConfig(),
+        memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
         tools_config=ToolsConfig(),
         log_config=LogConfig(),
         search_config=SearchConfig(),
-        user_profile_config=UserProfileConfig(enabled=False),
+        user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+        **Config.packaged_agent_llm_chat_kwargs(),
     )
     agent.app_home = tmp_path / "home"
     info_messages: list[str] = []

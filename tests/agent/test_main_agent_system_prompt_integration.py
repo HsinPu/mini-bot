@@ -11,6 +11,7 @@ from pathlib import Path
 from opensprite.agent.agent import AgentLoop
 from opensprite.config.schema import (
     AgentConfig,
+    Config,
     LogConfig,
     MemoryConfig,
     SearchConfig,
@@ -116,11 +117,12 @@ def test_main_agent_call_llm_passes_full_file_builder_system_prompt_to_provider(
         storage=_EmptyStorage(),
         context_builder=context_builder,
         tools=registry,
-        memory_config=MemoryConfig(),
+        memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
         tools_config=ToolsConfig(),
         log_config=LogConfig(log_system_prompt=False),
         search_config=SearchConfig(),
-        user_profile_config=UserProfileConfig(enabled=False),
+        user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+        **Config.packaged_agent_llm_chat_kwargs(),
     )
 
     chat_id = "telegram:room-1"
@@ -178,11 +180,12 @@ def test_main_agent_system_prompt_lists_connected_mcp_tools(tmp_path: Path) -> N
         storage=_EmptyStorage(),
         context_builder=context_builder,
         tools=registry,
-        memory_config=MemoryConfig(),
+        memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
         tools_config=ToolsConfig(),
         log_config=LogConfig(log_system_prompt=False),
         search_config=SearchConfig(),
-        user_profile_config=UserProfileConfig(enabled=False),
+        user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+        **Config.packaged_agent_llm_chat_kwargs(),
     )
 
     chat_id = "telegram:room-1"

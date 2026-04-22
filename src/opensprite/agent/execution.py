@@ -84,12 +84,12 @@ class ExecutionEngine:
         format_log_preview: Callable[..., str],
         summarize_messages: Callable[..., str],
         sanitize_response_content: Callable[[str], str],
-        chat_temperature: float = 0.7,
-        chat_max_tokens: int = 2048,
-        chat_top_p: float | None = None,
-        chat_frequency_penalty: float | None = None,
-        chat_presence_penalty: float | None = None,
-        pass_decoding_params: bool = True,
+        chat_temperature: float,
+        chat_max_tokens: int,
+        chat_top_p: float | None,
+        chat_frequency_penalty: float | None,
+        chat_presence_penalty: float | None,
+        pass_decoding_params: bool,
     ):
         self.provider = provider
         self.tools = tools

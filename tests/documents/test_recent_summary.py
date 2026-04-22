@@ -1,5 +1,6 @@
 import asyncio
 
+from opensprite.config.schema import Config, DocumentLlmConfig
 from opensprite.documents.recent_summary import (
     RecentSummaryConsolidator,
     RecentSummaryStore,
@@ -38,6 +39,7 @@ def test_consolidate_recent_summary_uses_structured_prompt(tmp_path):
             messages=[{"role": "user", "content": "We still need the recent summary layer."}],
             provider=provider,
             model="fake-model",
+            summary_llm=DocumentLlmConfig(**Config.load_template_data()["recent_summary"]["llm"]),
         )
     )
 
@@ -68,6 +70,7 @@ def test_recent_summary_consolidator_leaves_latest_messages_unsummarized(tmp_pat
         lookback_messages=10,
         keep_last_messages=1,
         enabled=True,
+        llm=DocumentLlmConfig(**Config.load_template_data()["recent_summary"]["llm"]),
     )
 
     asyncio.run(consolidator.maybe_update("chat-1"))

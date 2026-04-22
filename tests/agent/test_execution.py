@@ -1,7 +1,7 @@
 import asyncio
 
 from opensprite.agent.execution import ExecutionEngine
-from opensprite.config.schema import ToolsConfig
+from opensprite.config.schema import Config, ToolsConfig
 from opensprite.llms.base import ChatMessage, LLMResponse, ToolCall
 from opensprite.tools.base import Tool
 from opensprite.tools.registry import ToolRegistry
@@ -50,6 +50,7 @@ def _make_engine(provider, registry, save_calls, tools_config=None):
         format_log_preview=lambda text, max_chars=200: str(text)[:max_chars],
         summarize_messages=lambda messages, tail=4: f"count={len(messages)}",
         sanitize_response_content=lambda text: text.strip(),
+        **Config.packaged_execution_engine_chat_kwargs(),
     )
 
 

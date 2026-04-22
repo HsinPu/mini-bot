@@ -2,7 +2,7 @@ import asyncio
 from pathlib import Path
 
 from opensprite.agent.agent import AgentLoop
-from opensprite.config.schema import AgentConfig, LogConfig, MemoryConfig, SearchConfig, ToolsConfig, UserProfileConfig
+from opensprite.config.schema import AgentConfig, Config, LogConfig, MemoryConfig, SearchConfig, ToolsConfig, UserProfileConfig
 from opensprite.documents.recent_summary import RecentSummaryStore
 from opensprite.storage.base import StoredMessage
 from opensprite.storage.memory import MemoryStorage
@@ -76,12 +76,13 @@ def test_reset_history_only_clears_target_session(tmp_path):
             storage=storage,
             context_builder=FakeContextBuilder(tmp_path),
             tools=registry,
-            memory_config=MemoryConfig(),
+            memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
             tools_config=ToolsConfig(),
             log_config=LogConfig(),
             search_config=SearchConfig(),
-            user_profile_config=UserProfileConfig(enabled=False),
+            user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
             search_store=search_store,
+            **Config.packaged_agent_llm_chat_kwargs(),
         )
 
         summary_store = RecentSummaryStore(agent.memory.memory_base)
