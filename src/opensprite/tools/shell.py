@@ -163,7 +163,30 @@ class ExecTool(Tool):
                     f"Partial output before timeout:\n{output}"
                 )
 
-            await asyncio.gather(stdout_task, stderr_task)
+            # If the shell exited but a background child still inherits stdout/stderr
+            # pipes (e.g. `uvicorn ... &`), EOF never arrives and gather would hang
+            # forever. Cap post-exit pipe draining.
+            drain_timeout = max(5, min(30, self.timeout))
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(stdout_task, stderr_task),
+                    timeout=drain_timeout,
+                )
+            except asyncio.TimeoutError:
+                for t in (stdout_task, stderr_task):
+                    t.cancel()
+                await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
+                stdout = b"".join(stdout_chunks)
+                stderr = b"".join(stderr_chunks)
+                output = self._format_output(stdout, stderr)
+                return (
+                    f"{output}\n\n"
+                    f"[exec] Warning: output pipes did not close within {drain_timeout}s after "
+                    "the shell exited. A background process may still be writing to the same "
+                    "stdout/stderr as the shell (e.g. `server &` without redirect). Redirect "
+                    "long-running servers to a file or /dev/null, or run them in a separate step."
+                )
+
             stdout = b"".join(stdout_chunks)
             stderr = b"".join(stderr_chunks)
 

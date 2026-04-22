@@ -35,6 +35,9 @@ This file defines when to use tools, how to choose between them, and what constr
   - Use for verification, project inspection, builds, tests, and other command-line tasks.
   - Dangerous commands and obvious destructive patterns are blocked.
   - If a command could still cause irreversible or external side effects, ask first.
+  - **Stdout/stderr are piped** from the shell subprocess; there is no interactive stdin (commands that wait for TTY input will stall or time out).
+  - **Do not start long-running servers in the background in the same command** (e.g. `uvicorn ... &` then `curl`) without **redirecting** that server’s stdout and stderr away from the inherited pipe (e.g. append `>>/path/to.log 2>&1` or `>/dev/null 2>&1` on Unix, or a file on Windows). Otherwise a background child can keep the pipe open after the shell exits: the tool may hang until its post-exit drain timeout or return a warning about pipes not closing.
+  - Prefer a **separate** `exec` (or an out-of-band process) to run a dev server, and use `exec` only for short checks such as `curl` or one-off scripts.
 
 ## External Knowledge Tools
 
