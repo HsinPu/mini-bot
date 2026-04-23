@@ -20,6 +20,9 @@ class FakeAgent:
     async def close_mcp(self):
         self.calls.append("close")
 
+    async def close_background_maintenance(self):
+        self.calls.append("close-maintenance")
+
 
 class FakeQueue:
     def __init__(self):
@@ -70,7 +73,7 @@ def test_runtime_run_connects_and_closes_mcp(monkeypatch):
 
     asyncio.run(runtime.run())
 
-    assert fake_agent.calls == ["connect", "close"]
+    assert fake_agent.calls == ["connect", "close-maintenance", "close"]
     assert fake_cron.calls == ["start", "stop"]
     assert sorted(fake_queue.calls) == ["process", "stop"]
     assert started_channels == [(fake_queue, fake_config.channels)]
@@ -101,6 +104,6 @@ def test_runtime_run_still_starts_when_llm_not_configured(monkeypatch):
 
     asyncio.run(runtime.run())
 
-    assert fake_agent.calls == ["connect", "close"]
+    assert fake_agent.calls == ["connect", "close-maintenance", "close"]
     assert fake_cron.calls == ["start", "stop"]
     assert sorted(fake_queue.calls) == ["process", "stop"]

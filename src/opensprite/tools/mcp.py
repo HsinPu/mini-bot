@@ -102,6 +102,10 @@ def _use_implicit_http_transport_fallback(cfg: MCPServerConfig) -> bool:
     return cfg.type is None and bool(cfg.url) and not (cfg.command or "").strip()
 
 
+def _mcp_connect_timeout_seconds(cfg: MCPServerConfig) -> int:
+    return max(1, int(cfg.tool_timeout or 30))
+
+
 async def _open_mcp_transport(
     stack: AsyncExitStack,
     cfg: MCPServerConfig,
@@ -132,7 +136,7 @@ async def _open_mcp_transport(
             return httpx.AsyncClient(
                 headers=merged_headers or None,
                 follow_redirects=True,
-                timeout=timeout,
+                timeout=timeout or _mcp_connect_timeout_seconds(cfg),
                 auth=auth,
             )
 
@@ -145,7 +149,7 @@ async def _open_mcp_transport(
             httpx.AsyncClient(
                 headers=cfg.headers or None,
                 follow_redirects=True,
-                timeout=None,
+                timeout=_mcp_connect_timeout_seconds(cfg),
             )
         )
         read, write, _ = await stack.enter_async_context(
@@ -269,6 +273,7 @@ async def connect_mcp_servers(
     from mcp import ClientSession
 
     for name, cfg in mcp_servers.items():
+        timeout_seconds = _mcp_connect_timeout_seconds(cfg)
         try:
             if not cfg.command and not cfg.url:
                 logger.warning("MCP server '{}': no command or url configured, skipping", name)
@@ -280,10 +285,13 @@ async def connect_mcp_servers(
                 for transport_type in ordered:
                     attempt_stack = AsyncExitStack()
                     try:
-                        read, write = await _open_mcp_transport(attempt_stack, cfg, transport_type, httpx)
+                        read, write = await asyncio.wait_for(
+                            _open_mcp_transport(attempt_stack, cfg, transport_type, httpx),
+                            timeout=timeout_seconds,
+                        )
                         session = await attempt_stack.enter_async_context(ClientSession(read, write))
-                        await session.initialize()
-                        tools = await session.list_tools()
+                        await asyncio.wait_for(session.initialize(), timeout=timeout_seconds)
+                        tools = await asyncio.wait_for(session.list_tools(), timeout=timeout_seconds)
                         await stack.enter_async_context(_ReparentAsyncExitStack(attempt_stack))
                         if transport_type != ordered[0]:
                             logger.info(
@@ -327,10 +335,13 @@ async def connect_mcp_servers(
                 logger.warning("MCP server '{}': unknown transport type '{}'", name, transport_type)
                 continue
 
-            read, write = await _open_mcp_transport(stack, cfg, transport_type, httpx)
+            read, write = await asyncio.wait_for(
+                _open_mcp_transport(stack, cfg, transport_type, httpx),
+                timeout=timeout_seconds,
+            )
             session = await stack.enter_async_context(ClientSession(read, write))
-            await session.initialize()
-            tools = await session.list_tools()
+            await asyncio.wait_for(session.initialize(), timeout=timeout_seconds)
+            tools = await asyncio.wait_for(session.list_tools(), timeout=timeout_seconds)
             registered_count = _register_mcp_server_tools(registry, name, cfg, session, tools)
             logger.info("MCP server '{}': connected, {} tools registered", name, registered_count)
         except Exception as exc:

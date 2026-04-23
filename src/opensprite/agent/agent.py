@@ -82,6 +82,8 @@ class AgentLoop:
     """
 
     MAX_TOOL_ITERATIONS = 10
+    MCP_INITIAL_RETRY_BACKOFF_SECONDS = 15.0
+    MCP_MAX_RETRY_BACKOFF_SECONDS = 300.0
 
     @staticmethod
     def _sanitize_log_filename(value: str) -> str:
@@ -420,6 +422,8 @@ class AgentLoop:
         self._mcp_connected = False
         self._mcp_connecting = False
         self._mcp_connect_lock = asyncio.Lock()
+        self._mcp_connect_failures = 0
+        self._mcp_retry_after = 0.0
         self._skill_review_lock = asyncio.Lock()
         self._maintenance_tasks: dict[tuple[str, str], asyncio.Task] = {}
         self._maintenance_rerun: set[tuple[str, str]] = set()
@@ -659,11 +663,13 @@ class AgentLoop:
 
     async def connect_mcp(self) -> None:
         """Connect configured MCP servers once and register their tools."""
-        if self._mcp_connected or self._mcp_connecting or not self._mcp_servers:
+        now = time.monotonic()
+        if self._mcp_connected or self._mcp_connecting or not self._mcp_servers or now < self._mcp_retry_after:
             return
 
         async with self._mcp_connect_lock:
-            if self._mcp_connected or self._mcp_connecting or not self._mcp_servers:
+            now = time.monotonic()
+            if self._mcp_connected or self._mcp_connecting or not self._mcp_servers or now < self._mcp_retry_after:
                 return
 
             self._mcp_connecting = True
@@ -677,6 +683,8 @@ class AgentLoop:
                 await connect_mcp_servers(self._mcp_servers, self.tools, stack)
                 self._mcp_stack = stack
                 self._mcp_connected = True
+                self._mcp_connect_failures = 0
+                self._mcp_retry_after = 0.0
                 self._mcp_tool_names = {
                     name for name in self.tools.tool_names
                     if name.startswith("mcp_") and name not in preexisting_tool_names
@@ -687,8 +695,20 @@ class AgentLoop:
                 for name in list(self.tools.tool_names):
                     if name.startswith("mcp_") and name not in preexisting_tool_names:
                         self.tools.unregister(name)
+                self._mcp_connected = False
                 self._mcp_tool_names.clear()
-                logger.error("agent.mcp.connect.error | error={}", exc)
+                self._mcp_connect_failures += 1
+                retry_delay = min(
+                    self.MCP_INITIAL_RETRY_BACKOFF_SECONDS * (2 ** (self._mcp_connect_failures - 1)),
+                    self.MCP_MAX_RETRY_BACKOFF_SECONDS,
+                )
+                self._mcp_retry_after = time.monotonic() + retry_delay
+                logger.error(
+                    "agent.mcp.connect.error | error={} retry_in_s={} failures={}",
+                    exc,
+                    retry_delay,
+                    self._mcp_connect_failures,
+                )
                 if stack is not None:
                     try:
                         await stack.aclose()
@@ -798,6 +818,8 @@ class AgentLoop:
         self.tools_config.mcp_servers_file = loaded.tools.mcp_servers_file
         self.tools_config.mcp_servers = dict(loaded.tools.mcp_servers)
         self._mcp_servers = dict(loaded.tools.mcp_servers)
+        self._mcp_connect_failures = 0
+        self._mcp_retry_after = 0.0
 
         await self.close_mcp()
         if not self._mcp_servers:

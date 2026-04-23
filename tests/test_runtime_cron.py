@@ -20,6 +20,9 @@ class FakeAgent:
     async def close_mcp(self):
         self.calls.append("close")
 
+    async def close_background_maintenance(self):
+        self.calls.append("close-maintenance")
+
 
 class FakeQueue:
     def __init__(self):

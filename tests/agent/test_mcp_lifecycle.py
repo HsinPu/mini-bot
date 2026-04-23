@@ -118,6 +118,39 @@ def test_connect_mcp_registers_tools_once(tmp_path, monkeypatch):
     assert "mcp_demo_echo" in agent.tools.tool_names
 
 
+def test_connect_mcp_uses_retry_backoff_after_failure(tmp_path, monkeypatch):
+    calls = []
+    clock = {"now": 100.0}
+
+    async def fake_connect(servers, registry, stack):
+        calls.append(sorted(servers.keys()))
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("opensprite.tools.mcp.connect_mcp_servers", fake_connect)
+    monkeypatch.setattr("opensprite.agent.agent.time.monotonic", lambda: clock["now"])
+
+    agent = _make_agent(
+        tmp_path,
+        ToolsConfig(mcp_servers={"demo": {"command": "npx", "args": ["demo-mcp"]}}),
+    )
+
+    asyncio.run(agent.connect_mcp())
+
+    assert calls == [["demo"]]
+    assert agent._mcp_connected is False
+    assert agent._mcp_connect_failures == 1
+    assert agent._mcp_retry_after > clock["now"]
+
+    asyncio.run(agent.connect_mcp())
+    assert calls == [["demo"]]
+
+    clock["now"] = agent._mcp_retry_after
+    asyncio.run(agent.connect_mcp())
+
+    assert calls == [["demo"], ["demo"]]
+    assert agent._mcp_connect_failures == 2
+
+
 def test_process_connects_mcp_before_saving_and_calling_llm(tmp_path):
     async def scenario():
         agent = _make_agent(tmp_path)
@@ -230,6 +263,8 @@ def test_reload_mcp_from_config_replaces_registered_mcp_tools(tmp_path, monkeypa
 
     asyncio.run(agent.connect_mcp())
     assert "mcp_demo_echo" in agent.tools.tool_names
+    agent._mcp_connect_failures = 3
+    agent._mcp_retry_after = 999999.0
 
     mcp_path.write_text(
         '{"other":{"command":"npx","args":["-y","other-mcp"]}}',
@@ -241,3 +276,5 @@ def test_reload_mcp_from_config_replaces_registered_mcp_tools(tmp_path, monkeypa
     assert "MCP configuration reloaded." in result
     assert "mcp_other_echo" in agent.tools.tool_names
     assert "mcp_demo_echo" not in agent.tools.tool_names
+    assert agent._mcp_connect_failures == 0
+    assert agent._mcp_retry_after == 0.0
