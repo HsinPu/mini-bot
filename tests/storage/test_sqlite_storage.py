@@ -2,6 +2,7 @@ import asyncio
 import json
 import sqlite3
 
+from opensprite.storage.base import StoredMessage
 from opensprite.storage.sqlite import SQLiteStorage
 
 
@@ -123,3 +124,26 @@ def test_sqlite_storage_migrates_legacy_sessions_and_drops_table(tmp_path):
         0,
         "SQLite FTS5",
     )
+
+
+def test_sqlite_storage_supports_count_and_slice_reads(tmp_path):
+    db_path = tmp_path / "sessions.db"
+    storage = SQLiteStorage(db_path)
+
+    async def scenario():
+        for index in range(5):
+            await storage.add_message(
+                "chat-1",
+                StoredMessage(role="user", content=f"m{index}", timestamp=float(index + 1)),
+            )
+
+        count = await storage.get_message_count("chat-1")
+        middle = await storage.get_messages_slice("chat-1", start_index=1, end_index=4)
+        tail = await storage.get_messages_slice("chat-1", start_index=3)
+        return count, middle, tail
+
+    count, middle, tail = asyncio.run(scenario())
+
+    assert count == 5
+    assert [message.content for message in middle] == ["m1", "m2", "m3"]
+    assert [message.content for message in tail] == ["m3", "m4"]

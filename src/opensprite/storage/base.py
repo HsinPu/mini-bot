@@ -53,6 +53,21 @@ class StorageProvider(ABC):
             list[StoredMessage]: 訊息清單
         """
         pass
+
+    async def get_message_count(self, chat_id: str) -> int:
+        """Return the total persisted message count for one chat."""
+        return len(await self.get_messages(chat_id))
+
+    async def get_messages_slice(
+        self,
+        chat_id: str,
+        *,
+        start_index: int = 0,
+        end_index: int | None = None,
+    ) -> list[StoredMessage]:
+        """Return one contiguous message slice using Python slice semantics."""
+        messages = await self.get_messages(chat_id)
+        return messages[max(0, start_index):end_index]
     
     @abstractmethod
     async def add_message(self, chat_id: str, message: StoredMessage) -> None:
@@ -94,3 +109,26 @@ class StorageProvider(ABC):
             list[str]: 聊天室 ID 清單
         """
         pass
+
+
+async def get_storage_message_count(storage: Any, chat_id: str) -> int:
+    """Compatibility helper for storages that may not implement get_message_count yet."""
+    getter = getattr(storage, "get_message_count", None)
+    if callable(getter):
+        return int(await getter(chat_id))
+    return len(await storage.get_messages(chat_id))
+
+
+async def get_storage_messages_slice(
+    storage: Any,
+    chat_id: str,
+    *,
+    start_index: int = 0,
+    end_index: int | None = None,
+) -> list[StoredMessage]:
+    """Compatibility helper for storages that may not implement get_messages_slice yet."""
+    getter = getattr(storage, "get_messages_slice", None)
+    if callable(getter):
+        return list(await getter(chat_id, start_index=max(0, start_index), end_index=end_index))
+    messages = await storage.get_messages(chat_id)
+    return list(messages[max(0, start_index):end_index])

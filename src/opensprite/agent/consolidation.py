@@ -9,6 +9,7 @@ from ..documents.memory import MemoryStore, consolidate
 from ..documents.user_profile import UserProfileConsolidator
 from ..llms import LLMProvider
 from ..storage import StorageProvider, StoredMessage
+from ..storage.base import get_storage_message_count, get_storage_messages_slice
 from ..utils import count_messages_tokens
 from ..utils.log import logger
 
@@ -53,10 +54,18 @@ class MemoryConsolidationService:
 
     async def maybe_consolidate(self, chat_id: str) -> None:
         """Consolidate pending chat history into long-term memory when needed."""
-        messages = await self.storage.get_messages(chat_id)
-        message_count = len(messages)
+        message_count = await get_storage_message_count(self.storage, chat_id)
         last_consolidated = await self.storage.get_consolidated_index(chat_id)
-        pending_messages = self._to_message_dicts(messages[last_consolidated:])
+        if last_consolidated > message_count:
+            await self.storage.set_consolidated_index(chat_id, message_count)
+            return
+        pending_messages = self._to_message_dicts(
+            await get_storage_messages_slice(
+                self.storage,
+                chat_id,
+                start_index=last_consolidated,
+            )
+        )
         unconsolidated = len(pending_messages)
         pending_tokens = count_messages_tokens(pending_messages, model=self.provider.get_default_model()) if pending_messages else 0
 

@@ -572,6 +572,21 @@ class SQLiteStorage(StorageProvider):
         """Open a configured connection to the shared database."""
         return open_sqlite_connection(self.db_path)
 
+    @staticmethod
+    def _rows_to_messages(rows: list[sqlite3.Row]) -> list[StoredMessage]:
+        """Convert selected message rows into StoredMessage objects."""
+        return [
+            StoredMessage(
+                role=str(row["role"]),
+                content=str(row["content"]),
+                timestamp=float(row["created_at"] or 0),
+                tool_name=row["tool_name"],
+                is_consolidated=bool(row["is_consolidated"]),
+                metadata=_load_metadata(row["metadata_json"]),
+            )
+            for row in rows
+        ]
+
     async def get_messages(self, chat_id: str, limit: int | None = None) -> list[StoredMessage]:
         """Return the persisted messages for one chat."""
         async with self._lock:
@@ -600,17 +615,62 @@ class SQLiteStorage(StorageProvider):
                         (chat_id,),
                     ).fetchall()
 
-                return [
-                    StoredMessage(
-                        role=str(row["role"]),
-                        content=str(row["content"]),
-                        timestamp=float(row["created_at"] or 0),
-                        tool_name=row["tool_name"],
-                        is_consolidated=bool(row["is_consolidated"]),
-                        metadata=_load_metadata(row["metadata_json"]),
-                    )
-                    for row in rows
-                ]
+                return self._rows_to_messages(rows)
+            finally:
+                conn.close()
+
+    async def get_message_count(self, chat_id: str) -> int:
+        """Return the total persisted message count for one chat."""
+        async with self._lock:
+            conn = self._get_conn()
+            try:
+                row = conn.execute(
+                    "SELECT COUNT(*) AS count FROM messages WHERE chat_id = ?",
+                    (chat_id,),
+                ).fetchone()
+                return int(row["count"] if row is not None else 0)
+            finally:
+                conn.close()
+
+    async def get_messages_slice(
+        self,
+        chat_id: str,
+        *,
+        start_index: int = 0,
+        end_index: int | None = None,
+    ) -> list[StoredMessage]:
+        """Return one ordered message slice for a chat."""
+        start = max(0, int(start_index))
+        stop = None if end_index is None else max(start, int(end_index))
+        if stop is not None and stop <= start:
+            return []
+
+        async with self._lock:
+            conn = self._get_conn()
+            try:
+                if stop is None:
+                    rows = conn.execute(
+                        """
+                        SELECT role, content, created_at, tool_name, is_consolidated, metadata_json
+                        FROM messages
+                        WHERE chat_id = ?
+                        ORDER BY id ASC
+                        LIMIT -1 OFFSET ?
+                        """,
+                        (chat_id, start),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        """
+                        SELECT role, content, created_at, tool_name, is_consolidated, metadata_json
+                        FROM messages
+                        WHERE chat_id = ?
+                        ORDER BY id ASC
+                        LIMIT ? OFFSET ?
+                        """,
+                        (chat_id, stop - start, start),
+                    ).fetchall()
+                return self._rows_to_messages(rows)
             finally:
                 conn.close()
 

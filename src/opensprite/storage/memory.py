@@ -41,6 +41,21 @@ class MemoryStorage(StorageProvider):
             message.timestamp = time.time()
         
         self._messages[chat_id].append(message)
+
+    async def get_message_count(self, chat_id: str) -> int:
+        """Return the total message count for one in-memory chat."""
+        return len(self._messages.get(chat_id, []))
+
+    async def get_messages_slice(
+        self,
+        chat_id: str,
+        *,
+        start_index: int = 0,
+        end_index: int | None = None,
+    ) -> list[StoredMessage]:
+        """Return one message slice without copying the full chat history first."""
+        messages = self._messages.get(chat_id, [])
+        return list(messages[max(0, start_index):end_index])
     
     async def clear_messages(self, chat_id: str) -> None:
         """

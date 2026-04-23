@@ -8,6 +8,7 @@ from typing import Any
 from ..config.schema import DocumentLlmConfig
 from ..context.paths import get_recent_summary_file, get_recent_summary_state_file
 from ..storage import StoredMessage, StorageProvider
+from ..storage.base import get_storage_message_count, get_storage_messages_slice
 from ..utils import count_messages_tokens, count_text_tokens
 from ..utils.log import logger
 from .base import ConversationConsolidator
@@ -225,8 +226,7 @@ class RecentSummaryConsolidator(ConversationConsolidator):
         if not self.enabled:
             return
 
-        messages = await self.storage.get_messages(chat_id)
-        message_count = len(messages)
+        message_count = await get_storage_message_count(self.storage, chat_id)
         cutoff_index = max(0, message_count - self.keep_last_messages)
         if cutoff_index <= 0:
             return
@@ -241,7 +241,15 @@ class RecentSummaryConsolidator(ConversationConsolidator):
             return
 
         end_index = min(cutoff_index, last_processed + self.lookback_messages)
-        chunk = [_to_message_dict(message) for message in messages[last_processed:end_index]]
+        chunk = [
+            _to_message_dict(message)
+            for message in await get_storage_messages_slice(
+                self.storage,
+                chat_id,
+                start_index=last_processed,
+                end_index=end_index,
+            )
+        ]
         if not chunk:
             return
 
