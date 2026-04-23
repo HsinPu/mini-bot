@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .base import Tool
-from .process_runtime import BackgroundProcessManager, BackgroundSession
+from .process_runtime import BackgroundProcessManager, BackgroundSession, SessionExitNotifier
 from .shell_runtime import (
     CapturedOutputChunk,
     drain_process_output,
@@ -18,6 +18,7 @@ from ..utils.processes import terminate_process_tree
 
 
 WorkspaceResolver = Callable[[], Path]
+BackgroundNotificationFactory = Callable[[], SessionExitNotifier | None]
 
 
 def _resolve_workspace_root(workspace: Path) -> Path:
@@ -273,11 +274,13 @@ class ExecTool(Tool):
         timeout: int = 60,
         deny_patterns: list[str] | None = None,
         process_manager: BackgroundProcessManager | None = None,
+        background_notification_factory: BackgroundNotificationFactory | None = None,
     ):
         self._workspace_resolver = _build_workspace_resolver(workspace, workspace_resolver)
         self.timeout = timeout
         self.deny_patterns = deny_patterns or self.DENY_PATTERNS
         self.process_manager = process_manager or BackgroundProcessManager()
+        self._background_notification_factory = background_notification_factory
 
     def _get_workspace(self) -> Path:
         return self._workspace_resolver()
@@ -360,6 +363,11 @@ class ExecTool(Tool):
             output_chunks=output_chunks,
             timeout_seconds=timeout_seconds,
             drain_timeout=self._output_drain_timeout(timeout_seconds),
+            notify_on_exit=(
+                self._background_notification_factory()
+                if self._background_notification_factory is not None
+                else None
+            ),
         )
         output = self.process_manager.render_output(session, max_chars=1200)
         return _build_background_session_result(session, output, yield_ms=yield_ms)

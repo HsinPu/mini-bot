@@ -3,11 +3,14 @@ from pathlib import Path
 
 from opensprite.agent.agent import AgentLoop
 from opensprite.agent.execution import ExecutionResult
+from opensprite.bus.events import OutboundMessage
 from opensprite.config.schema import AgentConfig, Config, LogConfig, MemoryConfig, RecentSummaryConfig, SearchConfig, ToolsConfig, UserProfileConfig
 from opensprite.bus.message import UserMessage
 from opensprite.storage.base import StoredMessage
 from opensprite.tools.base import Tool
+from opensprite.tools.process_runtime import BackgroundSession
 from opensprite.tools.registry import ToolRegistry
+from opensprite.tools.shell_runtime import CapturedOutputChunk
 
 
 class FakeContextBuilder:
@@ -70,6 +73,14 @@ class HistoryStorage(FakeStorage):
         if limit is None:
             return list(self.messages)
         return list(self.messages[-limit:])
+
+
+class FakeBus:
+    def __init__(self):
+        self.outbound: list[OutboundMessage] = []
+
+    async def publish_outbound(self, message: OutboundMessage) -> None:
+        self.outbound.append(message)
 
 
 class DummyTool(Tool):
@@ -181,6 +192,73 @@ def test_agent_process_persists_user_then_assistant_then_runs_maintenance(tmp_pa
     assert response.text == "assistant reply"
     assert response.channel == "telegram"
     assert response.session_chat_id == "telegram:room-1"
+
+
+def test_background_session_exit_notifier_publishes_outbound_and_persists_message(tmp_path):
+    registry = ToolRegistry()
+    registry.register(DummyTool())
+    storage = FakeStorage()
+    agent = AgentLoop(
+        config=AgentConfig(),
+        provider=FakeProvider(),
+        storage=storage,
+        context_builder=FakeContextBuilder(tmp_path),
+        tools=registry,
+        memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
+        tools_config=ToolsConfig(),
+        log_config=LogConfig(),
+        search_config=SearchConfig(),
+        user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+        **Config.packaged_agent_llm_chat_kwargs(),
+    )
+    fake_bus = FakeBus()
+    agent._message_bus = fake_bus
+
+    class _FakeProcess:
+        pid = 4321
+
+    chat_token = agent._current_chat_id.set("telegram:room-1")
+    channel_token = agent._current_channel.set("telegram")
+    transport_token = agent._current_transport_chat_id.set("room-1")
+    try:
+        notifier = agent._make_background_session_exit_notifier()
+        assert notifier is not None
+
+        session = BackgroundSession(
+            session_id="bg123",
+            command="python job.py",
+            cwd=str(tmp_path),
+            process=_FakeProcess(),
+            read_tasks=[],
+            output_chunks=[CapturedOutputChunk("stdout", b"job done\n")],
+            timeout_seconds=5,
+            drain_timeout=5,
+            state="exited",
+            termination_reason="exit",
+            exit_code=0,
+            started_at=10.0,
+            started_at_wall=100.0,
+            finished_at=12.5,
+            finished_at_wall=102.5,
+        )
+
+        asyncio.run(notifier(session))
+    finally:
+        agent._current_transport_chat_id.reset(transport_token)
+        agent._current_channel.reset(channel_token)
+        agent._current_chat_id.reset(chat_token)
+
+    assert len(fake_bus.outbound) == 1
+    outbound = fake_bus.outbound[0]
+    assert outbound.channel == "telegram"
+    assert outbound.chat_id == "room-1"
+    assert outbound.session_chat_id == "telegram:room-1"
+    assert "Background session finished." in outbound.content
+    assert "Session ID: bg123" in outbound.content
+    assert "job done" in outbound.content
+    assert storage.saved[-1][1] == "assistant"
+    assert storage.saved[-1][2] == outbound.content
+    assert storage.saved[-1][3]["kind"] == "background_session_exit"
 
 
 def test_call_llm_trims_old_history_to_token_budget(tmp_path):

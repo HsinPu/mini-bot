@@ -41,6 +41,8 @@ from ..media import MediaRouter
 from ..documents.user_profile import UserProfileConsolidator, create_user_profile_store
 from ..search.base import SearchStore
 from ..tools import ToolRegistry
+from ..tools.process_runtime import BackgroundSession
+from ..tools.shell_runtime import format_captured_output
 from ..utils import count_messages_tokens, count_text_tokens, sanitize_assistant_visible_text, strip_assistant_internal_scaffolding
 from ..utils.log import logger
 from ..config import AgentConfig, MemoryConfig, ToolsConfig, LogConfig, SearchConfig, UserProfileConfig, RecentSummaryConfig, Config
@@ -285,6 +287,70 @@ class AgentLoop:
 
         return _hook
 
+    @staticmethod
+    def _format_background_session_exit_message(session: BackgroundSession) -> str:
+        """Render a concise outbound notice when a managed background session exits."""
+        output_tail = format_captured_output(
+            session.output_chunks,
+            max_chars=1200,
+        )
+        runtime_seconds = max(
+            0.0,
+            (session.finished_at or time.monotonic()) - session.started_at,
+        )
+        return "\n".join(
+            [
+                "Background session finished.",
+                f"Session ID: {session.session_id}",
+                f"Termination: {session.termination_reason or 'exit'}",
+                f"Exit code: {session.exit_code}",
+                f"Runtime: {runtime_seconds:.2f}s",
+                "Output tail:",
+                output_tail,
+            ]
+        )
+
+    def _make_background_session_exit_notifier(self) -> Callable[[BackgroundSession], Awaitable[None]] | None:
+        """Build an outbound notifier for managed background session completion."""
+        channel = self._current_channel.get()
+        transport_chat_id = self._current_transport_chat_id.get()
+        session_chat_id = self._get_current_chat_id()
+        if (
+            not self._message_bus
+            or not channel
+            or transport_chat_id is None
+            or session_chat_id is None
+        ):
+            return None
+
+        bus = self._message_bus
+        ch = channel
+        tid = str(transport_chat_id)
+        sid = session_chat_id
+
+        async def _notify(session: BackgroundSession) -> None:
+            content = AgentLoop._format_background_session_exit_message(session)
+            metadata = {
+                "channel": ch,
+                "transport_chat_id": tid,
+                "kind": "background_session_exit",
+                "session_id": session.session_id,
+                "termination_reason": session.termination_reason or "exit",
+                "exit_code": session.exit_code,
+            }
+            await self._save_message(sid, "assistant", content, metadata=metadata)
+            await bus.publish_outbound(
+                OutboundMessage(
+                    channel=ch,
+                    chat_id=tid,
+                    session_chat_id=sid,
+                    content=content,
+                    metadata=metadata,
+                )
+            )
+
+        return _notify
+
     def __init__(
         self,
         config: AgentConfig,
@@ -335,6 +401,10 @@ class AgentLoop:
         self.media_router = media_router
         self.provider = provider
         self._current_chat_id: ContextVar[str | None] = ContextVar("current_chat_id", default=None)
+        self._current_channel: ContextVar[str | None] = ContextVar("current_channel", default=None)
+        self._current_transport_chat_id: ContextVar[str | None] = ContextVar(
+            "current_transport_chat_id", default=None
+        )
         self._current_images: ContextVar[list[str] | None] = ContextVar("current_images", default=None)
         self._current_audios: ContextVar[list[str] | None] = ContextVar("current_audios", default=None)
         self._current_videos: ContextVar[list[str] | None] = ContextVar("current_videos", default=None)
@@ -703,6 +773,7 @@ class AgentLoop:
             get_current_images=self._get_current_images,
             get_current_audios=self._get_current_audios,
             get_current_videos=self._get_current_videos,
+            background_notification_factory=self._make_background_session_exit_notifier,
         )
         
         logger.info(f"agent.init | tools={', '.join(self.tools.tool_names)}")
@@ -1157,6 +1228,10 @@ class AgentLoop:
         user_metadata = {key: value for key, value in user_metadata.items() if value is not None}
 
         token = self._current_chat_id.set(session_chat_id)
+        channel_token = self._current_channel.set(channel)
+        transport_chat_id_token = self._current_transport_chat_id.set(
+            str(user_message.chat_id) if user_message.chat_id is not None else None
+        )
         images_token = self._current_images.set(list(user_message.images or []))
         audios_token = self._current_audios.set(list(user_message.audios or []))
         videos_token = self._current_videos.set(list(user_message.videos or []))
@@ -1216,6 +1291,8 @@ class AgentLoop:
             self._current_videos.reset(videos_token)
             self._current_audios.reset(audios_token)
             self._current_images.reset(images_token)
+            self._current_transport_chat_id.reset(transport_chat_id_token)
+            self._current_channel.reset(channel_token)
             self._current_chat_id.reset(token)
 
     async def _maybe_consolidate_memory(self, chat_id: str) -> None:

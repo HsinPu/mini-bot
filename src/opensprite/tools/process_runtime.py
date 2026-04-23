@@ -7,9 +7,14 @@ import contextlib
 import time
 import uuid
 from dataclasses import dataclass, field
+from typing import Awaitable, Callable
 
 from .shell_runtime import CapturedOutputChunk, drain_process_output, format_captured_output
+from ..utils.log import logger
 from ..utils.processes import terminate_process_tree
+
+
+SessionExitNotifier = Callable[["BackgroundSession"], Awaitable[None]]
 
 
 @dataclass(slots=True)
@@ -25,6 +30,7 @@ class BackgroundSession:
     timeout_seconds: float
     drain_timeout: float
     started_at: float = field(default_factory=time.monotonic)
+    started_at_wall: float = field(default_factory=time.time)
     state: str = "running"
     termination_reason: str | None = None
     exit_code: int | None = None
@@ -32,6 +38,10 @@ class BackgroundSession:
     error: str | None = None
     watch_task: asyncio.Task[None] | None = None
     last_polled_chars: int = 0
+    finished_at: float | None = None
+    finished_at_wall: float | None = None
+    notify_on_exit: SessionExitNotifier | None = None
+    suppress_exit_notification: bool = False
 
     @property
     def pid(self) -> int:
@@ -41,8 +51,23 @@ class BackgroundSession:
 class BackgroundProcessManager:
     """Track background exec sessions for one agent runtime."""
 
-    def __init__(self) -> None:
+    DEFAULT_MAX_EXITED_SESSIONS = 200
+
+    def __init__(self, *, max_exited_sessions: int = DEFAULT_MAX_EXITED_SESSIONS) -> None:
         self._sessions: dict[str, BackgroundSession] = {}
+        self.max_exited_sessions = max(1, int(max_exited_sessions))
+
+    def _prune_exited_sessions(self) -> None:
+        exited_sessions = [
+            session for session in self._sessions.values() if session.state == "exited"
+        ]
+        if len(exited_sessions) <= self.max_exited_sessions:
+            return
+
+        exited_sessions.sort(key=lambda session: session.finished_at or session.started_at)
+        remove_count = len(exited_sessions) - self.max_exited_sessions
+        for session in exited_sessions[:remove_count]:
+            self._sessions.pop(session.session_id, None)
 
     def register_session(
         self,
@@ -54,6 +79,7 @@ class BackgroundProcessManager:
         output_chunks: list[CapturedOutputChunk],
         timeout_seconds: float,
         drain_timeout: float,
+        notify_on_exit: SessionExitNotifier | None = None,
     ) -> BackgroundSession:
         session = BackgroundSession(
             session_id=uuid.uuid4().hex[:12],
@@ -64,6 +90,7 @@ class BackgroundProcessManager:
             output_chunks=output_chunks,
             timeout_seconds=max(0.001, float(timeout_seconds)),
             drain_timeout=max(0.001, float(drain_timeout)),
+            notify_on_exit=notify_on_exit,
         )
         session.watch_task = asyncio.create_task(self._watch_session(session))
         self._sessions[session.session_id] = session
@@ -95,6 +122,18 @@ class BackgroundProcessManager:
             )
             session.exit_code = session.process.returncode
             session.state = "exited"
+            session.finished_at = time.monotonic()
+            session.finished_at_wall = time.time()
+            self._prune_exited_sessions()
+            if session.notify_on_exit is not None and not session.suppress_exit_notification:
+                try:
+                    await session.notify_on_exit(session)
+                except Exception:
+                    logger.exception(
+                        "background.process.notify-failed | session_id={} reason={}",
+                        session.session_id,
+                        session.termination_reason or "unknown",
+                    )
 
     async def _settle_session(self, session: BackgroundSession) -> BackgroundSession:
         watch_task = session.watch_task
@@ -146,12 +185,28 @@ class BackgroundProcessManager:
         if session.state == "running":
             if session.termination_reason is None:
                 session.termination_reason = "killed"
+            session.suppress_exit_notification = True
             await terminate_process_tree(session.process, wait_timeout=session.drain_timeout)
             if session.watch_task is not None:
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await session.watch_task
 
         return session
+
+    async def clear_session(self, session_id: str) -> BackgroundSession | None:
+        session = await self.get_session(session_id)
+        if session is None or session.state != "exited":
+            return None
+
+        self._sessions.pop(session.session_id, None)
+        return session
+
+    async def clear_exited_sessions(self) -> int:
+        sessions = await self.list_sessions()
+        exited_ids = [session.session_id for session in sessions if session.state == "exited"]
+        for session_id in exited_ids:
+            self._sessions.pop(session_id, None)
+        return len(exited_ids)
 
     @staticmethod
     def render_output(

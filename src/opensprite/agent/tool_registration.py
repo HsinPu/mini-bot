@@ -122,6 +122,7 @@ def register_shell_tools(
     *,
     workspace_resolver: Callable[[], Path],
     tools_config: ToolsConfig | None = None,
+    background_notification_factory: Callable[[], Any | None] | None = None,
 ) -> None:
     """Register shell execution tools."""
     current_tools_config = tools_config or ToolsConfig()
@@ -131,6 +132,7 @@ def register_shell_tools(
             workspace_resolver=workspace_resolver,
             timeout=current_tools_config.exec_tool.timeout,
             process_manager=process_tool.manager,
+            background_notification_factory=background_notification_factory,
         )
     )
     registry.register(process_tool)
@@ -296,6 +298,7 @@ def register_default_tools(
     get_current_images: Callable[[], list[str] | None] | None = None,
     get_current_audios: Callable[[], list[str] | None] | None = None,
     get_current_videos: Callable[[], list[str] | None] | None = None,
+    background_notification_factory: Callable[[], Any | None] | None = None,
 ) -> None:
     """Register the built-in tools used by AgentLoop."""
     register_filesystem_tools(
@@ -316,7 +319,12 @@ def register_default_tools(
         app_home=app_home,
         workspace_resolver=workspace_resolver,
     )
-    register_shell_tools(registry, workspace_resolver=workspace_resolver, tools_config=tools_config)
+    register_shell_tools(
+        registry,
+        workspace_resolver=workspace_resolver,
+        tools_config=tools_config,
+        background_notification_factory=background_notification_factory,
+    )
     register_web_tools(registry, tools_config=tools_config)
     register_media_tools(
         registry,

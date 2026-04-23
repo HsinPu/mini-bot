@@ -79,6 +79,14 @@ def test_process_poll_requires_session_id():
     assert result == "Error: process action 'poll' requires session_id."
 
 
+def test_process_log_requires_session_id():
+    tool = ProcessTool()
+
+    result = asyncio.run(tool.execute(action="log"))
+
+    assert result == "Error: process action 'log' requires session_id."
+
+
 def test_exec_timeout_returns_partial_output(tmp_path):
     tool = ExecTool(workspace=Path(tmp_path), timeout=1)
     command = (

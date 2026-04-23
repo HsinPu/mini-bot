@@ -41,9 +41,12 @@ This file defines when to use tools, how to choose between them, and what constr
   - Commands that **look like long-lived dev servers** (e.g. `uvicorn`, `vite`, `npm run dev`, `python -m http.server`, …) are rejected unless they are clearly `--help` / `--version` style invocations or you explicitly request managed background execution.
 - `process`
   - Inspects managed background exec sessions.
-  - `action="list"` shows known sessions.
-  - `action="poll"` returns newly captured output and current status for one `session_id`.
+  - `action="list"` shows known sessions with current runtime.
+  - `action="poll"` returns newly captured output and current status/timing for one `session_id`.
+  - `action="log"` returns the full captured output plus timing for one `session_id`.
   - `action="kill"` terminates one managed background session and returns its final status/output tail.
+  - `action="clear"` removes exited sessions; with `session_id` it clears one exited session, otherwise it clears all exited sessions.
+  - Exited sessions are pruned automatically, keeping only the most recent managed history in memory.
 
 ## External Knowledge Tools
 
