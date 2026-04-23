@@ -4,7 +4,7 @@ from pathlib import Path
 from opensprite.agent.agent import AgentLoop
 from opensprite.agent.execution import ExecutionResult
 from opensprite.bus.events import OutboundMessage
-from opensprite.config.schema import AgentConfig, Config, LogConfig, MemoryConfig, RecentSummaryConfig, SearchConfig, ToolsConfig, UserProfileConfig
+from opensprite.config.schema import AgentConfig, Config, LogConfig, MemoryConfig, MessagesConfig, RecentSummaryConfig, SearchConfig, ToolsConfig, UserProfileConfig
 from opensprite.bus.message import UserMessage
 from opensprite.storage.base import StoredMessage
 from opensprite.tools.base import Tool
@@ -410,6 +410,7 @@ def test_tool_schema_tokens_reduce_history_budget(tmp_path):
 
 def test_agent_process_returns_setup_hint_when_llm_not_configured(tmp_path):
     storage = FakeStorage()
+    messages = MessagesConfig(**{"agent": {"llm_not_configured": "請先設定 LLM"}})
     agent = AgentLoop(
         config=AgentConfig(),
         provider=FakeProvider(),
@@ -423,6 +424,7 @@ def test_agent_process_returns_setup_hint_when_llm_not_configured(tmp_path):
         user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
         recent_summary_config=RecentSummaryConfig(**{**Config.load_template_data()["recent_summary"], "enabled": False}),
         llm_configured=False,
+        messages_config=messages,
         **Config.packaged_agent_llm_chat_kwargs(),
     )
 
@@ -444,6 +446,6 @@ def test_agent_process_returns_setup_hint_when_llm_not_configured(tmp_path):
         )
     )
 
-    assert response.text == AgentLoop.LLM_NOT_CONFIGURED_RESPONSE
+    assert response.text == "請先設定 LLM"
     assert [entry[1] for entry in storage.saved] == ["user", "assistant"]
-    assert storage.saved[1][2] == AgentLoop.LLM_NOT_CONFIGURED_RESPONSE
+    assert storage.saved[1][2] == "請先設定 LLM"

@@ -21,6 +21,7 @@ from telegram.constants import ChatAction
 from telegram.error import NetworkError, TimedOut
 from telegram.ext import Application, filters
 
+from ..config import MessagesConfig
 from ..bus.message import MessageAdapter, UserMessage, AssistantMessage
 from ..utils.log import logger
 
@@ -47,7 +48,6 @@ class TelegramAdapter(MessageAdapter):
         "drop_pending_updates": False,
         "typing_action_interval": 4,
     }
-    EMPTY_MESSAGE_FALLBACK = "抱歉，我剛剛沒有產生可顯示的回覆，請再試一次。"
 
     def __init__(self, bot_token: str, mq=None, config: dict[str, Any] | None = None):
         """
@@ -60,6 +60,7 @@ class TelegramAdapter(MessageAdapter):
         self.bot_token = bot_token
         self.app = None
         self.mq = mq
+        self.messages = getattr(mq, "messages", None) or MessagesConfig()
         self.config = {**self.DEFAULT_CONFIG, **(config or {})}
         self._typing_tasks: dict[str, asyncio.Task] = {}
 
@@ -398,7 +399,7 @@ class TelegramAdapter(MessageAdapter):
                 message.chat_id,
                 message.session_chat_id,
             )
-            text = self.EMPTY_MESSAGE_FALLBACK
+            text = self.messages.telegram.empty_message_fallback
         max_length = 4000
         
         # 截斷過長的訊息

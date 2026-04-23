@@ -201,6 +201,7 @@ async def create_agent(config: Config):
         media_router=media_router,
         config_path=config.source_path,
         llm_configured=config.is_llm_configured,
+        messages_config=config.messages,
     )
     mq = MessageQueue(agent)
     agent._message_bus = mq.bus

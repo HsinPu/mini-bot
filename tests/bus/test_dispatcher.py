@@ -2,6 +2,7 @@ import asyncio
 
 from opensprite.bus.dispatcher import MessageQueue
 from opensprite.bus.message import AssistantMessage
+from opensprite.config.schema import MessagesConfig
 from opensprite.cron.manager import CronManager
 from opensprite.cron.types import CronJob, CronSchedule
 
@@ -233,6 +234,34 @@ def test_stop_command_reports_when_nothing_is_running():
     assert responses == [("telegram:idle-chat", "目前沒有正在執行的對話可停止。")]
 
 
+def test_stop_command_uses_configured_idle_message():
+    async def scenario():
+        agent = FakeAgent()
+        agent.messages = MessagesConfig(**{"queue": {"stop_idle": "目前沒有可停止的任務。"}})
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, chat_id):
+            responses.append((message.session_chat_id, message.text))
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="/stop", chat_id="idle-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return responses
+
+    responses = asyncio.run(scenario())
+
+    assert responses == [("telegram:idle-chat", "目前沒有可停止的任務。")]
+
+
 def test_reset_command_clears_session_history_and_replies_immediately():
     class ResettableAgent(FakeAgent):
         def __init__(self):
@@ -357,6 +386,34 @@ def test_cron_command_lists_jobs_for_current_session(tmp_path):
     assert responses[0][0] == "telegram:same-chat"
     assert "Scheduled jobs:" in responses[0][1]
     assert "weather-check" in responses[0][1]
+
+
+def test_cron_help_uses_configured_messages():
+    async def scenario():
+        agent = FakeAgent()
+        agent.messages = MessagesConfig(**{"cron": {"help_text": "自訂排程說明"}})
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, chat_id):
+            responses.append((message.session_chat_id, message.text))
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="/cron help", chat_id="same-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return responses
+
+    responses = asyncio.run(scenario())
+
+    assert responses == [("telegram:same-chat", "自訂排程說明")]
 
 
 def test_cron_command_adds_interval_job_for_current_session(tmp_path):

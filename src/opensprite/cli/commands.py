@@ -14,6 +14,7 @@ import typer
 from .. import __version__
 from ..context.paths import get_chat_workspace, get_tool_workspace
 from ..cron import CronSchedule, CronService
+from ..cron.presentation import format_cron_timestamp, format_cron_timing, render_cron_jobs
 from ..runtime import gateway as run_gateway
 from ..search.base import SearchHit
 from ..storage.base import StoredMessage
@@ -178,6 +179,7 @@ def _build_config_validate_payload(config: str | None = None) -> dict[str, objec
         ("channels", Config.get_channels_file_path(config_path, raw_data)),
         ("search", Config.get_search_file_path(config_path, raw_data)),
         ("media", Config.get_media_file_path(config_path, raw_data)),
+        ("messages", Config.get_messages_file_path(config_path, raw_data)),
         ("mcp_servers", Config.get_mcp_servers_file_path(config_path, raw_data.get("tools", {}))),
     ]
 
@@ -1297,43 +1299,30 @@ def _build_cli_schedule(
 
 def _format_cron_timestamp(ms: int, tz_name: str) -> str:
     """Format a scheduled timestamp for CLI output."""
-    from zoneinfo import ZoneInfo
-
-    dt = datetime.fromtimestamp(ms / 1000, tz=ZoneInfo(tz_name))
-    return f"{dt.isoformat()} ({tz_name})"
+    return format_cron_timestamp(ms, tz_name)
 
 
 def _format_cron_timing(schedule: CronSchedule, default_timezone: str = "UTC") -> str:
     """Format a cron schedule in the same style as the runtime tool."""
-    if schedule.kind == "cron":
-        tz = f" ({schedule.tz})" if schedule.tz else ""
-        return f"cron: {schedule.expr}{tz}"
-    if schedule.kind == "every" and schedule.every_ms:
-        if schedule.every_ms % 3_600_000 == 0:
-            return f"every {schedule.every_ms // 3_600_000}h"
-        if schedule.every_ms % 60_000 == 0:
-            return f"every {schedule.every_ms // 60_000}m"
-        if schedule.every_ms % 1000 == 0:
-            return f"every {schedule.every_ms // 1000}s"
-        return f"every {schedule.every_ms}ms"
-    if schedule.kind == "at" and schedule.at_ms:
-        return f"at {_format_cron_timestamp(schedule.at_ms, schedule.tz or default_timezone)}"
-    return schedule.kind
+    return format_cron_timing(schedule, default_timezone)
 
 
-def _render_cron_jobs(service: CronService, default_timezone: str = "UTC") -> str:
+def _load_cli_cron_messages(config: str | None = None):
+    from ..config import Config, CronMessagesConfig
+
+    config_path = _resolve_config_path(config)
+    if not config_path.exists():
+        return CronMessagesConfig()
+    try:
+        return Config.from_json(config_path).messages.cron
+    except Exception:
+        return CronMessagesConfig()
+
+
+def _render_cron_jobs(service: CronService, default_timezone: str = "UTC", *, messages=None) -> str:
     """Render the stored jobs for CLI list output."""
-    jobs = service.list_jobs(include_disabled=True)
-    if not jobs:
-        return "No scheduled jobs."
-
-    lines = []
-    for job in jobs:
-        line = f"- {job.name} (id: {job.id}, {_format_cron_timing(job.schedule, default_timezone)})"
-        if job.state.next_run_at_ms:
-            line += f"\n  Next run: {_format_cron_timestamp(job.state.next_run_at_ms, job.schedule.tz or default_timezone)}"
-        lines.append(line)
-    return "Scheduled jobs:\n" + "\n".join(lines)
+    messages = messages or _load_cli_cron_messages()
+    return render_cron_jobs(service.list_jobs(include_disabled=True), messages, default_timezone=default_timezone)
 
 
 @service_app.command("install")
@@ -1429,10 +1418,17 @@ def cron_list(
         "--session",
         help="Session chat id, for example telegram:user-a.",
     ),
+    config: str | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to an OpenSprite JSON config file.",
+    ),
 ) -> None:
     """List scheduled jobs for one session."""
     service = _get_cron_service(session)
-    typer.echo(_render_cron_jobs(service))
+    messages = _load_cli_cron_messages(config)
+    typer.echo(_render_cron_jobs(service, messages=messages))
 
 
 @cron_app.command("add")
@@ -1477,8 +1473,15 @@ def cron_add(
         "--deliver/--no-deliver",
         help="Whether the job should send its result back to the original chat.",
     ),
+    config: str | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to an OpenSprite JSON config file.",
+    ),
 ) -> None:
     """Add a scheduled job to one session."""
+    messages = _load_cli_cron_messages(config)
     try:
         schedule, delete_after = _build_cli_schedule(
             every_seconds=every_seconds,
@@ -1503,7 +1506,7 @@ def cron_add(
     except ValueError as exc:
         _handle_cron_error(exc)
 
-    typer.echo(f"Created job '{job.name}' (id: {job.id})")
+    typer.echo(messages.created_job.format(name=job.name, job_id=job.id))
 
 
 @cron_app.command("remove")
@@ -1518,12 +1521,19 @@ def cron_remove(
         "--job-id",
         help="The job id to remove.",
     ),
+    config: str | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to an OpenSprite JSON config file.",
+    ),
 ) -> None:
     """Remove one scheduled job from a session."""
+    messages = _load_cli_cron_messages(config)
     service = _get_cron_service(session)
     if not service.remove_job(job_id):
-        _handle_cron_error(f"job {job_id} not found")
-    typer.echo(f"Removed job {job_id}")
+        _handle_cron_error(messages.job_not_found.format(job_id=job_id))
+    typer.echo(messages.removed_job.format(job_id=job_id))
 
 
 @cron_app.command("pause")
@@ -1538,12 +1548,19 @@ def cron_pause(
         "--job-id",
         help="The job id to pause.",
     ),
+    config: str | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to an OpenSprite JSON config file.",
+    ),
 ) -> None:
     """Pause one scheduled job in a session without deleting it."""
+    messages = _load_cli_cron_messages(config)
     service = _get_cron_service(session)
     if not service.pause_job(job_id):
-        _handle_cron_error(f"job {job_id} not found or already paused")
-    typer.echo(f"Paused job {job_id}")
+        _handle_cron_error(messages.job_not_found_or_paused.format(job_id=job_id))
+    typer.echo(messages.paused_job.format(job_id=job_id))
 
 
 @cron_app.command("enable")
@@ -1558,12 +1575,19 @@ def cron_enable(
         "--job-id",
         help="The job id to re-enable.",
     ),
+    config: str | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to an OpenSprite JSON config file.",
+    ),
 ) -> None:
     """Re-enable a paused scheduled job in a session."""
+    messages = _load_cli_cron_messages(config)
     service = _get_cron_service(session)
     if not service.enable_job(job_id):
-        _handle_cron_error(f"job {job_id} not found or already enabled")
-    typer.echo(f"Enabled job {job_id}")
+        _handle_cron_error(messages.job_not_found_or_enabled.format(job_id=job_id))
+    typer.echo(messages.enabled_job.format(job_id=job_id))
 
 
 @cron_app.command("run")
@@ -1578,12 +1602,19 @@ def cron_run(
         "--job-id",
         help="The job id to execute immediately.",
     ),
+    config: str | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to an OpenSprite JSON config file.",
+    ),
 ) -> None:
     """Run one scheduled job immediately in a session."""
+    messages = _load_cli_cron_messages(config)
     service = _get_cron_service(session)
     if not asyncio.run(service.run_job(job_id)):
-        _handle_cron_error(f"job {job_id} not found")
-    typer.echo(f"Ran job {job_id}")
+        _handle_cron_error(messages.job_not_found.format(job_id=job_id))
+    typer.echo(messages.ran_job.format(job_id=job_id))
 
 
 if __name__ == "__main__":

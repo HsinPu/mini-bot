@@ -45,7 +45,7 @@ from ..tools.process_runtime import BackgroundSession
 from ..tools.shell_runtime import format_captured_output
 from ..utils import count_messages_tokens, count_text_tokens, sanitize_assistant_visible_text, strip_assistant_internal_scaffolding
 from ..utils.log import logger
-from ..config import AgentConfig, MemoryConfig, ToolsConfig, LogConfig, SearchConfig, UserProfileConfig, RecentSummaryConfig, Config
+from ..config import AgentConfig, MemoryConfig, ToolsConfig, LogConfig, SearchConfig, UserProfileConfig, RecentSummaryConfig, MessagesConfig, Config
 from .consolidation import MemoryConsolidationService, RecentSummaryUpdateService, UserProfileUpdateService
 from .execution import ExecutionEngine, ExecutionResult
 from .skill_review import (
@@ -82,11 +82,6 @@ class AgentLoop:
     """
 
     MAX_TOOL_ITERATIONS = 10
-    EMPTY_RESPONSE_FALLBACK = "抱歉，我剛剛沒有產生可顯示的回覆，請再試一次。"
-    LLM_NOT_CONFIGURED_RESPONSE = (
-        "尚未設定 LLM，請先設定後再試。可執行 opensprite onboard，"
-        "或在 llm.providers.json 設定預設 provider 的 api_key。"
-    )
 
     @staticmethod
     def _sanitize_log_filename(value: str) -> str:
@@ -380,6 +375,7 @@ class AgentLoop:
         llm_chat_presence_penalty: float | None,
         llm_pass_decoding_params: bool,
         llm_configured: bool = True,
+        messages_config: MessagesConfig | None = None,
     ):
         ...
         self.config = config
@@ -390,6 +386,7 @@ class AgentLoop:
         self.llm_chat_presence_penalty = llm_chat_presence_penalty
         self.llm_pass_decoding_params = llm_pass_decoding_params
         self.llm_configured = llm_configured
+        self.messages = messages_config or MessagesConfig()
         self.memory_config = memory_config or MemoryConfig(
             **Config._merge_document_section({}, Config.load_template_data().get("memory", {}))
         )
@@ -568,7 +565,7 @@ class AgentLoop:
             tools=self.tools,
             tools_config=self.tools_config,
             search_store=self.search_store,
-            empty_response_fallback=self.EMPTY_RESPONSE_FALLBACK,
+            empty_response_fallback=self.messages.agent.empty_response_fallback,
             save_message=self._save_message,
             format_log_preview=self._format_log_preview,
             summarize_messages=self._summarize_messages,
@@ -775,6 +772,7 @@ class AgentLoop:
             search_store=self.search_store,
             search_config=self.search_config,
             cron_manager=self.cron_manager,
+            cron_messages_config=self.messages.cron,
             media_router=self.media_router,
             get_current_images=self._get_current_images,
             get_current_audios=self._get_current_audios,
@@ -1250,7 +1248,7 @@ class AgentLoop:
             if not self.llm_configured:
                 logger.warning("[{}] agent.skip | reason=llm-not-configured", session_chat_id)
                 await self._save_message(session_chat_id, "user", user_message.text, metadata=user_metadata)
-                response = self.LLM_NOT_CONFIGURED_RESPONSE
+                response = self.messages.agent.llm_not_configured
                 logger.info(
                     f"[{session_chat_id}] outbound | text={self._format_log_preview(response, max_chars=200)}"
                 )

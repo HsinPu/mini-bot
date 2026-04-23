@@ -147,6 +147,7 @@ opensprite service restart
 | `channels_file` | `channels.json` | Channel sections (Telegram, console, …) / Telegram、console 等頻道區塊 |
 | `search_file` | `search.json` | Search and embedding settings / 搜尋與 embedding 相關設定 |
 | `media_file` | `media.json` | Vision, speech, video / 影像、語音、影片 |
+| `messages_file` | `messages.json` | User-facing reply strings / 給使用者看的回覆文案 |
 | `tools.mcp_servers_file` | `mcp_servers.json` | MCP server definitions / MCP 伺服器連線定義 |
 
 **English:** Example layout:
@@ -160,6 +161,7 @@ opensprite service restart
 ├── channels.json
 ├── search.json
 ├── media.json
+├── messages.json
 ├── mcp_servers.json
 ├── bootstrap/
 ├── memory/

@@ -201,6 +201,7 @@ def _prepare_config_data(result: OnboardResult, config_path: Path, force: bool) 
     hydrated["vision"] = loaded.vision.model_dump()
     hydrated["speech"] = loaded.speech.model_dump()
     hydrated["video"] = loaded.video.model_dump()
+    hydrated["messages"] = loaded.messages.model_dump()
     return hydrated
 
 
@@ -214,6 +215,7 @@ def _persist_config_data(config_path: Path, config_data: dict[str, Any]) -> None
     vision_data = main_data.pop("vision", None)
     speech_data = main_data.pop("speech", None)
     video_data = main_data.pop("video", None)
+    messages_data = main_data.pop("messages", None)
 
     _write_json(config_path, main_data)
     Config.ensure_llm_providers_file(config_path, main_data)
@@ -236,6 +238,9 @@ def _persist_config_data(config_path: Path, config_data: dict[str, Any]) -> None
             },
             main_data,
         )
+    Config.ensure_messages_file(config_path, main_data)
+    if isinstance(messages_data, dict):
+        Config.write_messages_file(config_path, messages_data, main_data)
     Config.ensure_mcp_servers_file(config_path, main_data)
 
 

@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from opensprite.config.schema import ChannelsConfig, Config, MCPServerConfig, ProviderConfig, SearchConfig, SearchEmbeddingConfig, SpeechConfig, StorageConfig, ToolsConfig, VideoConfig, VisionConfig
+from opensprite.config.schema import ChannelsConfig, Config, MCPServerConfig, MessagesConfig, ProviderConfig, SearchConfig, SearchEmbeddingConfig, SpeechConfig, StorageConfig, ToolsConfig, VideoConfig, VisionConfig
 
 
 def test_storage_config_accepts_supported_types():
@@ -192,6 +192,38 @@ def test_config_load_reads_media_from_external_file(tmp_path):
     assert config.video.enabled is True
     assert config.video.model == "video-model"
     assert config.media_file == "media.json"
+
+
+def test_config_load_reads_messages_from_external_file(tmp_path):
+    config_path = tmp_path / "opensprite.json"
+    messages_path = tmp_path / "messages.json"
+    messages_path.write_text(
+        json.dumps(
+            {
+                "agent": {"llm_not_configured": "請先設定模型"},
+                "queue": {"stop_idle": "目前沒有任務"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    config_path.write_text(
+        json.dumps(
+            {
+                "llm": {"api_key": "key", "model": "gpt", "temperature": 0.7, "max_tokens": 2048},
+                "storage": {"type": "memory", "path": "memory.db"},
+                "channels": {"telegram": {"enabled": False}, "console": {"enabled": True}},
+                "messages_file": "messages.json",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = Config.from_json(config_path)
+
+    assert config.messages.agent.llm_not_configured == "請先設定模型"
+    assert config.messages.queue.stop_idle == "目前沒有任務"
+    assert config.messages.telegram.empty_message_fallback == MessagesConfig().telegram.empty_message_fallback
+    assert config.messages_file == "messages.json"
 
 
 def test_search_embedding_config_requires_model_when_enabled():
@@ -404,6 +436,33 @@ def test_config_save_writes_media_to_external_file(tmp_path):
     assert saved_media["video"]["model"] == "video-model"
 
 
+def test_config_save_writes_messages_to_external_file(tmp_path):
+    config_path = tmp_path / "opensprite.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "llm": {"api_key": "key", "model": "gpt", "temperature": 0.7, "max_tokens": 2048},
+                "storage": {"type": "memory", "path": "memory.db"},
+                "channels": {"telegram": {"enabled": False}, "console": {"enabled": True}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = Config.from_json(config_path)
+    config.messages.agent.llm_not_configured = "請先設定 LLM"
+    config.messages.queue.stop_cancelled = "已停止"
+    config.save(config_path)
+
+    saved_main = json.loads(config_path.read_text(encoding="utf-8"))
+    saved_messages = json.loads((tmp_path / "messages.json").read_text(encoding="utf-8"))
+
+    assert saved_main["messages_file"] == "messages.json"
+    assert "messages" not in saved_main
+    assert saved_messages["agent"]["llm_not_configured"] == "請先設定 LLM"
+    assert saved_messages["queue"]["stop_cancelled"] == "已停止"
+
+
 def test_config_save_writes_llm_providers_to_external_file(tmp_path):
     config_path = tmp_path / "opensprite.json"
     config_path.write_text(
@@ -577,6 +636,19 @@ def test_copy_template_creates_external_media_file(tmp_path):
     assert json.loads(media_path.read_text(encoding="utf-8")) == Config.load_external_template_data("media")
 
 
+def test_copy_template_creates_external_messages_file(tmp_path):
+    config_path = tmp_path / "opensprite.json"
+
+    Config.copy_template(config_path)
+
+    template_data = json.loads(config_path.read_text(encoding="utf-8"))
+    messages_path = tmp_path / "messages.json"
+
+    assert template_data["messages_file"] == "messages.json"
+    assert messages_path.exists()
+    assert json.loads(messages_path.read_text(encoding="utf-8")) == Config.load_external_template_data("messages")
+
+
 def test_copy_template_creates_external_llm_providers_file(tmp_path):
     config_path = tmp_path / "opensprite.json"
 
@@ -595,4 +667,5 @@ def test_external_template_paths_exist():
     assert Config.external_template_path("search").exists()
     assert Config.external_template_path("mcp_servers").exists()
     assert Config.external_template_path("media").exists()
+    assert Config.external_template_path("messages").exists()
     assert Config.external_template_path("llm.providers").exists()

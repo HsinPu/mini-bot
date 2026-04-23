@@ -16,6 +16,7 @@
   "channels_file": "channels.json",
   "search_file": "search.json",
   "media_file": "media.json",
+  "messages_file": "messages.json",
   "log": {
     "enabled": true,
     "retention_days": 365,

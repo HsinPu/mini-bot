@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-from ..config import SearchConfig, ToolsConfig
+from ..config import CronMessagesConfig, SearchConfig, ToolsConfig
 from ..documents.memory import MemoryStore
 from ..cron import CronManager
 from ..media import MediaRouter
@@ -269,6 +269,7 @@ def register_cron_tools(
     *,
     cron_manager: CronManager | None = None,
     tools_config: ToolsConfig | None = None,
+    messages_config: CronMessagesConfig | None = None,
     get_chat_id: Callable[[], str | None],
 ) -> None:
     """Register per-session cron scheduling tools when cron is enabled."""
@@ -278,6 +279,7 @@ def register_cron_tools(
             cron_manager,
             get_chat_id=get_chat_id,
             default_timezone=current_tools_config.cron.default_timezone,
+            messages_config=messages_config,
         )
     )
 
@@ -296,6 +298,7 @@ def register_default_tools(
     search_store: SearchStore | None = None,
     search_config: SearchConfig | None = None,
     cron_manager: CronManager | None = None,
+    cron_messages_config: CronMessagesConfig | None = None,
     media_router: MediaRouter | None = None,
     get_current_images: Callable[[], list[str] | None] | None = None,
     get_current_audios: Callable[[], list[str] | None] | None = None,
@@ -351,5 +354,6 @@ def register_default_tools(
         registry,
         cron_manager=cron_manager,
         tools_config=tools_config,
+        messages_config=cron_messages_config,
         get_chat_id=get_chat_id,
     )

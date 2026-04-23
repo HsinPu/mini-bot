@@ -76,6 +76,79 @@ class ChannelsConfig(BaseModel):
     console: dict[str, Any] = Field(default_factory=lambda: {"enabled": True})
 
 
+class AgentMessagesConfig(BaseModel):
+    empty_response_fallback: str = "抱歉，我剛剛沒有產生可顯示的回覆，請再試一次。"
+    llm_not_configured: str = (
+        "尚未設定 LLM，請先設定後再試。可執行 opensprite onboard，"
+        "或在 llm.providers.json 設定預設 provider 的 api_key。"
+    )
+
+
+class QueueMessagesConfig(BaseModel):
+    stop_cancelled: str = "已停止目前這段對話。"
+    stop_idle: str = "目前沒有正在執行的對話可停止。"
+    reset_done: str = "已重置目前這段對話。"
+    reset_done_with_cancelled: str = "已重置目前這段對話。 進行中的任務也已停止。"
+
+
+class CronMessagesConfig(BaseModel):
+    help_text: str = (
+        "排程命令:\n"
+        "/cron add every <seconds> <message> [--no-deliver]\n"
+        "/cron add at <iso-datetime> <message> [--no-deliver]\n"
+        "/cron add cron \"<expr>\" [--tz <timezone>] <message> [--no-deliver]\n"
+        "/cron list\n"
+        "/cron pause <job_id>\n"
+        "/cron enable <job_id>\n"
+        "/cron run <job_id>\n"
+        "/cron remove <job_id>\n"
+        "/cron help"
+    )
+    unavailable: str = "排程功能目前不可用。"
+    error_prefix: str = "Error: {message}"
+    error_invalid_quoting: str = "Invalid quoting in /cron command"
+    error_add_usage: str = "Usage: /cron add every <seconds> <message>"
+    error_message_required: str = "A non-empty message is required"
+    error_every_requires_integer: str = "every requires an integer number of seconds"
+    error_every_requires_positive: str = "every requires a value greater than 0"
+    error_tz_only_for_cron: str = "--tz can only be used with cron schedules"
+    error_at_requires_iso: str = "at requires ISO format like 2026-04-10T09:00:00"
+    error_unknown_schedule_mode: str = "Unknown schedule mode. Use every, at, or cron"
+    error_job_id_required_pause: str = "Error: job_id is required. Usage: /cron pause <job_id>"
+    error_job_id_required_enable: str = "Error: job_id is required. Usage: /cron enable <job_id>"
+    error_job_id_required_run: str = "Error: job_id is required. Usage: /cron run <job_id>"
+    error_job_id_required_remove: str = "Error: job_id is required. Usage: /cron remove <job_id>"
+    error_manager_unavailable: str = "Error: cron manager is unavailable"
+    error_no_active_session: str = "Error: no active session context"
+    error_message_required_for_add: str = "Error: message is required for add"
+    error_invalid_iso_datetime: str = "Error: invalid ISO datetime format '{value}'. Expected YYYY-MM-DDTHH:MM:SS"
+    error_schedule_required: str = "Error: either every_seconds, cron_expr, or at is required"
+    error_unknown_action: str = "Unknown action: {action}"
+    no_jobs: str = "No scheduled jobs."
+    jobs_header: str = "Scheduled jobs:"
+    job_list_item: str = "- {name} (id: {job_id}, {timing})"
+    next_run_label: str = "Next run: {timestamp}"
+    created_job: str = "Created job '{name}' (id: {job_id})"
+    removed_job: str = "Removed job {job_id}"
+    paused_job: str = "Paused job {job_id}"
+    enabled_job: str = "Enabled job {job_id}"
+    ran_job: str = "Ran job {job_id}"
+    job_not_found: str = "Job {job_id} not found"
+    job_not_found_or_paused: str = "Job {job_id} not found or already paused"
+    job_not_found_or_enabled: str = "Job {job_id} not found or already enabled"
+
+
+class TelegramMessagesConfig(BaseModel):
+    empty_message_fallback: str = "抱歉，我剛剛沒有產生可顯示的回覆，請再試一次。"
+
+
+class MessagesConfig(BaseModel):
+    agent: AgentMessagesConfig = Field(default_factory=AgentMessagesConfig)
+    queue: QueueMessagesConfig = Field(default_factory=QueueMessagesConfig)
+    cron: CronMessagesConfig = Field(default_factory=CronMessagesConfig)
+    telegram: TelegramMessagesConfig = Field(default_factory=TelegramMessagesConfig)
+
+
 class LogConfig(BaseModel):
     enabled: bool = False
     retention_days: int = 365
@@ -298,7 +371,8 @@ class Config:
                  user_profile: UserProfileConfig | None = None, vision: VisionConfig | None = None,
                  speech: SpeechConfig | None = None, video: VideoConfig | None = None,
                  recent_summary: RecentSummaryConfig | None = None, source_path: str | Path | None = None,
-                 channels_file: str = "channels.json", search_file: str = "search.json", media_file: str = "media.json"):
+                 channels_file: str = "channels.json", search_file: str = "search.json", media_file: str = "media.json",
+                 messages: MessagesConfig | None = None, messages_file: str = "messages.json"):
         self.llm = llm
         self.agent = agent
         self.storage = storage
@@ -318,10 +392,12 @@ class Config:
         self.vision = vision or VisionConfig()
         self.speech = speech or SpeechConfig()
         self.video = video or VideoConfig()
+        self.messages = messages or MessagesConfig()
         self.source_path = Path(source_path).expanduser().resolve() if source_path is not None else None
         self.channels_file = channels_file
         self.search_file = search_file
         self.media_file = media_file
+        self.messages_file = messages_file
 
         if self.agent is None:
             self.agent = AgentConfig()
@@ -362,6 +438,16 @@ class Config:
             return None
 
         candidate = Path(media_file).expanduser()
+        if not candidate.is_absolute():
+            candidate = (config_path.parent / candidate).resolve()
+        return candidate
+
+    @staticmethod
+    def _resolve_messages_file(config_path: Path, messages_file: str | None) -> Path | None:
+        if not messages_file:
+            return None
+
+        candidate = Path(messages_file).expanduser()
         if not candidate.is_absolute():
             candidate = (config_path.parent / candidate).resolve()
         return candidate
@@ -429,6 +515,19 @@ class Config:
         return data
 
     @classmethod
+    def _load_messages_data(cls, path: Path) -> dict[str, Any]:
+        if not path.exists():
+            return {}
+
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        if not isinstance(data, dict):
+            raise ValueError(f"Messages 設定檔必須是 JSON object：{path}")
+
+        return data
+
+    @classmethod
     def _load_llm_providers_data(cls, path: Path) -> dict[str, Any]:
         if not path.exists():
             return {}
@@ -487,6 +586,10 @@ class Config:
     @classmethod
     def _build_default_media_path(cls, config_path: Path) -> Path:
         return config_path.parent / "media.json"
+
+    @classmethod
+    def _build_default_messages_path(cls, config_path: Path) -> Path:
+        return config_path.parent / "messages.json"
 
     @classmethod
     def _build_default_llm_providers_path(cls, config_path: Path) -> Path:
@@ -563,6 +666,23 @@ class Config:
         return target_path
 
     @classmethod
+    def get_messages_file_path(
+        cls,
+        config_path: str | Path,
+        config_data: dict[str, Any] | None = None,
+        messages_file: str | None = None,
+    ) -> Path:
+        resolved_config_path = Path(config_path).expanduser().resolve()
+        configured_path = messages_file
+        if configured_path is None and isinstance(config_data, dict):
+            configured_path = config_data.get("messages_file")
+
+        target_path = cls._resolve_messages_file(resolved_config_path, configured_path)
+        if target_path is None:
+            target_path = cls._build_default_messages_path(resolved_config_path)
+        return target_path
+
+    @classmethod
     def get_llm_providers_file_path(
         cls,
         config_path: str | Path,
@@ -591,6 +711,7 @@ class Config:
             cls._build_default_channels_path(root),
             cls._build_default_search_path(root),
             cls._build_default_media_path(root),
+            cls._build_default_messages_path(root),
             cls._build_default_mcp_servers_path(root),
             cls._build_default_llm_providers_path(root),
         )
@@ -619,6 +740,7 @@ class Config:
             cls.get_channels_file_path(root, channels_file=config.channels_file),
             cls.get_search_file_path(root, search_file=config.search_file),
             cls.get_media_file_path(root, media_file=config.media_file),
+            cls.get_messages_file_path(root, messages_file=config.messages_file),
             cls.get_mcp_servers_file_path(root, config.tools),
             cls.get_llm_providers_file_path(root, config.llm),
         ):
@@ -720,6 +842,30 @@ class Config:
         return target_path
 
     @classmethod
+    def write_messages_file(
+        cls,
+        config_path: str | Path,
+        messages_data: dict[str, Any],
+        config_data: dict[str, Any] | None = None,
+        messages_file: str | None = None,
+    ) -> Path:
+        target_path = cls.get_messages_file_path(config_path, config_data, messages_file)
+        cls._write_json_file(target_path, messages_data)
+        return target_path
+
+    @classmethod
+    def ensure_messages_file(cls, config_path: str | Path, config_data: dict[str, Any] | None = None) -> Path:
+        messages_data = config_data.get("messages") if isinstance(config_data, dict) else None
+        target_path = cls.get_messages_file_path(config_path, config_data)
+
+        if not target_path.exists():
+            cls._copy_external_template(target_path, "messages")
+            if isinstance(messages_data, dict):
+                cls._write_json_file(target_path, messages_data)
+
+        return target_path
+
+    @classmethod
     def write_llm_providers_file(
         cls,
         config_path: str | Path,
@@ -743,6 +889,16 @@ class Config:
                 cls._write_json_file(target_path, providers_data)
 
         return target_path
+
+    @staticmethod
+    def _deep_merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+        merged = dict(base)
+        for key, value in override.items():
+            if isinstance(value, dict) and isinstance(merged.get(key), dict):
+                merged[key] = Config._deep_merge_dicts(merged[key], value)
+            else:
+                merged[key] = value
+        return merged
 
     @classmethod
     def from_json(cls, path: str | Path) -> "Config":
@@ -800,6 +956,10 @@ class Config:
                 config_path=path,
                 external_path=mcp_servers_path,
             )
+        inline_messages = dict(data.get("messages", {})) if isinstance(data.get("messages", {}), dict) else {}
+        messages_path = cls._resolve_messages_file(path, data.get("messages_file"))
+        external_messages = cls._load_messages_data(messages_path) if messages_path is not None else {}
+        merged_messages = cls._deep_merge_dicts(inline_messages, external_messages)
         return cls(
             llm=LLMsConfig(**llm_data),
             agent=AgentConfig(**data["agent"]) if "agent" in data else None,
@@ -819,6 +979,7 @@ class Config:
                     dict(data.get("recent_summary", {})), template_data.get("recent_summary", {})
                 )
             ),
+            messages=MessagesConfig(**merged_messages) if (merged_messages or "messages" in data or messages_path is not None) else None,
             vision=VisionConfig(**merged_vision) if (merged_vision or "vision" in data or media_path is not None) else None,
             speech=SpeechConfig(**merged_speech) if (merged_speech or "speech" in data or media_path is not None) else None,
             video=VideoConfig(**merged_video) if (merged_video or "video" in data or media_path is not None) else None,
@@ -826,6 +987,7 @@ class Config:
             channels_file=data.get("channels_file") or "channels.json",
             search_file=data.get("search_file") or "search.json",
             media_file=data.get("media_file") or "media.json",
+            messages_file=data.get("messages_file") or "messages.json",
         )
 
     @classmethod
@@ -946,6 +1108,7 @@ class Config:
             cls.ensure_channels_file(path, cls.load_template_data())
             cls.ensure_search_file(path, cls.load_template_data())
             cls.ensure_media_file(path, cls.load_template_data())
+            cls.ensure_messages_file(path, cls.load_template_data())
             cls.ensure_llm_providers_file(path, cls.load_template_data())
             cls.ensure_mcp_servers_file(path, cls.load_template_data())
 
@@ -978,6 +1141,11 @@ class Config:
             },
             media_file=self.media_file,
         )
+        self.write_messages_file(
+            path,
+            self.messages.model_dump(),
+            messages_file=self.messages_file,
+        )
         self.write_llm_providers_file(
             path,
             {name: provider.model_dump() for name, provider in self.llm.providers.items()},
@@ -1004,6 +1172,7 @@ class Config:
             "channels_file": self.channels_file,
             "search_file": self.search_file,
             "media_file": self.media_file,
+            "messages_file": self.messages_file,
             "log": {"enabled": self.log.enabled, "retention_days": self.log.retention_days, "level": self.log.level, "log_system_prompt": self.log.log_system_prompt, "log_system_prompt_lines": self.log.log_system_prompt_lines},
             "tools": {
                 "max_tool_iterations": self.tools.max_tool_iterations,

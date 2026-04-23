@@ -24,6 +24,8 @@ import shlex
 from typing import Any, Awaitable, Callable
 from . import MessageBus, InboundMessage, OutboundMessage
 from .message import UserMessage, AssistantMessage
+from ..config import MessagesConfig
+from ..cron.presentation import render_cron_jobs
 from ..cron.types import CronSchedule
 from ..utils.log import logger
 
@@ -63,7 +65,7 @@ class MessageQueue:
                                              channel response handlers
     """
     
-    def __init__(self, agent, bus: MessageBus | None = None):
+    def __init__(self, agent, bus: MessageBus | None = None, messages_config: MessagesConfig | None = None):
         """
         初始化
         
@@ -73,6 +75,7 @@ class MessageQueue:
         """
         self.agent = agent
         self.bus = bus or MessageBus()
+        self.messages = messages_config or getattr(agent, "messages", None) or MessagesConfig()
         self.conversations: dict[str, Conversation] = {}  # chat_id -> Conversation
         self.running = False
         # 追蹤所有 active tasks: chat_id -> list of tasks
@@ -144,7 +147,7 @@ class MessageQueue:
         try:
             parts = shlex.split((text or "").strip())
         except ValueError:
-            return "error", ["Invalid quoting in /cron command"]
+            return "error", []
         if not parts:
             return "help", []
         args = parts[1:]
@@ -152,21 +155,14 @@ class MessageQueue:
             return "help", []
         return args[0].lower(), args[1:]
 
-    @staticmethod
-    def _cron_help_text() -> str:
+    def _cron_help_text(self) -> str:
         """Return the built-in cron command help text."""
-        return (
-            "排程命令:\n"
-            "/cron add every <seconds> <message> [--no-deliver]\n"
-            "/cron add at <iso-datetime> <message> [--no-deliver]\n"
-            "/cron add cron \"<expr>\" [--tz <timezone>] <message> [--no-deliver]\n"
-            "/cron list\n"
-            "/cron pause <job_id>\n"
-            "/cron enable <job_id>\n"
-            "/cron run <job_id>\n"
-            "/cron remove <job_id>\n"
-            "/cron help"
-        )
+        return self.messages.cron.help_text
+
+    def _cron_default_timezone(self) -> str:
+        tools_config = getattr(self.agent, "tools_config", None)
+        cron_config = getattr(tools_config, "cron", None)
+        return getattr(cron_config, "default_timezone", "UTC") or "UTC"
 
     @staticmethod
     def _extract_cron_options(args: list[str]) -> tuple[list[str], str | None, bool]:
@@ -200,32 +196,32 @@ class MessageQueue:
         """Parse `/cron add ...` arguments into schedule and payload settings."""
         positional, tz, deliver = MessageQueue._extract_cron_options(args)
         if len(positional) < 3:
-            raise ValueError("Usage: /cron add every <seconds> <message>")
+            raise ValueError("error_add_usage")
 
         mode = positional[0].lower()
         schedule_value = positional[1]
         message = " ".join(positional[2:]).strip()
         if not message:
-            raise ValueError("A non-empty message is required")
+            raise ValueError("error_message_required")
 
         if mode == "every":
             try:
                 every_seconds = int(schedule_value)
             except ValueError as exc:
-                raise ValueError("every requires an integer number of seconds") from exc
+                raise ValueError("error_every_requires_integer") from exc
             if every_seconds <= 0:
-                raise ValueError("every requires a value greater than 0")
+                raise ValueError("error_every_requires_positive")
             if tz is not None:
-                raise ValueError("--tz can only be used with cron schedules")
+                raise ValueError("error_tz_only_for_cron")
             return CronSchedule(kind="every", every_ms=every_seconds * 1000), message, deliver
 
         if mode == "at":
             try:
                 dt = datetime.fromisoformat(schedule_value)
             except ValueError as exc:
-                raise ValueError("at requires ISO format like 2026-04-10T09:00:00") from exc
+                raise ValueError("error_at_requires_iso") from exc
             if tz is not None:
-                raise ValueError("--tz can only be used with cron schedules")
+                raise ValueError("error_tz_only_for_cron")
             if dt.tzinfo is None:
                 from zoneinfo import ZoneInfo
 
@@ -235,44 +231,19 @@ class MessageQueue:
         if mode == "cron":
             return CronSchedule(kind="cron", expr=schedule_value, tz=tz or "UTC"), message, deliver
 
-        raise ValueError("Unknown schedule mode. Use every, at, or cron")
-
-    @staticmethod
-    def _format_cron_timestamp(ms: int, tz_name: str) -> str:
-        """Format a scheduled timestamp for chat output."""
-        from zoneinfo import ZoneInfo
-
-        dt = datetime.fromtimestamp(ms / 1000, tz=ZoneInfo(tz_name))
-        return f"{dt.isoformat()} ({tz_name})"
-
-    def _format_cron_timing(self, schedule: Any, default_timezone: str = "UTC") -> str:
-        """Format a cron schedule in the same style as the cron tool."""
-        if schedule.kind == "cron":
-            tz = f" ({schedule.tz})" if schedule.tz else ""
-            return f"cron: {schedule.expr}{tz}"
-        if schedule.kind == "every" and schedule.every_ms:
-            if schedule.every_ms % 3_600_000 == 0:
-                return f"every {schedule.every_ms // 3_600_000}h"
-            if schedule.every_ms % 60_000 == 0:
-                return f"every {schedule.every_ms // 60_000}m"
-            if schedule.every_ms % 1000 == 0:
-                return f"every {schedule.every_ms // 1000}s"
-            return f"every {schedule.every_ms}ms"
-        if schedule.kind == "at" and schedule.at_ms:
-            return f"at {self._format_cron_timestamp(schedule.at_ms, schedule.tz or default_timezone)}"
-        return schedule.kind
+        raise ValueError("error_unknown_schedule_mode")
 
     async def _handle_cron_command(self, session_chat_id: str, text: str | None) -> str:
         """Handle immediate cron management commands for the active session."""
         action, args = self._parse_cron_command(text)
         if action == "error":
-            return f"Error: {args[0]}"
+            return self.messages.cron.error_prefix.format(message=self.messages.cron.error_invalid_quoting)
         if action in {"help", "--help", "-h"}:
             return self._cron_help_text()
 
         cron_manager = getattr(self.agent, "cron_manager", None)
         if cron_manager is None:
-            return "排程功能目前不可用。"
+            return self.messages.cron.unavailable
 
         service = await cron_manager.get_or_create_service(session_chat_id)
 
@@ -280,7 +251,9 @@ class MessageQueue:
             try:
                 schedule, message, deliver = self._parse_cron_add_schedule(args)
             except ValueError as exc:
-                return f"Error: {exc}"
+                key = str(exc)
+                details = getattr(self.messages.cron, key, key)
+                return self.messages.cron.error_prefix.format(message=details)
 
             if ":" in session_chat_id:
                 channel, chat_id = session_chat_id.split(":", 1)
@@ -299,55 +272,44 @@ class MessageQueue:
                     delete_after_run=delete_after,
                 )
             except ValueError as exc:
-                return f"Error: {exc}"
-            return f"Created job '{job.name}' (id: {job.id})"
+                return self.messages.cron.error_prefix.format(message=str(exc))
+            return self.messages.cron.created_job.format(name=job.name, job_id=job.id)
 
         if action == "list":
             jobs = service.list_jobs(include_disabled=True)
-            if not jobs:
-                return "No scheduled jobs."
-            lines = []
-            for job in jobs:
-                line = f"- {job.name} (id: {job.id}, {self._format_cron_timing(job.schedule)})"
-                if job.state.next_run_at_ms:
-                    line += (
-                        f"\n  Next run: "
-                        f"{self._format_cron_timestamp(job.state.next_run_at_ms, job.schedule.tz or 'UTC')}"
-                    )
-                lines.append(line)
-            return "Scheduled jobs:\n" + "\n".join(lines)
+            return render_cron_jobs(jobs, self.messages.cron, default_timezone=self._cron_default_timezone())
 
         if action in {"pause", "disable"}:
             if not args:
-                return "Error: job_id is required. Usage: /cron pause <job_id>"
+                return self.messages.cron.error_job_id_required_pause
             job_id = args[0]
             if service.pause_job(job_id):
-                return f"Paused job {job_id}"
-            return f"Job {job_id} not found or already paused"
+                return self.messages.cron.paused_job.format(job_id=job_id)
+            return self.messages.cron.job_not_found_or_paused.format(job_id=job_id)
 
         if action in {"enable", "resume"}:
             if not args:
-                return "Error: job_id is required. Usage: /cron enable <job_id>"
+                return self.messages.cron.error_job_id_required_enable
             job_id = args[0]
             if service.enable_job(job_id):
-                return f"Enabled job {job_id}"
-            return f"Job {job_id} not found or already enabled"
+                return self.messages.cron.enabled_job.format(job_id=job_id)
+            return self.messages.cron.job_not_found_or_enabled.format(job_id=job_id)
 
         if action in {"run", "trigger"}:
             if not args:
-                return "Error: job_id is required. Usage: /cron run <job_id>"
+                return self.messages.cron.error_job_id_required_run
             job_id = args[0]
             if await service.run_job(job_id):
-                return f"Ran job {job_id}"
-            return f"Job {job_id} not found"
+                return self.messages.cron.ran_job.format(job_id=job_id)
+            return self.messages.cron.job_not_found.format(job_id=job_id)
 
         if action in {"remove", "rm", "delete"}:
             if not args:
-                return "Error: job_id is required. Usage: /cron remove <job_id>"
+                return self.messages.cron.error_job_id_required_remove
             job_id = args[0]
             if service.remove_job(job_id):
-                return f"Removed job {job_id}"
-            return f"Job {job_id} not found"
+                return self.messages.cron.removed_job.format(job_id=job_id)
+            return self.messages.cron.job_not_found.format(job_id=job_id)
 
         return self._cron_help_text()
 
@@ -360,7 +322,7 @@ class MessageQueue:
         cancelled: int,
     ) -> None:
         """Publish the acknowledgement for an immediate stop command."""
-        content = "已停止目前這段對話。" if cancelled > 0 else "目前沒有正在執行的對話可停止。"
+        content = self.messages.queue.stop_cancelled if cancelled > 0 else self.messages.queue.stop_idle
         await self.bus.publish_outbound(
             OutboundMessage(
                 channel=channel,
@@ -379,9 +341,11 @@ class MessageQueue:
         cancelled: int,
     ) -> None:
         """Publish the acknowledgement for an immediate reset command."""
-        content = "已重置目前這段對話。"
-        if cancelled > 0:
-            content += " 進行中的任務也已停止。"
+        content = (
+            self.messages.queue.reset_done_with_cancelled
+            if cancelled > 0
+            else self.messages.queue.reset_done
+        )
         await self.bus.publish_outbound(
             OutboundMessage(
                 channel=channel,

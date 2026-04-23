@@ -5,6 +5,7 @@ from telegram import Update
 from telegram.ext import filters
 
 from opensprite.bus.message import AssistantMessage
+from opensprite.config.schema import MessagesConfig
 from opensprite.channels.telegram import TelegramAdapter
 
 
@@ -105,6 +106,28 @@ def test_typing_indicator_stops_on_error():
     adapter = asyncio.run(scenario())
 
     assert "telegram:user-a" not in adapter._typing_tasks
+
+
+def test_send_uses_configured_empty_message_fallback():
+    async def scenario():
+        mq = SimpleNamespace(messages=MessagesConfig(**{"telegram": {"empty_message_fallback": "請稍後再試"}}))
+        adapter = TelegramAdapter("token", mq=mq)
+        adapter.app = SimpleNamespace(bot=FakeBot())
+
+        await adapter.send(
+            AssistantMessage(
+                text="",
+                channel="telegram",
+                chat_id="user-a",
+                session_chat_id="telegram:user-a",
+            )
+        )
+
+        return adapter
+
+    adapter = asyncio.run(scenario())
+
+    assert adapter.app.bot.message_calls == [("user-a", "請稍後再試", "HTML")]
 
 
 def test_to_user_message_sets_session_chat_id_for_typing():

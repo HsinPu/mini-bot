@@ -22,6 +22,7 @@ def test_run_onboard_creates_external_config_files(monkeypatch, tmp_path):
     assert (app_home / "channels.json").exists()
     assert (app_home / "search.json").exists()
     assert (app_home / "media.json").exists()
+    assert (app_home / "messages.json").exists()
     assert (app_home / "mcp_servers.json").exists()
     assert (app_home / "llm.providers.json").exists()
 
@@ -88,6 +89,7 @@ def test_run_onboard_refresh_preserves_existing_external_config(monkeypatch, tmp
                 "channels_file": "channels.json",
                 "search_file": "search.json",
                 "media_file": "media.json",
+                "messages_file": "messages.json",
                 "log": {"enabled": True, "retention_days": 365, "level": "INFO", "log_system_prompt": True, "log_system_prompt_lines": 0},
                 "tools": {"mcp_servers_file": "mcp_servers.json"},
             },
@@ -105,13 +107,16 @@ def test_run_onboard_refresh_preserves_existing_external_config(monkeypatch, tmp
     )
     (app_home / "search.json").write_text(json.dumps({"enabled": True, "history_top_k": 9, "knowledge_top_k": 11, "embedding": {"enabled": False, "provider": "openai", "api_key": "", "model": "", "base_url": None, "batch_size": 16, "candidate_count": 20, "candidate_strategy": "vector", "vector_backend": "auto", "vector_candidate_count": 50, "retry_failed_on_startup": False}}, indent=2), encoding="utf-8")
     (app_home / "media.json").write_text(json.dumps({"vision": {"enabled": True, "provider": "minimax", "api_key": "v", "model": "vm", "base_url": None}, "speech": {"enabled": False, "provider": "minimax", "api_key": "", "model": "", "base_url": None}, "video": {"enabled": False, "provider": "minimax", "api_key": "", "model": "", "base_url": None}}, indent=2), encoding="utf-8")
+    (app_home / "messages.json").write_text(json.dumps({"agent": {"empty_response_fallback": "fallback", "llm_not_configured": "請先設定"}, "queue": {"stop_cancelled": "stop", "stop_idle": "idle", "reset_done": "reset", "reset_done_with_cancelled": "reset-stop"}, "cron": {"help_text": "help", "unavailable": "unavailable"}, "telegram": {"empty_message_fallback": "tg-fallback"}}, indent=2), encoding="utf-8")
     (app_home / "mcp_servers.json").write_text("{}\n", encoding="utf-8")
 
     result = onboard.run_onboard(interactive=False)
 
     providers = json.loads((app_home / "llm.providers.json").read_text(encoding="utf-8"))
     channels = json.loads((app_home / "channels.json").read_text(encoding="utf-8"))
+    messages = json.loads((app_home / "messages.json").read_text(encoding="utf-8"))
 
     assert result.created_config is False
     assert providers["openai"]["api_key"] == "keep-me"
     assert channels["telegram"]["token"] == "keep-token"
+    assert messages["agent"]["llm_not_configured"] == "請先設定"
