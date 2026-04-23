@@ -35,7 +35,7 @@ SUBAGENT_PROMPTS_DIRNAME = "subagent_prompts"
 USER_PROFILE_STATE_FILENAME = ".user_profile_state.json"
 RECENT_SUMMARY_STATE_FILENAME = ".recent_summary_state.json"
 
-BOOTSTRAP_FILES = ["SOUL.md", "IDENTITY.md", "AGENTS.md", "USER.md", "TOOLS.md"]
+BOOTSTRAP_FILES = ["IDENTITY.md", "SOUL.md", "AGENTS.md", "TOOLS.md", "USER.md"]
 
 
 def ensure_dir(path: Path) -> Path:

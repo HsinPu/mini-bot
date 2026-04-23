@@ -35,7 +35,7 @@ from ..subagent_prompts import get_all_subagents
 class FileContextBuilder:
     """Context builder backed by bootstrap files, skills, and memory."""
 
-    BOOTSTRAP_FILES = ["SOUL.md", "IDENTITY.md", "AGENTS.md", "USER.md", "TOOLS.md"]
+    BOOTSTRAP_FILES = ["IDENTITY.md", "SOUL.md", "AGENTS.md", "TOOLS.md", "USER.md"]
     _RUNTIME_CONTEXT_TAG = RUNTIME_CONTEXT_TAG
 
     def _build_mcp_tools_summary(self) -> str:
