@@ -200,6 +200,7 @@ async def create_agent(config: Config):
         cron_manager=None,
         media_router=media_router,
         config_path=config.source_path,
+        llm_configured=config.is_llm_configured,
     )
     mq = MessageQueue(agent)
     agent._message_bus = mq.bus
@@ -256,10 +257,11 @@ async def run(config_path: str | Path | None = None) -> None:
     # 初始化日誌
     from .utils.log import setup_log
     setup_log(config.log)
-    
-    # 檢查 LLM 設定
+
     if not config.is_llm_configured:
-        return
+        logger.warning(
+            "LLM is not configured. Gateway will still start, but agent replies will ask users to configure LLM first."
+        )
     
     # 建立 Agent + MessageQueue
     agent, mq, cron_manager = await create_agent(config)

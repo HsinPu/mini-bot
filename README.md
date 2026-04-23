@@ -52,9 +52,9 @@
 
 ## Requirements · 系統需求
 
-**English:** Python 3.11+, at least one configured LLM API key, and a Telegram bot token if you use Telegram.
+**English:** Python 3.11+. A Telegram bot token is required if you use Telegram. LLM API keys are required when the agent handles user prompts.
 
-**中文：** Python 3.11+、至少一組已設定的 LLM API 金鑰；若使用 Telegram 則需要 Bot Token。
+**中文：** Python 3.11+。若使用 Telegram 則需要 Bot Token。LLM API 金鑰可稍後設定，但代理開始處理對話前需要完成設定。
 
 ---
 

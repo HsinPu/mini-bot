@@ -406,3 +406,44 @@ def test_tool_schema_tokens_reduce_history_budget(tmp_path):
 
     assert kept_without_tools == [{"role": "assistant", "content": "recent message"}]
     assert kept_with_tools == []
+
+
+def test_agent_process_returns_setup_hint_when_llm_not_configured(tmp_path):
+    storage = FakeStorage()
+    agent = AgentLoop(
+        config=AgentConfig(),
+        provider=FakeProvider(),
+        storage=storage,
+        context_builder=FakeContextBuilder(tmp_path),
+        tools=ToolRegistry(),
+        memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
+        tools_config=ToolsConfig(),
+        log_config=LogConfig(),
+        search_config=SearchConfig(),
+        user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+        recent_summary_config=RecentSummaryConfig(**{**Config.load_template_data()["recent_summary"], "enabled": False}),
+        llm_configured=False,
+        **Config.packaged_agent_llm_chat_kwargs(),
+    )
+
+    async def fail_call_llm(*args, **kwargs):
+        raise AssertionError("call_llm should not run when llm is not configured")
+
+    agent.call_llm = fail_call_llm
+
+    response = asyncio.run(
+        agent.process(
+            UserMessage(
+                text="hello",
+                channel="telegram",
+                chat_id="room-1",
+                session_chat_id="telegram:room-1",
+                sender_id="user-1",
+                sender_name="alice",
+            )
+        )
+    )
+
+    assert response.text == AgentLoop.LLM_NOT_CONFIGURED_RESPONSE
+    assert [entry[1] for entry in storage.saved] == ["user", "assistant"]
+    assert storage.saved[1][2] == AgentLoop.LLM_NOT_CONFIGURED_RESPONSE

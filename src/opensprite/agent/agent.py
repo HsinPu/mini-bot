@@ -83,6 +83,10 @@ class AgentLoop:
 
     MAX_TOOL_ITERATIONS = 10
     EMPTY_RESPONSE_FALLBACK = "抱歉，我剛剛沒有產生可顯示的回覆，請再試一次。"
+    LLM_NOT_CONFIGURED_RESPONSE = (
+        "尚未設定 LLM，請先設定後再試。可執行 opensprite onboard，"
+        "或在 llm.providers.json 設定預設 provider 的 api_key。"
+    )
 
     @staticmethod
     def _sanitize_log_filename(value: str) -> str:
@@ -375,6 +379,7 @@ class AgentLoop:
         llm_chat_frequency_penalty: float | None,
         llm_chat_presence_penalty: float | None,
         llm_pass_decoding_params: bool,
+        llm_configured: bool = True,
     ):
         ...
         self.config = config
@@ -384,6 +389,7 @@ class AgentLoop:
         self.llm_chat_frequency_penalty = llm_chat_frequency_penalty
         self.llm_chat_presence_penalty = llm_chat_presence_penalty
         self.llm_pass_decoding_params = llm_pass_decoding_params
+        self.llm_configured = llm_configured
         self.memory_config = memory_config or MemoryConfig(
             **Config._merge_document_section({}, Config.load_template_data().get("memory", {}))
         )
@@ -1226,6 +1232,11 @@ class AgentLoop:
             "videos_count": len(user_message.videos or []),
         }
         user_metadata = {key: value for key, value in user_metadata.items() if value is not None}
+        assistant_metadata = {
+            "channel": channel,
+            "transport_chat_id": user_message.chat_id,
+        }
+        assistant_metadata = {key: value for key, value in assistant_metadata.items() if value is not None}
 
         token = self._current_chat_id.set(session_chat_id)
         channel_token = self._current_channel.set(channel)
@@ -1236,6 +1247,22 @@ class AgentLoop:
         audios_token = self._current_audios.set(list(user_message.audios or []))
         videos_token = self._current_videos.set(list(user_message.videos or []))
         try:
+            if not self.llm_configured:
+                logger.warning("[{}] agent.skip | reason=llm-not-configured", session_chat_id)
+                await self._save_message(session_chat_id, "user", user_message.text, metadata=user_metadata)
+                response = self.LLM_NOT_CONFIGURED_RESPONSE
+                logger.info(
+                    f"[{session_chat_id}] outbound | text={self._format_log_preview(response, max_chars=200)}"
+                )
+                await self._save_message(session_chat_id, "assistant", response, metadata=assistant_metadata)
+                return AssistantMessage(
+                    text=response,
+                    channel=channel or "unknown",
+                    chat_id=user_message.chat_id,
+                    session_chat_id=session_chat_id,
+                    metadata=assistant_metadata,
+                )
+
             await self.connect_mcp()
 
             # 1. 把使用者訊息存入 storage
@@ -1256,12 +1283,6 @@ class AgentLoop:
             logger.info(
                 f"[{session_chat_id}] outbound | text={self._format_log_preview(response, max_chars=200)}"
             )
-
-            assistant_metadata = {
-                "channel": channel,
-                "transport_chat_id": user_message.chat_id,
-            }
-            assistant_metadata = {key: value for key, value in assistant_metadata.items() if value is not None}
 
             # 3. 把 AI 回覆存入 storage
             await self._save_message(session_chat_id, "assistant", response, metadata=assistant_metadata)
