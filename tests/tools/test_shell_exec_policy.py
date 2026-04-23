@@ -136,6 +136,39 @@ def test_exec_timeout_terminates_descendant_processes(tmp_path):
     assert not marker.exists()
 
 
+def test_exec_warns_when_output_readers_linger_after_process_exit(tmp_path, monkeypatch):
+    import opensprite.tools.shell as shell_module
+
+    class _FinishedProcess:
+        returncode = 0
+
+        async def wait(self):
+            return 0
+
+    async def fake_start_shell_process(command, *, cwd, output_chunks):
+        output_chunks.extend(
+            [
+                shell_module.CapturedOutputChunk("stdout", b"parent exiting\n"),
+                shell_module.CapturedOutputChunk("stdout", b"child still attached\n"),
+            ]
+        )
+
+        async def sleeper():
+            await asyncio.sleep(1)
+
+        return _FinishedProcess(), [asyncio.create_task(sleeper())]
+
+    monkeypatch.setattr(shell_module, "start_shell_process", fake_start_shell_process)
+
+    tool = shell_module.ExecTool(workspace=Path(tmp_path), timeout=1)
+    tool._output_drain_timeout = lambda: 0.1
+    result = asyncio.run(tool.execute(command="echo simulated"))
+
+    assert "parent exiting" in result
+    assert "child still attached" in result
+    assert "output pipes did not close within 0.1s after the shell exited" in result
+
+
 def test_build_timeout_result_appends_pipe_warning_when_not_drained():
     result = _build_timeout_result(3, "partial output", drained=False)
 

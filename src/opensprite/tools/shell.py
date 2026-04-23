@@ -129,6 +129,7 @@ def _has_shell_background_operator(command: str) -> bool:
 # Foreground guardrails (aligned with hermes-agent terminal_tool policy)
 # ---------------------------------------------------------------------------
 
+_DANGEROUS_COMMAND_ERROR = "Error: Command blocked by safety guard (dangerous pattern detected)"
 _SHELL_LEVEL_BACKGROUND_RE = re.compile(r"\b(?:nohup|disown|setsid)\b", re.IGNORECASE)
 _LONG_LIVED_FOREGROUND_PATTERNS = (
     re.compile(r"\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:dev|start|serve|watch)\b", re.IGNORECASE),
@@ -139,6 +140,21 @@ _LONG_LIVED_FOREGROUND_PATTERNS = (
     re.compile(r"\buvicorn\b", re.IGNORECASE),
     re.compile(r"\bgunicorn\b", re.IGNORECASE),
     re.compile(r"\bpython(?:3)?\s+-m\s+http\.server\b", re.IGNORECASE),
+)
+_BACKGROUND_WRAPPER_GUIDANCE = (
+    "exec cannot run commands that use nohup, disown, or setsid as shell-level "
+    "background wrappers. Start long-lived processes outside exec (host service, "
+    "tmux, systemd, or another terminal), then use exec only for short checks."
+)
+_BACKGROUND_OPERATOR_GUIDANCE = (
+    "exec cannot mix shell background '&' with this tool's captured stdout/stderr "
+    "(the subprocess would hang or lose output). Start the server outside exec "
+    "with logs redirected to a file, then run curl/tests in a separate exec call."
+)
+_LONG_LIVED_FOREGROUND_GUIDANCE = (
+    "This command looks like it starts a long-lived dev server or watcher; "
+    "exec is meant for short foreground commands. Start it outside OpenSprite, "
+    "then verify with a separate short exec (curl, wget, etc.)."
 )
 
 
@@ -153,34 +169,26 @@ def _looks_like_help_or_version_command(command: str) -> bool:
     )
 
 
+def _foreground_exec_violation(command: str) -> str | None:
+    """Return the foreground-exec policy violation for a command, if any."""
+    if _SHELL_LEVEL_BACKGROUND_RE.search(command):
+        return _BACKGROUND_WRAPPER_GUIDANCE
+
+    if _has_shell_background_operator(command):
+        return _BACKGROUND_OPERATOR_GUIDANCE
+
+    if any(pattern.search(command) for pattern in _LONG_LIVED_FOREGROUND_PATTERNS):
+        return _LONG_LIVED_FOREGROUND_GUIDANCE
+
+    return None
+
+
 def _foreground_exec_guidance(command: str) -> str | None:
     """Return a human-readable reason to refuse exec, or None if allowed."""
     if _looks_like_help_or_version_command(command):
         return None
 
-    if _SHELL_LEVEL_BACKGROUND_RE.search(command):
-        return (
-            "exec cannot run commands that use nohup, disown, or setsid as shell-level "
-            "background wrappers. Start long-lived processes outside exec (host service, "
-            "tmux, systemd, or another terminal), then use exec only for short checks."
-        )
-
-    if _has_shell_background_operator(command):
-        return (
-            "exec cannot mix shell background '&' with this tool's captured stdout/stderr "
-            "(the subprocess would hang or lose output). Start the server outside exec "
-            "with logs redirected to a file, then run curl/tests in a separate exec call."
-        )
-
-    for pattern in _LONG_LIVED_FOREGROUND_PATTERNS:
-        if pattern.search(command):
-            return (
-                "This command looks like it starts a long-lived dev server or watcher; "
-                "exec is meant for short foreground commands. Start it outside OpenSprite, "
-                "then verify with a separate short exec (curl, wget, etc.)."
-            )
-
-    return None
+    return _foreground_exec_violation(command)
 
 
 def _build_timeout_result(timeout: int, output: str, *, drained: bool) -> str:
@@ -252,7 +260,7 @@ class ExecTool(Tool):
     def _validate_command(self, command: str) -> str | None:
         for pattern in self.deny_patterns:
             if re.search(pattern, command, re.IGNORECASE):
-                return "Error: Command blocked by safety guard (dangerous pattern detected)"
+                return _DANGEROUS_COMMAND_ERROR
 
         if _looks_like_help_or_version_command(command):
             return None
