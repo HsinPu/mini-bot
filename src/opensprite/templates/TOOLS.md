@@ -35,10 +35,9 @@ This file defines when to use tools, how to choose between them, and what constr
   - Use for verification, project inspection, builds, tests, and other command-line tasks.
   - Dangerous commands and obvious destructive patterns are blocked.
   - If a command could still cause irreversible or external side effects, ask first.
-  - **Stdout/stderr are piped** from the shell subprocess; there is no interactive stdin (commands that wait for TTY input will stall or time out).
+  - **Stdout/stderr are piped** from the shell subprocess and returned in arrival order; stderr lines are prefixed with `[stderr]`. There is no interactive stdin (commands that wait for TTY input will stall or time out).
   - **Background `&` and shell wrappers** (`nohup`, `disown`, `setsid`) are **rejected** in `exec`: they fight piped stdout/stderr and hang or lose output. Start long-lived servers **outside** `exec`, then use short follow-up `exec` calls (e.g. `curl`) for checks.
   - Commands that **look like long-lived dev servers** (e.g. `uvicorn`, `vite`, `npm run dev`, `python -m http.server`, …) are rejected unless they are clearly `--help` / `--version` style invocations.
-  - **Bash compound fix**: `A && B &` / `A || B &` is rewritten internally to `A && { B & }` / `A || { B & }` before running (avoids a subshell-wait trap). This does **not** bypass the rules above when the original command still used shell `&` or a blocked server pattern.
 
 ## External Knowledge Tools
 

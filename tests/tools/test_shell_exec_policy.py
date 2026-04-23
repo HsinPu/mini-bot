@@ -1,48 +1,45 @@
-"""exec policy: compound-background rewrite + Hermes-aligned foreground guards."""
+"""exec policy and lifecycle behavior."""
 
 import asyncio
+import os
+import shlex
+import subprocess
+import sys
+import time
 from pathlib import Path
 
-import pytest
-
 from opensprite.tools.shell import (
+    _build_pipe_drain_warning_result,
+    _build_timeout_result,
     _foreground_exec_guidance,
-    _rewrite_compound_background,
+    _has_shell_background_operator,
 )
 
 
-class TestCompoundBackgroundRewrite:
-    def test_simple_and_background(self):
-        assert _rewrite_compound_background("A && B &") == "A && { B & }"
+def _python_shell_command(code: str) -> str:
+    argv = [sys.executable, "-u", "-c", code]
+    if os.name == "nt":
+        return subprocess.list2cmdline(argv)
+    return shlex.join(argv)
 
-    def test_or_background(self):
-        assert _rewrite_compound_background("A || B &") == "A || { B & }"
 
-    def test_chained_and(self):
-        assert _rewrite_compound_background("A && B && C &") == "A && B && { C & }"
+class TestBackgroundOperatorDetection:
+    def test_detects_shell_background_operator(self):
+        assert _has_shell_background_operator("sleep 1 &") is True
+        assert _has_shell_background_operator("sleep 1&") is True
 
-    def test_newline_resets_chain_state(self):
-        cmd = "A && B\nC &"
-        assert _rewrite_compound_background(cmd) == cmd
+    def test_ignores_redirect_and_logical_ampersands(self):
+        assert _has_shell_background_operator("cmd 2>&1") is False
+        assert _has_shell_background_operator("cmd &>/dev/null") is False
+        assert _has_shell_background_operator("A && B") is False
 
-    def test_simple_background_unchanged(self):
-        assert _rewrite_compound_background("sleep 5 &") == "sleep 5 &"
-
-    def test_fd_redirect_with_trailing_bg(self):
-        assert _rewrite_compound_background("cmd 2>&1 &") == "cmd 2>&1 &"
-
-    def test_amp_gt_inside_compound_background(self):
-        cmd = "A && B &>/dev/null &"
-        assert _rewrite_compound_background(cmd) == "A && { B &>/dev/null & }"
-
-    def test_idempotent(self):
-        once = _rewrite_compound_background("A && B &")
-        assert _rewrite_compound_background(once) == once
+    def test_ignores_ampersand_inside_quotes(self):
+        assert _has_shell_background_operator('printf "&"') is False
 
 
 class TestForegroundGuidance:
     def test_blocks_trailing_ampersand(self):
-        assert _foreground_exec_guidance("sleep 1 &") is not None
+        assert _foreground_exec_guidance("sleep 1&") is not None
 
     def test_blocks_inline_ampersand(self):
         assert _foreground_exec_guidance("foo & bar") is not None
@@ -76,3 +73,79 @@ def test_exec_tool_runs_echo_when_allowed(tmp_path):
     result = asyncio.run(tool.execute(command="echo opensprite_exec_ok"))
     assert "opensprite_exec_ok" in result
     assert not result.startswith("Error:")
+
+
+def test_exec_tool_blocks_dangerous_command(tmp_path):
+    from opensprite.tools.shell import ExecTool
+
+    tool = ExecTool(workspace=Path(tmp_path))
+    result = asyncio.run(tool.execute(command="git reset --hard"))
+
+    assert result == "Error: Command blocked by safety guard (dangerous pattern detected)"
+
+
+def test_exec_tool_preserves_stdout_stderr_order(tmp_path):
+    from opensprite.tools.shell import ExecTool
+
+    tool = ExecTool(workspace=Path(tmp_path))
+    command = _python_shell_command(
+        "import sys, time; "
+        "print('out1', flush=True); "
+        "time.sleep(0.1); "
+        "print('err1', file=sys.stderr, flush=True); "
+        "time.sleep(0.1); "
+        "print('out2', flush=True)"
+    )
+
+    result = asyncio.run(tool.execute(command=command))
+
+    assert "out1" in result
+    assert "[stderr] err1" in result
+    assert "out2" in result
+    assert result.index("out1") < result.index("[stderr] err1") < result.index("out2")
+
+
+def test_exec_timeout_terminates_descendant_processes(tmp_path):
+    from opensprite.tools.shell import ExecTool
+
+    marker = Path(tmp_path) / "child-survived.txt"
+    child_code = (
+        "import pathlib, time; "
+        "time.sleep(2); "
+        f"pathlib.Path({str(marker)!r}).write_text('child survived', encoding='utf-8')"
+    )
+    parent_code = (
+        "import subprocess, sys, time; "
+        f"subprocess.Popen([sys.executable, '-u', '-c', {child_code!r}]); "
+        "print('parent started', flush=True); "
+        "time.sleep(10)"
+    )
+
+    tool = ExecTool(workspace=Path(tmp_path), timeout=1)
+    result = asyncio.run(tool.execute(command=_python_shell_command(parent_code)))
+
+    assert "Error: Command timed out after 1s." in result
+    assert "parent started" in result
+
+    deadline = time.time() + 3
+    while time.time() < deadline:
+        if marker.exists():
+            break
+        time.sleep(0.1)
+
+    assert not marker.exists()
+
+
+def test_build_timeout_result_appends_pipe_warning_when_not_drained():
+    result = _build_timeout_result(3, "partial output", drained=False)
+
+    assert "Error: Command timed out after 3s." in result
+    assert "Partial output before timeout:\npartial output" in result
+    assert "output pipes did not close promptly after timeout" in result
+
+
+def test_build_pipe_drain_warning_result_mentions_timeout_window():
+    result = _build_pipe_drain_warning_result("hello", drain_timeout=7)
+
+    assert result.startswith("hello\n\n")
+    assert "output pipes did not close within 7s after the shell exited" in result

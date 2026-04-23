@@ -6,7 +6,14 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .base import Tool
+from .shell_runtime import (
+    CapturedOutputChunk,
+    drain_process_output,
+    format_captured_output,
+    start_shell_process,
+)
 from .validation import NON_EMPTY_STRING_PATTERN
+from ..utils.processes import terminate_process_tree
 
 
 WorkspaceResolver = Callable[[], Path]
@@ -32,13 +39,6 @@ def _build_workspace_resolver(
 
     root = _resolve_workspace_root(workspace)
     return lambda: root
-
-
-# ---------------------------------------------------------------------------
-# Bash `A && B &` compound-background rewrite
-# Adapted from hermes-agent/tools/terminal_tool.py::_rewrite_compound_background
-# (same project author; keeps `&&` / `||` semantics while avoiding subshell-wait).
-# ---------------------------------------------------------------------------
 
 
 def _read_shell_token(command: str, start: int) -> tuple[str, int]:
@@ -77,32 +77,13 @@ def _read_shell_token(command: str, start: int) -> tuple[str, int]:
     return command[start:i], i
 
 
-def _rewrite_compound_background(command: str) -> str:
-    """Wrap `A && B &` (or `A || B &`) to `A && { B & }` at depth 0.
-
-    Bash parses ``A && B &`` with `&&` tighter than `&`, so it forks a
-    subshell for the whole `A && B` compound and backgrounds it. Inside
-    the subshell, `B` runs foreground, so the subshell waits for `B` to
-    finish. When `B` is long-running, the subshell never exits and can
-    hold stdout/stderr pipes open.
-
-    Rewriting the tail to `A && { B & }` preserves `&&`'s error semantics
-    while replacing the subshell with a brace group.
-    """
-    n = len(command)
+def _has_shell_background_operator(command: str) -> bool:
+    """Return True when the command uses shell backgrounding with `&`."""
     i = 0
-    paren_depth = 0
-    brace_depth = 0
-    last_chain_op_end = -1
-    rewrites: list[tuple[int, int]] = []
+    n = len(command)
 
     while i < n:
         ch = command[i]
-
-        if ch == "\n" and paren_depth == 0 and brace_depth == 0:
-            last_chain_op_end = -1
-            i += 1
-            continue
 
         if ch.isspace():
             i += 1
@@ -111,8 +92,8 @@ def _rewrite_compound_background(command: str) -> str:
         if ch == "#":
             nl = command.find("\n", i)
             if nl == -1:
-                break
-            i = nl
+                return False
+            i = nl + 1
             continue
 
         if ch == "\\" and i + 1 < n:
@@ -124,78 +105,24 @@ def _rewrite_compound_background(command: str) -> str:
             i = max(next_i, i + 1)
             continue
 
-        if ch == "(":
-            paren_depth += 1
-            i += 1
-            continue
-
-        if ch == ")":
-            paren_depth = max(0, paren_depth - 1)
-            i += 1
-            continue
-
-        if ch == "{" and i + 1 < n and (command[i + 1].isspace() or command[i + 1] == "\n"):
-            brace_depth += 1
-            i += 1
-            continue
-        if ch == "}" and brace_depth > 0:
-            brace_depth -= 1
-            last_chain_op_end = -1
-            i += 1
-            continue
-
-        if paren_depth > 0 or brace_depth > 0:
-            i += 1
-            continue
-
-        if command.startswith("&&", i) or command.startswith("||", i):
-            last_chain_op_end = i + 2
-            i += 2
-            continue
-
-        if ch == ";":
-            last_chain_op_end = -1
-            i += 1
-            continue
-
-        if ch == "|":
-            last_chain_op_end = -1
-            i += 1
-            continue
-
         if ch == "&":
-            if i + 1 < n and command[i + 1] == ">":
+            next_ch = command[i + 1] if i + 1 < n else ""
+            if next_ch in {"&", ">"}:
                 i += 2
                 continue
+
             j = i - 1
             while j >= 0 and command[j].isspace():
                 j -= 1
             if j >= 0 and command[j] in "<>":
                 i += 1
                 continue
-            if last_chain_op_end >= 0:
-                rewrites.append((last_chain_op_end, i))
-            last_chain_op_end = -1
-            i += 1
-            continue
 
-        _, next_i = _read_shell_token(command, i)
-        i = max(next_i, i + 1)
+            return True
 
-    if not rewrites:
-        return command
+        i += 1
 
-    result = command
-    for chain_end, amp_pos in reversed(rewrites):
-        insert_pos = chain_end
-        while insert_pos < amp_pos and result[insert_pos].isspace():
-            insert_pos += 1
-        prefix = result[:insert_pos]
-        middle = result[insert_pos:amp_pos]
-        suffix = result[amp_pos + 1 :]
-        result = prefix + "{ " + middle + "& }" + suffix
-
-    return result
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -203,8 +130,6 @@ def _rewrite_compound_background(command: str) -> str:
 # ---------------------------------------------------------------------------
 
 _SHELL_LEVEL_BACKGROUND_RE = re.compile(r"\b(?:nohup|disown|setsid)\b", re.IGNORECASE)
-_INLINE_BACKGROUND_AMP_RE = re.compile(r"\s&\s")
-_TRAILING_BACKGROUND_AMP_RE = re.compile(r"\s&\s*(?:#.*)?$")
 _LONG_LIVED_FOREGROUND_PATTERNS = (
     re.compile(r"\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:dev|start|serve|watch)\b", re.IGNORECASE),
     re.compile(r"\bdocker\s+compose\s+up\b", re.IGNORECASE),
@@ -240,7 +165,7 @@ def _foreground_exec_guidance(command: str) -> str | None:
             "tmux, systemd, or another terminal), then use exec only for short checks."
         )
 
-    if _INLINE_BACKGROUND_AMP_RE.search(command) or _TRAILING_BACKGROUND_AMP_RE.search(command):
+    if _has_shell_background_operator(command):
         return (
             "exec cannot mix shell background '&' with this tool's captured stdout/stderr "
             "(the subprocess would hang or lose output). Start the server outside exec "
@@ -256,6 +181,32 @@ def _foreground_exec_guidance(command: str) -> str | None:
             )
 
     return None
+
+
+def _build_timeout_result(timeout: int, output: str, *, drained: bool) -> str:
+    """Build the timeout response for exec output collection."""
+    if not drained:
+        output += (
+            "\n\n[exec] Warning: output pipes did not close promptly after timeout; "
+            "a descendant process may still have inherited stdout/stderr."
+        )
+
+    return (
+        f"Error: Command timed out after {timeout}s. "
+        "The command may be waiting for interactive input or may be stuck. "
+        f"Partial output before timeout:\n{output}"
+    )
+
+
+def _build_pipe_drain_warning_result(output: str, *, drain_timeout: int) -> str:
+    """Build the warning shown when output pipes stay open after exit."""
+    return (
+        f"{output}\n\n"
+        f"[exec] Warning: output pipes did not close within {drain_timeout}s after "
+        "the shell exited. A background process may still be writing to the same "
+        "stdout/stderr as the shell. Redirect long-running servers to a file or "
+        "/dev/null, or run them outside exec."
+    )
 
 
 class ExecTool(Tool):
@@ -295,32 +246,50 @@ class ExecTool(Tool):
     def _get_workspace(self) -> Path:
         return self._workspace_resolver()
 
-    @staticmethod
-    async def _read_stream(stream: asyncio.StreamReader | None, chunks: list[bytes]) -> None:
-        if stream is None:
-            return
+    def _output_drain_timeout(self) -> int:
+        return max(5, min(30, self.timeout))
 
-        while True:
-            chunk = await stream.read(4096)
-            if not chunk:
-                return
-            chunks.append(chunk)
+    def _validate_command(self, command: str) -> str | None:
+        for pattern in self.deny_patterns:
+            if re.search(pattern, command, re.IGNORECASE):
+                return "Error: Command blocked by safety guard (dangerous pattern detected)"
 
-    @staticmethod
-    def _format_output(stdout: bytes | None, stderr: bytes | None) -> str:
-        result = []
-        if stdout:
-            result.append(stdout.decode("utf-8", errors="replace"))
-        if stderr:
-            result.append(f"[stderr] {stderr.decode('utf-8', errors='replace')}")
+        if _looks_like_help_or_version_command(command):
+            return None
 
-        output = "".join(result).strip()
-        if not output:
-            output = "(no output)"
+        guidance = _foreground_exec_guidance(command)
+        if guidance is not None:
+            return f"Error: {guidance}"
 
-        if len(output) > 3000:
-            output = output[:3000] + f"\n\n... (truncated, total {len(output)} chars)"
+        return None
 
+    async def _handle_timed_out_process(
+        self,
+        process: asyncio.subprocess.Process,
+        read_tasks: list[asyncio.Task[None]],
+        output_chunks: list[CapturedOutputChunk],
+    ) -> str:
+        await terminate_process_tree(process)
+        drained = await drain_process_output(
+            read_tasks,
+            timeout=self._output_drain_timeout(),
+        )
+        return _build_timeout_result(
+            self.timeout,
+            format_captured_output(output_chunks),
+            drained=drained,
+        )
+
+    async def _handle_completed_process(
+        self,
+        read_tasks: list[asyncio.Task[None]],
+        output_chunks: list[CapturedOutputChunk],
+    ) -> str:
+        drain_timeout = self._output_drain_timeout()
+        drained = await drain_process_output(read_tasks, timeout=drain_timeout)
+        output = format_captured_output(output_chunks)
+        if not drained:
+            return _build_pipe_drain_warning_result(output, drain_timeout=drain_timeout)
         return output
 
     @property
@@ -352,74 +321,24 @@ class ExecTool(Tool):
     async def _execute(self, **kwargs: Any) -> str:
         command = str(kwargs["command"]).strip()
 
-        # Check for dangerous patterns
-        for pattern in self.deny_patterns:
-            if re.search(pattern, command, re.IGNORECASE):
-                return "Error: Command blocked by safety guard (dangerous pattern detected)"
-
-        if not _looks_like_help_or_version_command(command):
-            guidance = _foreground_exec_guidance(command)
-            if guidance is not None:
-                return f"Error: {guidance}"
-
-        command = _rewrite_compound_background(command)
+        validation_error = self._validate_command(command)
+        if validation_error is not None:
+            return validation_error
 
         try:
             workspace = self._get_workspace()
-            # Security: run in workspace directory
-            process = await asyncio.create_subprocess_shell(
+            output_chunks: list[CapturedOutputChunk] = []
+            process, read_tasks = await start_shell_process(
                 command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                stdin=asyncio.subprocess.DEVNULL,
-                cwd=str(workspace)
+                cwd=str(workspace),
+                output_chunks=output_chunks,
             )
-            stdout_chunks: list[bytes] = []
-            stderr_chunks: list[bytes] = []
-            stdout_task = asyncio.create_task(self._read_stream(process.stdout, stdout_chunks))
-            stderr_task = asyncio.create_task(self._read_stream(process.stderr, stderr_chunks))
 
             try:
                 await asyncio.wait_for(process.wait(), timeout=self.timeout)
             except asyncio.TimeoutError:
-                process.kill()
-                await process.wait()
-                await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
-                stdout = b"".join(stdout_chunks)
-                stderr = b"".join(stderr_chunks)
-                output = self._format_output(stdout, stderr)
-                return (
-                    f"Error: Command timed out after {self.timeout}s. "
-                    "The command may be waiting for interactive input or may be stuck. "
-                    f"Partial output before timeout:\n{output}"
-                )
+                return await self._handle_timed_out_process(process, read_tasks, output_chunks)
 
-            # If the shell exited but a background child still inherits stdout/stderr
-            # pipes (e.g. a stray `&` in a subshell), EOF may never arrive. Cap draining.
-            drain_timeout = max(5, min(30, self.timeout))
-            try:
-                await asyncio.wait_for(
-                    asyncio.gather(stdout_task, stderr_task),
-                    timeout=drain_timeout,
-                )
-            except asyncio.TimeoutError:
-                for t in (stdout_task, stderr_task):
-                    t.cancel()
-                await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
-                stdout = b"".join(stdout_chunks)
-                stderr = b"".join(stderr_chunks)
-                output = self._format_output(stdout, stderr)
-                return (
-                    f"{output}\n\n"
-                    f"[exec] Warning: output pipes did not close within {drain_timeout}s after "
-                    "the shell exited. A background process may still be writing to the same "
-                    "stdout/stderr as the shell. Redirect long-running servers to a file or "
-                    "/dev/null, or run them outside exec."
-                )
-
-            stdout = b"".join(stdout_chunks)
-            stderr = b"".join(stderr_chunks)
-
-            return self._format_output(stdout, stderr)
+            return await self._handle_completed_process(read_tasks, output_chunks)
         except Exception as e:
             return f"Error executing command: {str(e)}"
