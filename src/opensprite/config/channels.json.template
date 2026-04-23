@@ -14,6 +14,14 @@
     "bootstrap_retries": 3,
     "drop_pending_updates": false
   },
+  "web": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 8765,
+    "path": "/ws",
+    "health_path": "/healthz",
+    "max_message_size": 1048576
+  },
   "console": {
     "enabled": true
   }

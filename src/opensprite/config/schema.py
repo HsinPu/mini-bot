@@ -73,6 +73,14 @@ class ChannelsConfig(BaseModel):
         "bootstrap_retries": 3,
         "drop_pending_updates": False,
     })
+    web: dict[str, Any] = Field(default_factory=lambda: {
+        "enabled": False,
+        "host": "127.0.0.1",
+        "port": 8765,
+        "path": "/ws",
+        "health_path": "/healthz",
+        "max_message_size": 1024 * 1024,
+    })
     console: dict[str, Any] = Field(default_factory=lambda: {"enabled": True})
 
 
@@ -1123,6 +1131,7 @@ class Config:
             path,
             {
                 "telegram": dict(self.channels.telegram),
+                "web": dict(self.channels.web),
                 "console": dict(self.channels.console),
             },
             channels_file=self.channels_file,

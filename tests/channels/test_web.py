@@ -1,0 +1,88 @@
+import asyncio
+
+from aiohttp import ClientSession
+
+from opensprite.bus.dispatcher import MessageQueue
+from opensprite.bus.message import AssistantMessage
+from opensprite.channels.web import WebAdapter
+
+
+class EchoAgent:
+    def __init__(self):
+        self.seen_messages = []
+
+    async def process(self, user_message):
+        self.seen_messages.append(user_message)
+        return AssistantMessage(
+            text=f"echo:{user_message.text}",
+            channel="web",
+            chat_id=user_message.chat_id,
+            session_chat_id=user_message.session_chat_id,
+            metadata={"source": "test"},
+        )
+
+
+async def _run_web_roundtrip():
+    agent = EchoAgent()
+    queue = MessageQueue(agent)
+    adapter = WebAdapter(
+        mq=queue,
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "path": "/ws",
+            "health_path": "/healthz",
+        },
+    )
+
+    processor = asyncio.create_task(queue.process_queue())
+    adapter_task = asyncio.create_task(adapter.run())
+
+    try:
+        await adapter.wait_until_started()
+        port = adapter.bound_port
+        assert port is not None
+
+        async with ClientSession() as session:
+            async with session.get(f"http://127.0.0.1:{port}/healthz") as resp:
+                assert resp.status == 200
+                payload = await resp.json()
+                assert payload == {"ok": True, "channel": "web"}
+
+            async with session.ws_connect(f"ws://127.0.0.1:{port}/ws") as ws:
+                session_frame = await ws.receive_json(timeout=2)
+                assert session_frame["type"] == "session"
+                assert session_frame["channel"] == "web"
+                assert session_frame["session_chat_id"].startswith("web:")
+
+                await ws.send_str("hello from browser")
+                reply = await ws.receive_json(timeout=2)
+                assert reply == {
+                    "type": "message",
+                    "channel": "web",
+                    "chat_id": session_frame["chat_id"],
+                    "session_chat_id": session_frame["session_chat_id"],
+                    "text": "echo:hello from browser",
+                    "metadata": {"source": "test"},
+                }
+
+                await ws.send_json({"chat_id": "browser-2", "text": "second round"})
+                second_reply = await ws.receive_json(timeout=2)
+                assert second_reply["chat_id"] == "browser-2"
+                assert second_reply["session_chat_id"] == "web:browser-2"
+                assert second_reply["text"] == "echo:second round"
+
+        seen_sessions = [message.session_chat_id for message in agent.seen_messages]
+        assert seen_sessions == [session_frame["session_chat_id"], "web:browser-2"]
+    finally:
+        adapter_task.cancel()
+        try:
+            await adapter_task
+        except asyncio.CancelledError:
+            pass
+        await queue.stop()
+        await asyncio.wait_for(processor, timeout=2)
+
+
+def test_web_adapter_roundtrip():
+    asyncio.run(_run_web_roundtrip())

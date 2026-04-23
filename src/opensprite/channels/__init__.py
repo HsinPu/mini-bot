@@ -10,6 +10,7 @@ import asyncio
 from typing import Any, Callable
 
 from .telegram import TelegramAdapter
+from .web import WebAdapter
 from ..utils.log import logger
 
 
@@ -24,8 +25,13 @@ def _build_telegram_adapter(mq, channel_config: dict[str, Any]) -> TelegramAdapt
     )
 
 
+def _build_web_adapter(mq, channel_config: dict[str, Any]) -> WebAdapter:
+    return WebAdapter(mq=mq, config=channel_config)
+
+
 CHANNEL_FACTORIES: dict[str, ChannelFactory] = {
     "telegram": _build_telegram_adapter,
+    "web": _build_web_adapter,
 }
 
 
@@ -62,4 +68,4 @@ async def start_channels(mq, channels_config) -> None:
         await asyncio.gather(*tasks)
 
 
-__all__ = ["TelegramAdapter", "CHANNEL_FACTORIES", "start_channels"]
+__all__ = ["TelegramAdapter", "WebAdapter", "CHANNEL_FACTORIES", "start_channels"]
