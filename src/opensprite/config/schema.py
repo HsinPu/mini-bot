@@ -146,6 +146,47 @@ class CronMessagesConfig(BaseModel):
     job_not_found_or_enabled: str = "Job {job_id} not found or already enabled"
 
 
+class TaskMessagesConfig(BaseModel):
+    help_text: str = (
+        "任務命令:\n"
+        "/task show [full]\n"
+        "/task history [limit]\n"
+        "/task set <task description>\n"
+        "/task activate\n"
+        "/task reopen\n"
+        "/task block <reason>\n"
+        "/task wait <question>\n"
+        "/task step <current step>\n"
+        "/task complete [next step]\n"
+        "/task next [next step]\n"
+        "/task done\n"
+        "/task cancel\n"
+        "/task reset\n"
+        "/task help"
+    )
+    unavailable: str = "任務追蹤功能目前不可用。"
+    no_active_task: str = "目前沒有進行中的任務。"
+    no_history: str = "目前沒有任務歷程。"
+    set_done: str = "已設定目前任務。"
+    reset_done: str = "已清除目前的任務狀態。"
+    marked_done: str = "已將目前任務標記為完成。"
+    marked_cancelled: str = "已將目前任務標記為取消。"
+    marked_blocked: str = "已將目前任務標記為阻塞。"
+    marked_waiting: str = "已將目前任務標記為等待使用者。"
+    marked_active: str = "已重新啟用目前任務。"
+    reopened: str = "已重新開啟目前任務。"
+    updated_current_step: str = "已更新目前步驟。"
+    updated_next_step: str = "已更新下一步。"
+    advanced_to_next_step: str = "已將下一步提升為目前步驟。"
+    completed_current_step: str = "已完成目前步驟。"
+    error_set_usage: str = "Error: task description is required. Usage: /task set <task description>"
+    error_block_usage: str = "Error: reason is required. Usage: /task block <reason>"
+    error_wait_usage: str = "Error: question is required. Usage: /task wait <question>"
+    error_step_usage: str = "Error: current step is required. Usage: /task step <current step>"
+    error_history_limit: str = "Error: limit must be a positive integer. Usage: /task history [limit]"
+    no_next_step: str = "目前沒有可前進的下一步。"
+
+
 class TelegramMessagesConfig(BaseModel):
     empty_message_fallback: str = "抱歉，我剛剛沒有產生可顯示的回覆，請再試一次。"
 
@@ -154,6 +195,7 @@ class MessagesConfig(BaseModel):
     agent: AgentMessagesConfig = Field(default_factory=AgentMessagesConfig)
     queue: QueueMessagesConfig = Field(default_factory=QueueMessagesConfig)
     cron: CronMessagesConfig = Field(default_factory=CronMessagesConfig)
+    task: TaskMessagesConfig = Field(default_factory=TaskMessagesConfig)
     telegram: TelegramMessagesConfig = Field(default_factory=TelegramMessagesConfig)
 
 

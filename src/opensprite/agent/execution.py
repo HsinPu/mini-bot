@@ -20,6 +20,7 @@ class ExecutionResult:
     content: str
     executed_tool_calls: int = 0
     used_configure_skill: bool = False
+    had_tool_error: bool = False
 
 
 class ToolResultPersistence:
@@ -28,7 +29,7 @@ class ToolResultPersistence:
     def __init__(
         self,
         *,
-        save_message: Callable[[str, str, str, str | None], Awaitable[None]],
+        save_message: Callable[[str, str, str, str | None, dict[str, Any] | None], Awaitable[None]],
         search_store: SearchStore | None = None,
     ):
         self.save_message = save_message
@@ -46,7 +47,13 @@ class ToolResultPersistence:
         if chat_id is None:
             return
 
-        await self.save_message(chat_id, "tool", result, tool_name)
+        await self.save_message(
+            chat_id,
+            "tool",
+            result,
+            tool_name,
+            {"tool_args": dict(tool_args or {})},
+        )
         if self.search_store is not None:
             try:
                 await self.search_store.index_tool_result(chat_id, tool_name, tool_args, result)
@@ -128,6 +135,17 @@ class ExecutionEngine:
         if result.startswith("Error: Invalid arguments for "):
             return result
         return None
+
+    @staticmethod
+    def _tool_result_looks_like_failure(result: str) -> bool:
+        lowered = result.lower()
+        return (
+            result.startswith("Error:")
+            or "timed out" in lowered
+            or " failed" in lowered
+            or lowered.startswith("(mcp tool call failed")
+            or lowered.startswith("(mcp tool call timed out")
+        )
 
     @classmethod
     def _summarize_tool_result_for_context(cls, tool_name: str, result: str) -> str:
@@ -223,6 +241,7 @@ class ExecutionEngine:
         repeated_tool_error_count = 0
         executed_tool_calls = 0
         used_configure_skill = False
+        had_tool_error = False
         iteration_limit = (
             max_tool_iterations if max_tool_iterations is not None else self.tools_config.max_tool_iterations
         )
@@ -298,12 +317,14 @@ class ExecutionEngine:
                             content=self.empty_response_fallback,
                             executed_tool_calls=executed_tool_calls,
                             used_configure_skill=used_configure_skill,
+                            had_tool_error=had_tool_error,
                         )
 
                     return ExecutionResult(
                         content=response.content,
                         executed_tool_calls=executed_tool_calls,
                         used_configure_skill=used_configure_skill,
+                        had_tool_error=had_tool_error,
                     )
 
                 logger.info(
@@ -344,6 +365,8 @@ class ExecutionEngine:
 
                     result = await active_tools.execute(tool_name, tool_args)
                     executed_tool_calls += 1
+                    if self._tool_result_looks_like_failure(result):
+                        had_tool_error = True
                     if tool_name == "configure_skill" and tool_args.get("action") in ("add", "upsert"):
                         used_configure_skill = True
                     logger.info(
@@ -371,6 +394,7 @@ class ExecutionEngine:
                                 ),
                                 executed_tool_calls=executed_tool_calls,
                                 used_configure_skill=used_configure_skill,
+                                had_tool_error=had_tool_error,
                             )
                     else:
                         repeated_tool_error_key = None
@@ -439,12 +463,14 @@ class ExecutionEngine:
                     content=self.empty_response_fallback,
                     executed_tool_calls=executed_tool_calls,
                     used_configure_skill=used_configure_skill,
+                    had_tool_error=had_tool_error,
                 )
 
             return ExecutionResult(
                 content=response.content,
                 executed_tool_calls=executed_tool_calls,
                 used_configure_skill=used_configure_skill,
+                had_tool_error=had_tool_error,
             )
 
         logger.warning(f"[{log_id}] llm.max-iterations | limit={iteration_limit}")
@@ -462,4 +488,5 @@ class ExecutionEngine:
             ),
             executed_tool_calls=executed_tool_calls,
             used_configure_skill=used_configure_skill,
+            had_tool_error=had_tool_error,
         )

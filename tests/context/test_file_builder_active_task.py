@@ -36,5 +36,7 @@ def test_file_builder_includes_active_task_when_session_has_one(tmp_path):
     prompt = builder.build_system_prompt("telegram:room-1")
 
     assert "# Active Task" in prompt
+    assert "# Active Task Execution Rules" in prompt
     assert "Keep the agent on task" in prompt
+    assert "Primary focus for this turn: 1. record the task" in prompt
     assert str(task.active_task_file.resolve()) in prompt

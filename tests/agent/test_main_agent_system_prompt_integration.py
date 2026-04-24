@@ -254,7 +254,9 @@ def test_main_agent_call_llm_seeds_active_task_on_first_turn(tmp_path: Path) -> 
     assert result.content == "done"
     system_text = provider.calls[0][0].content
     assert "# Active Task" in system_text
+    assert "# Active Task Execution Rules" in system_text
     assert "Goal: Refactor the agent in small safe steps and keep it on task." in system_text
+    assert "Primary focus for this turn: 1. inspect the relevant context and refine the task if needed" in system_text
     assert "Current step: 1. inspect the relevant context and refine the task if needed" in system_text
 
 

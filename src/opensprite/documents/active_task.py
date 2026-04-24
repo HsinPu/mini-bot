@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import re
+import json
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
 from ..config.schema import DocumentLlmConfig
-from ..context.paths import get_active_task_file, get_active_task_state_file
+from ..context.paths import get_active_task_event_log_file, get_active_task_file, get_active_task_state_file
 from ..storage import StoredMessage, StorageProvider
 from ..storage.base import get_storage_message_count, get_storage_messages_slice
 from ..utils import count_text_tokens
@@ -67,6 +70,16 @@ This section is maintained by OpenSprite.
 <!-- OPENSPRITE:ACTIVE_TASK:END -->
 """
 _ACTIVE_STATUSES_TO_INCLUDE = {"active", "blocked", "waiting_user"}
+_ALLOWED_ACTIVE_TASK_STATUSES = {"inactive", "active", "blocked", "waiting_user", "done", "cancelled"}
+_INACTIVE_OR_TERMINAL_STATUSES = {"inactive", "done", "cancelled"}
+_AUTO_ALLOWED_STATUS_TRANSITIONS = {
+    "inactive": {"inactive", "active", "blocked", "waiting_user", "done"},
+    "active": {"active", "blocked", "waiting_user", "done"},
+    "blocked": {"blocked", "active", "waiting_user", "done"},
+    "waiting_user": {"waiting_user", "active", "blocked", "done"},
+    "done": {"done"},
+    "cancelled": {"cancelled"},
+}
 _NON_TASK_MESSAGES = {
     "hi",
     "hello",
@@ -154,14 +167,49 @@ _TASK_WORK_MARKERS = (
     "實作",
     "修改",
 )
+_WAITING_USER_PATTERNS = (
+    "請問",
+    "請提供",
+    "可以提供",
+    "麻煩提供",
+    "需要你提供",
+    "需要先知道",
+    "要用哪個",
+    "要使用哪個",
+    "which",
+    "what should",
+    "which should",
+    "which one",
+    "can you provide",
+    "could you provide",
+    "please provide",
+    "do you want",
+    "would you like",
+    "what is the target",
+)
+_BLOCKED_PATTERNS = (
+    "目前無法繼續",
+    "現在無法繼續",
+    "卡住",
+    "受阻",
+    "blocked",
+    "cannot continue",
+    "can't continue",
+    "unable to continue",
+    "cannot proceed",
+    "unable to proceed",
+    "failed and needs to be fixed",
+)
 
 
 class ActiveTaskStore(ConversationDocumentStore):
     """Persist one chat session's ACTIVE_TASK.md and its update state."""
 
-    def __init__(self, active_task_file: Path, state_file: Path):
+    def __init__(self, active_task_file: Path, state_file: Path, event_log_file: Path):
         self.active_task_file = Path(active_task_file).expanduser()
         self.state = JsonProgressStore(state_file)
+        self.event_log_file = Path(event_log_file).expanduser()
+        self.event_log_file.parent.mkdir(parents=True, exist_ok=True)
         self.document = ManagedMarkdownDocument(
             self.active_task_file,
             start_marker=ACTIVE_TASK_START_MARKER,
@@ -211,6 +259,168 @@ class ActiveTaskStore(ConversationDocumentStore):
             return ""
         return f"# Active Task\n\n{self.read_managed_block()}"
 
+    def render_for_user(self) -> str | None:
+        status = self.read_status()
+        if status == "inactive":
+            return None
+        block = self.read_managed_block()
+        goal = _extract_task_field(block, "Goal")
+        deliverable = _extract_task_field(block, "Deliverable")
+        current_step = _extract_task_field(block, "Current step")
+        next_step = _extract_task_field(block, "Next step")
+        open_questions = [entry for entry in _extract_indented_section(block, "Open questions") if entry.lower() != "none"]
+
+        lines = [
+            "# Active Task",
+            "",
+            f"- Status: {status}",
+            f"- Goal: {goal}",
+        ]
+        if deliverable != "not set":
+            lines.append(f"- Deliverable: {deliverable}")
+        if current_step != "not set":
+            lines.append(f"- Current step: {current_step}")
+        if next_step != "not set":
+            lines.append(f"- Next step: {next_step}")
+        if open_questions:
+            lines.append(f"- Open question: {open_questions[0]}")
+        return "\n".join(lines)
+
+    def render_full_for_user(self) -> str | None:
+        status = self.read_status()
+        if status == "inactive":
+            return None
+        return f"# Active Task\n\n{self.read_managed_block()}"
+
+    def set_status(self, status: str) -> str:
+        updated = normalize_active_task_block(
+            _replace_scalar_field(self.read_managed_block(), "Status", status),
+            previous_block=self.read_managed_block(),
+        )
+        self.write_managed_block(updated)
+        return updated
+
+    def append_event(self, event_type: str, source: str, *, details: dict[str, Any] | None = None) -> None:
+        block = self.read_managed_block()
+        event = {
+            "timestamp": time.time(),
+            "event_type": event_type,
+            "source": source,
+            "status": self.read_status(),
+            "goal": _extract_task_field(block, "Goal"),
+            "current_step": _extract_task_field(block, "Current step"),
+            "next_step": _extract_task_field(block, "Next step"),
+            "details": dict(details or {}),
+        }
+        with self.event_log_file.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+    def read_events(self, limit: int | None = None) -> list[dict[str, Any]]:
+        if not self.event_log_file.exists():
+            return []
+        events: list[dict[str, Any]] = []
+        for line in self.event_log_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                events.append(payload)
+        if limit is not None:
+            return events[-limit:]
+        return events
+
+    def render_history(self, limit: int = 10) -> str | None:
+        events = self.read_events(limit=limit)
+        if not events:
+            return None
+        lines = ["# Active Task History", ""]
+        for event in events:
+            timestamp = datetime.fromtimestamp(float(event.get("timestamp", 0) or 0)).strftime("%Y-%m-%d %H:%M:%S")
+            event_type = str(event.get("event_type", "update") or "update")
+            source = str(event.get("source", "system") or "system")
+            source_label = {
+                "user": "manual",
+                "auto": "auto",
+                "immediate": "immediate",
+            }.get(source, source)
+            status = str(event.get("status", "inactive") or "inactive")
+            current_step = str(event.get("current_step", "not set") or "not set")
+            next_step = str(event.get("next_step", "not set") or "not set")
+            lines.append(f"- [{timestamp}] {event_type} ({source_label})")
+            lines.append(f"  - status: {status}")
+            lines.append(f"  - current step: {current_step}")
+            lines.append(f"  - next step: {next_step}")
+            details = event.get("details") if isinstance(event.get("details"), dict) else {}
+            for key, value in details.items():
+                lines.append(f"  - {key}: {value}")
+        return "\n".join(lines)
+
+    def update_fields(
+        self,
+        *,
+        status: str | None = None,
+        current_step: str | None = None,
+        next_step: str | None = None,
+        open_questions: list[str] | None = None,
+        append_completed_step: str | None = None,
+        force: bool = False,
+    ) -> str:
+        previous = self.read_managed_block()
+        updated = previous
+        if status is not None:
+            updated = _replace_scalar_field(updated, "Status", status)
+        if current_step is not None:
+            updated = _replace_scalar_field(updated, "Current step", current_step)
+        if next_step is not None:
+            updated = _replace_scalar_field(updated, "Next step", next_step)
+        if open_questions is not None:
+            cleaned_questions = [item.strip() for item in open_questions if item and item.strip()]
+            updated = _replace_indented_section(updated, "Open questions", cleaned_questions or ["none"])
+        if append_completed_step is not None:
+            item = append_completed_step.strip()
+            if item and item.lower() != "none":
+                completed = [entry for entry in _extract_indented_section(updated, "Completed steps") if entry.lower() != "none"]
+                if item not in completed:
+                    completed.append(item)
+                updated = _replace_indented_section(updated, "Completed steps", completed or ["none"])
+
+        normalized = normalize_active_task_block(
+            updated,
+            previous_block=previous,
+            allow_terminal_override=force,
+        )
+        self.write_managed_block(normalized)
+        return normalized
+
+    def complete_current_step(self, *, next_step_override: str | None = None) -> str | None:
+        """Mark the current step completed and advance or finish the task."""
+        previous = self.read_managed_block()
+        current_step = _extract_task_field(previous, "Current step")
+        next_step = next_step_override or _extract_task_field(previous, "Next step")
+        if current_step == "not set":
+            return None
+
+        completed = [entry for entry in _extract_indented_section(previous, "Completed steps") if entry.lower() != "none"]
+        if current_step not in completed:
+            completed.append(current_step)
+
+        updated = _replace_indented_section(previous, "Completed steps", completed or ["none"])
+        if next_step and next_step != "not set":
+            updated = _replace_scalar_field(updated, "Status", "active")
+            updated = _replace_scalar_field(updated, "Current step", next_step)
+            updated = _replace_scalar_field(updated, "Next step", "not set")
+            updated = _replace_indented_section(updated, "Open questions", ["none"])
+        else:
+            updated = _replace_scalar_field(updated, "Status", "done")
+
+        normalized = normalize_active_task_block(updated, previous_block=previous, allow_terminal_override=True)
+        self.write_managed_block(normalized)
+        return normalized
+
 
 def _normalize_goal_text(text: str, max_chars: int = 180) -> str:
     compact = re.sub(r"\s+", " ", text).strip()
@@ -236,6 +446,11 @@ def _infer_deliverable(goal_text: str) -> str:
 
 def build_initial_active_task_block(message_text: str) -> str | None:
     """Create a minimal first-turn task brief from the latest user message."""
+    return build_task_block_from_text(message_text)
+
+
+def build_task_block_from_text(message_text: str, *, force: bool = False) -> str | None:
+    """Create a minimal task brief from free-form text."""
     stripped = (message_text or "").strip()
     if not stripped:
         return None
@@ -245,7 +460,7 @@ def build_initial_active_task_block(message_text: str) -> str | None:
     goal = _normalize_goal_text(stripped)
     if goal.lower() in _NON_TASK_MESSAGES:
         return None
-    if not is_task_worthy_message(stripped):
+    if not force and not is_task_worthy_message(stripped):
         return None
 
     deliverable = _infer_deliverable(goal)
@@ -319,18 +534,191 @@ def should_replace_active_task(current_task_block: str, message_text: str) -> bo
     return candidate.startswith(_TASK_SWITCH_PREFIXES)
 
 
+def extract_waiting_user_question(response_text: str) -> str | None:
+    """Extract one likely blocking user question from the assistant reply."""
+    normalized = re.sub(r"\s+", " ", (response_text or "").strip())
+    if not normalized:
+        return None
+    if "?" not in normalized and "？" not in normalized:
+        return None
+
+    for chunk in re.split(r"(?<=[\?？])\s+", normalized):
+        candidate = chunk.strip()
+        if not candidate:
+            continue
+        lowered = candidate.lower()
+        if any(pattern in lowered for pattern in _WAITING_USER_PATTERNS):
+            return candidate
+    return None
+
+
+def infer_immediate_task_transition(
+    response_text: str,
+    *,
+    had_tool_error: bool = False,
+) -> tuple[str, str | None] | None:
+    """Infer a conservative immediate task-state transition from one assistant reply."""
+    question = extract_waiting_user_question(response_text)
+    if question is not None:
+        return "waiting_user", question
+
+    normalized = re.sub(r"\s+", " ", (response_text or "").strip())
+    lowered = normalized.lower()
+    if had_tool_error and any(pattern in lowered for pattern in _BLOCKED_PATTERNS):
+        return "blocked", normalized[:240] if normalized else "blocked"
+
+    return None
+
+
+def _extract_task_field(task_block: str, field_name: str) -> str:
+    match = re.search(rf"^- {re.escape(field_name)}:\s*(.+)$", task_block, re.MULTILINE)
+    if not match:
+        return "not set"
+    return match.group(1).strip() or "not set"
+
+
+def _replace_scalar_field(task_block: str, field_name: str, value: str) -> str:
+    pattern = rf"^- {re.escape(field_name)}:\s*.*$"
+    replacement = f"- {field_name}: {value}"
+    return re.sub(pattern, replacement, task_block, count=1, flags=re.MULTILINE)
+
+
+def _replace_indented_section(task_block: str, field_name: str, lines: list[str]) -> str:
+    section_body = "\n".join(f"  - {line}" for line in lines)
+    replacement = f"- {field_name}:\n{section_body}"
+    pattern = rf"^- {re.escape(field_name)}:\n(?:  .*\n?)*"
+    return re.sub(pattern, replacement, task_block, count=1, flags=re.MULTILINE)
+
+
+def _extract_indented_section(task_block: str, field_name: str) -> list[str]:
+    pattern = rf"^- {re.escape(field_name)}:\n((?:  .*\n?)*)"
+    match = re.search(pattern, task_block, re.MULTILINE)
+    if not match:
+        return []
+    lines: list[str] = []
+    for raw_line in match.group(1).splitlines():
+        stripped = raw_line.strip()
+        if stripped.startswith("- "):
+            lines.append(stripped[2:].strip())
+        elif stripped:
+            lines.append(stripped)
+    return lines
+
+
+def normalize_active_task_block(
+    task_block: str,
+    previous_block: str | None = None,
+    *,
+    allow_terminal_override: bool = False,
+) -> str:
+    """Normalize one ACTIVE_TASK block into a coherent status/step state."""
+    normalized = (task_block or "").strip() or DEFAULT_ACTIVE_TASK_CONTENT
+    previous_status = _extract_task_field(previous_block or "", "Status").lower()
+    status = _extract_task_field(normalized, "Status").lower()
+
+    if status not in _ALLOWED_ACTIVE_TASK_STATUSES:
+        status = previous_status if previous_status in _ALLOWED_ACTIVE_TASK_STATUSES else "inactive"
+        normalized = _replace_scalar_field(normalized, "Status", status)
+
+    if not allow_terminal_override:
+        previous_effective = previous_status if previous_status in _ALLOWED_ACTIVE_TASK_STATUSES else "inactive"
+        allowed_transitions = _AUTO_ALLOWED_STATUS_TRANSITIONS.get(previous_effective, {previous_effective})
+        if status not in allowed_transitions:
+            status = previous_effective
+            normalized = _replace_scalar_field(normalized, "Status", status)
+
+    current_step = _extract_task_field(normalized, "Current step")
+    next_step = _extract_task_field(normalized, "Next step")
+
+    if status in _INACTIVE_OR_TERMINAL_STATUSES:
+        normalized = _replace_scalar_field(normalized, "Current step", "not set")
+        normalized = _replace_scalar_field(normalized, "Next step", "not set")
+        normalized = _replace_indented_section(normalized, "Open questions", ["none"])
+        return normalized
+
+    if status == "active" and current_step == "not set" and next_step != "not set":
+        normalized = _replace_scalar_field(normalized, "Current step", next_step)
+
+    if status == "active":
+        normalized = _replace_indented_section(normalized, "Open questions", ["none"])
+
+    return normalized
+
+
+def build_active_task_execution_guidance(task_block: str) -> str:
+    """Build a focused execution-discipline section for the current active task."""
+    status = _extract_task_field(task_block, "Status").lower()
+    current_step = _extract_task_field(task_block, "Current step")
+    next_step = _extract_task_field(task_block, "Next step")
+    status_rules = ""
+    if status == "waiting_user":
+        status_rules = (
+            "- Because the task is currently `waiting_user`, do not continue execution until the user provides the missing input.\n"
+            "- Ask only for the blocking information or decision that unblocks the task.\n"
+        )
+    elif status == "blocked":
+        status_rules = (
+            "- Because the task is currently `blocked`, do not pretend progress happened while the blocker remains unresolved.\n"
+            "- Explain the blocker clearly and only resume normal execution after it is actually cleared.\n"
+        )
+
+    return f"""# Active Task Execution Rules
+
+- Treat the active task as the controlling objective for this session unless the user explicitly switches tasks.
+- Current task status: {status}
+- Primary focus for this turn: {current_step}
+- Planned next step after that: {next_step}
+- Do not jump to the planned next step until the current step is clearly completed, blocked, or explicitly replaced.
+- Do not mark a step as completed unless the work or evidence in this session clearly shows it was completed.
+- If the current step cannot proceed because information is missing, prefer `waiting_user` or `blocked` behavior over pretending progress happened.
+- If the user asks a small side question that does not replace the task, answer it briefly and then return to the active task.
+- Preserve the current plan unless the user changes the goal or new evidence proves the plan is no longer valid.
+{status_rules}"""
+
+
 def _to_message_dict(message: StoredMessage | dict[str, Any]) -> dict[str, Any]:
     if isinstance(message, dict):
         return {
             "role": message.get("role", "?"),
             "content": message.get("content", ""),
+            "tool_name": message.get("tool_name"),
             "metadata": dict(message.get("metadata", {}) or {}),
         }
     return {
         "role": message.role,
         "content": message.content,
+        "tool_name": message.tool_name,
         "metadata": dict(message.metadata or {}),
     }
+
+
+def _summarize_tool_args(tool_name: str | None, metadata: dict[str, Any]) -> str:
+    if not tool_name:
+        return ""
+    tool_args = metadata.get("tool_args")
+    if not isinstance(tool_args, dict):
+        return ""
+
+    if tool_name == "exec":
+        command = str(tool_args.get("command", "") or "").strip()
+        if command:
+            compact = re.sub(r"\s+", " ", command)
+            if len(compact) > 120:
+                compact = compact[:117].rstrip() + "..."
+            return f" command={compact}"
+
+    for key in ("path", "prompt_type", "skill_name", "server_name", "action", "query", "url"):
+        value = tool_args.get(key)
+        if value is None:
+            continue
+        compact = re.sub(r"\s+", " ", str(value).strip())
+        if not compact:
+            continue
+        if len(compact) > 80:
+            compact = compact[:77].rstrip() + "..."
+        return f" {key}={compact}"
+
+    return ""
 
 
 def _format_messages(messages: list[dict[str, Any]]) -> str:
@@ -342,7 +730,13 @@ def _format_messages(messages: list[dict[str, Any]]) -> str:
             continue
         if len(content) > 1200:
             content = content[:1200] + f"... (truncated from {len(content)} chars)"
-        lines.append(f"[{role}] {content}")
+        tool_name = str(message.get("tool_name", "") or "").strip()
+        metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+        if role == "TOOL" and tool_name:
+            detail = _summarize_tool_args(tool_name, metadata)
+            lines.append(f"[TOOL:{tool_name.upper()}{detail}] {content}")
+        else:
+            lines.append(f"[{role}] {content}")
     return "\n".join(lines)
 
 
@@ -381,7 +775,14 @@ Rules:
 - Keep Plan concise and practical; prefer 3-7 steps when a task is active.
 - `Current step` should describe the current step or `not set`.
 - `Next step` should describe the single next action or `not set`.
+- Keep `Current step` stable until the transcript clearly shows it was completed, blocked, or explicitly replaced.
+- Do not advance `Next step` into `Current step` unless the previous current step clearly finished or became impossible to continue.
+- Prefer concrete tool evidence, verification output, and command results over assistant self-claims when deciding whether a step completed.
+- If a tool result shows tests, checks, validation, or execution output, treat that as stronger evidence than plain assistant narration.
+- If a tool result or verification command shows failure, unresolved errors, or missing output, do not mark the step as completed.
+- If tool evidence contradicts the assistant's claim of success, trust the tool evidence and keep the task unresolved or blocked.
 - Mark steps as completed only when the transcript clearly shows they were completed.
+- If the user asked a side question without changing the main task, preserve the task state and do not treat that as a new plan.
 - If the task changed materially, update Goal, Deliverable, Plan, and step tracking to match the latest agreed direction.
 - If the assistant drifted but the user's task is still clear, restore the task to the user's actual goal instead of preserving the drift.
 - Do not copy raw logs or large tool output into ACTIVE_TASK.
@@ -419,13 +820,32 @@ Required template:
             logger.warning("Active task consolidation: empty response content")
             return False
 
-        if update != current_task:
-            active_task_store.write_managed_block(update)
+        normalized_update = normalize_active_task_block(update, previous_block=current_task)
+
+        if normalized_update != current_task:
+            active_task_store.write_managed_block(normalized_update)
+            previous_status = _extract_task_field(current_task, "Status")
+            new_status = _extract_task_field(normalized_update, "Status")
+            previous_current = _extract_task_field(current_task, "Current step")
+            new_current = _extract_task_field(normalized_update, "Current step")
+            previous_next = _extract_task_field(current_task, "Next step")
+            new_next = _extract_task_field(normalized_update, "Next step")
+            details: dict[str, Any] = {}
+            if previous_status != new_status:
+                details["previous_status"] = previous_status
+                details["new_status"] = new_status
+            if previous_current != new_current:
+                details["previous_current_step"] = previous_current
+                details["new_current_step"] = new_current
+            if previous_next != new_next:
+                details["previous_next_step"] = previous_next
+                details["new_next_step"] = new_next
+            active_task_store.append_event("auto_update", "auto", details=details)
             logger.info(
                 "Active task updated for chat {}: {} chars ({} tokens)",
                 chat_id,
-                len(update),
-                count_text_tokens(update, model=model),
+                len(normalized_update),
+                count_text_tokens(normalized_update, model=model),
             )
         else:
             logger.info("Active task unchanged for chat {}", chat_id)
@@ -510,4 +930,5 @@ def create_active_task_store(
     return ActiveTaskStore(
         active_task_file=get_active_task_file(app_home, chat_id=chat_id, workspace_root=workspace_root),
         state_file=get_active_task_state_file(app_home, chat_id=chat_id, workspace_root=workspace_root),
+        event_log_file=get_active_task_event_log_file(app_home, chat_id=chat_id, workspace_root=workspace_root),
     )

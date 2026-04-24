@@ -35,6 +35,7 @@ SUBAGENT_PROMPTS_DIRNAME = "subagent_prompts"
 USER_PROFILE_STATE_FILENAME = ".user_profile_state.json"
 RECENT_SUMMARY_STATE_FILENAME = ".recent_summary_state.json"
 ACTIVE_TASK_STATE_FILENAME = ".active_task_state.json"
+ACTIVE_TASK_EVENT_LOG_FILENAME = ".active_task_events.jsonl"
 
 BOOTSTRAP_FILES = ["IDENTITY.md", "SOUL.md", "AGENTS.md", "TOOLS.md", "USER.md"]
 
@@ -94,6 +95,16 @@ def get_active_task_state_file(
 ) -> Path:
     """Get the persisted state file for ACTIVE_TASK.md auto-update."""
     return get_chat_workspace(chat_id, workspace_root=workspace_root, app_home=app_home) / ACTIVE_TASK_STATE_FILENAME
+
+
+def get_active_task_event_log_file(
+    app_home: str | Path | None = None,
+    *,
+    chat_id: str | None = None,
+    workspace_root: str | Path | None = None,
+) -> Path:
+    """Get the append-only ACTIVE_TASK event log for one chat session."""
+    return get_chat_workspace(chat_id, workspace_root=workspace_root, app_home=app_home) / ACTIVE_TASK_EVENT_LOG_FILENAME
 
 
 def get_memory_dir(app_home: str | Path | None = None) -> Path:

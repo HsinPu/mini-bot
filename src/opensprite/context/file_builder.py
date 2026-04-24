@@ -134,13 +134,17 @@ Ids and descriptions below are **merged**: this chat's `subagent_prompts/<id>.md
 
     def _read_active_task(self, chat_id: str) -> str:
         """Load the current session's active task context when present."""
-        from ..documents.active_task import create_active_task_store
+        from ..documents.active_task import create_active_task_store, build_active_task_execution_guidance
 
-        return create_active_task_store(
+        store = create_active_task_store(
             self.app_home,
             chat_id,
             workspace_root=self.tool_workspace,
-        ).get_context(chat_id)
+        )
+        task_context = store.get_context(chat_id)
+        if not task_context:
+            return ""
+        return f"{task_context}\n\n---\n\n{build_active_task_execution_guidance(store.read_managed_block())}"
 
     def build_system_prompt(self, chat_id: str = "default") -> str:
         """Build the system prompt from bootstrap files, skills, and memory."""

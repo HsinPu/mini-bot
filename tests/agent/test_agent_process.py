@@ -6,6 +6,7 @@ from opensprite.agent.execution import ExecutionResult
 from opensprite.bus.events import OutboundMessage
 from opensprite.config.schema import AgentConfig, Config, LogConfig, MemoryConfig, MessagesConfig, RecentSummaryConfig, SearchConfig, ToolsConfig, UserProfileConfig
 from opensprite.bus.message import UserMessage
+from opensprite.documents.active_task import create_active_task_store
 from opensprite.storage.base import StoredMessage
 from opensprite.tools.base import Tool
 from opensprite.tools.process_runtime import BackgroundSession
@@ -212,6 +213,195 @@ def test_agent_process_persists_user_then_assistant_then_runs_maintenance(tmp_pa
     assert response.text == "assistant reply"
     assert response.channel == "telegram"
     assert response.session_chat_id == "telegram:room-1"
+
+
+def test_mark_active_task_status_updates_processed_index_for_terminal_states(tmp_path):
+    async def scenario():
+        registry = ToolRegistry()
+        registry.register(DummyTool())
+        storage = HistoryStorage(
+            [
+                StoredMessage(role="user", content="first", timestamp=1.0),
+                StoredMessage(role="assistant", content="second", timestamp=2.0),
+                StoredMessage(role="user", content="third", timestamp=3.0),
+            ]
+        )
+        context_builder = FakeContextBuilder(tmp_path)
+        context_builder.app_home = tmp_path / "home"
+        context_builder.tool_workspace = tmp_path / "workspace"
+
+        agent = AgentLoop(
+            config=AgentConfig(),
+            provider=FakeProvider(),
+            storage=storage,
+            context_builder=context_builder,
+            tools=registry,
+            memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
+            tools_config=ToolsConfig(),
+            log_config=LogConfig(),
+            search_config=SearchConfig(),
+            user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+            **Config.packaged_agent_llm_chat_kwargs(),
+        )
+
+        store = create_active_task_store(agent.app_home, "telegram:room-1", workspace_root=agent.tool_workspace)
+        store.write_managed_block(
+            "- Status: active\n"
+            "- Goal: Keep going\n"
+            "- Deliverable: output\n"
+            "- Definition of done:\n"
+            "  - done\n"
+            "- Constraints:\n"
+            "  - none\n"
+            "- Assumptions:\n"
+            "  - none\n"
+            "- Plan:\n"
+            "  1. inspect\n"
+            "- Current step: 1. inspect\n"
+            "- Next step: 2. verify\n"
+            "- Completed steps:\n"
+            "  - none\n"
+            "- Open questions:\n"
+            "  - none"
+        )
+
+        rendered = await agent.mark_active_task_status("telegram:room-1", "done")
+        return rendered, store.get_processed_index("telegram:room-1")
+
+    rendered, processed_index = asyncio.run(scenario())
+
+    assert rendered is not None
+    assert "- Status: done" in rendered
+    assert processed_index == 3
+
+
+def test_process_moves_active_task_to_waiting_user_when_reply_requests_missing_info(tmp_path):
+    async def scenario():
+        registry = ToolRegistry()
+        registry.register(DummyTool())
+        storage = FakeStorage()
+        context_builder = FakeContextBuilder(tmp_path)
+        context_builder.app_home = tmp_path / "home"
+        context_builder.tool_workspace = tmp_path / "workspace"
+
+        agent = AgentLoop(
+            config=AgentConfig(),
+            provider=FakeProvider(),
+            storage=storage,
+            context_builder=context_builder,
+            tools=registry,
+            memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
+            tools_config=ToolsConfig(),
+            log_config=LogConfig(),
+            search_config=SearchConfig(),
+            user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+            **Config.packaged_agent_llm_chat_kwargs(),
+        )
+
+        store = create_active_task_store(agent.app_home, "telegram:room-1", workspace_root=agent.tool_workspace)
+        store.write_managed_block(
+            "- Status: active\n"
+            "- Goal: Finish the refactor\n"
+            "- Deliverable: merged refactor\n"
+            "- Definition of done:\n"
+            "  - tests pass\n"
+            "- Constraints:\n"
+            "  - none\n"
+            "- Assumptions:\n"
+            "  - none\n"
+            "- Plan:\n"
+            "  1. inspect\n"
+            "- Current step: 2. apply the fix\n"
+            "- Next step: 3. verify\n"
+            "- Completed steps:\n"
+            "  - inspect\n"
+            "- Open questions:\n"
+            "  - none"
+        )
+
+        async def fake_call_llm(*args, **kwargs):
+            return ExecutionResult(content="請問你要用哪個 target branch？", executed_tool_calls=0)
+
+        agent.call_llm = fake_call_llm
+        await agent.process(
+            UserMessage(
+                text="繼續做",
+                channel="telegram",
+                chat_id="room-1",
+                session_chat_id="telegram:room-1",
+            )
+        )
+        return store.read_managed_block()
+
+    task_block = asyncio.run(scenario())
+
+    assert "- Status: waiting_user" in task_block
+    assert "請問你要用哪個 target branch？" in task_block
+
+
+def test_process_moves_active_task_to_blocked_when_reply_reports_blocking_error(tmp_path):
+    async def scenario():
+        registry = ToolRegistry()
+        registry.register(DummyTool())
+        storage = FakeStorage()
+        context_builder = FakeContextBuilder(tmp_path)
+        context_builder.app_home = tmp_path / "home"
+        context_builder.tool_workspace = tmp_path / "workspace"
+
+        agent = AgentLoop(
+            config=AgentConfig(),
+            provider=FakeProvider(),
+            storage=storage,
+            context_builder=context_builder,
+            tools=registry,
+            memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
+            tools_config=ToolsConfig(),
+            log_config=LogConfig(),
+            search_config=SearchConfig(),
+            user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+            **Config.packaged_agent_llm_chat_kwargs(),
+        )
+
+        store = create_active_task_store(agent.app_home, "telegram:room-1", workspace_root=agent.tool_workspace)
+        store.write_managed_block(
+            "- Status: active\n"
+            "- Goal: Finish the refactor\n"
+            "- Deliverable: merged refactor\n"
+            "- Definition of done:\n"
+            "  - tests pass\n"
+            "- Constraints:\n"
+            "  - none\n"
+            "- Assumptions:\n"
+            "  - none\n"
+            "- Plan:\n"
+            "  1. inspect\n"
+            "- Current step: 3. verify\n"
+            "- Next step: not set\n"
+            "- Completed steps:\n"
+            "  - inspect\n"
+            "  - apply fix\n"
+            "- Open questions:\n"
+            "  - none"
+        )
+
+        async def fake_call_llm(*args, **kwargs):
+            return ExecutionResult(content="目前無法繼續，測試環境失敗。", executed_tool_calls=1, had_tool_error=True)
+
+        agent.call_llm = fake_call_llm
+        await agent.process(
+            UserMessage(
+                text="繼續驗證",
+                channel="telegram",
+                chat_id="room-1",
+                session_chat_id="telegram:room-1",
+            )
+        )
+        return store.read_managed_block()
+
+    task_block = asyncio.run(scenario())
+
+    assert "- Status: blocked" in task_block
+    assert "目前無法繼續，測試環境失敗。" in task_block
 
 
 def test_background_session_exit_notifier_publishes_outbound_and_persists_message(tmp_path):

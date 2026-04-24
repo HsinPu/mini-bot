@@ -740,3 +740,873 @@ def test_cron_command_reports_invalid_add_usage(tmp_path):
 
     assert len(responses) == 1
     assert "Error: every requires an integer number of seconds" in responses[0][1]
+
+
+def test_task_set_command_replies_immediately_without_running_agent_loop():
+    class TaskAgent(FakeAgent):
+        def __init__(self):
+            super().__init__()
+            self.current_task = None
+
+        async def show_active_task(self, chat_id):
+            return self.current_task
+
+        async def show_active_task_history(self, chat_id):
+            return None
+
+        async def set_active_task_from_text(self, chat_id, task_text):
+            self.current_task = f"# Active Task\n\n- Status: active\n- Goal: {task_text}"
+            return self.current_task
+
+        async def mark_active_task_status(self, chat_id, status):
+            if self.current_task is None:
+                return None
+            self.current_task = f"# Active Task\n\n- Status: {status}\n- Goal: existing"
+            return self.current_task
+
+        async def reset_active_task(self, chat_id):
+            self.current_task = None
+
+        async def activate_active_task(self, chat_id):
+            return self.current_task
+
+        async def reopen_active_task(self, chat_id):
+            return self.current_task
+
+        async def reopen_active_task(self, chat_id):
+            return self.current_task
+
+        async def reopen_active_task(self, chat_id):
+            return self.current_task
+
+        async def block_active_task(self, chat_id, reason):
+            return self.current_task
+
+        async def wait_on_active_task(self, chat_id, question):
+            return self.current_task
+
+        async def set_active_task_current_step(self, chat_id, step_text):
+            return self.current_task
+
+        async def complete_active_task_step(self, chat_id, next_step_override=None):
+            return self.current_task
+
+        async def complete_active_task_step(self, chat_id, next_step_override=None):
+            return self.current_task
+
+        async def complete_active_task_step(self, chat_id, next_step_override=None):
+            return self.current_task
+
+        async def set_active_task_next_step(self, chat_id, step_text):
+            return self.current_task
+
+        async def advance_active_task(self, chat_id):
+            return self.current_task
+
+    async def scenario():
+        agent = TaskAgent()
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, chat_id):
+            responses.append((message.session_chat_id, message.text))
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="/task set Refactor the agent carefully", chat_id="same-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return responses, agent.seen_messages
+
+    responses, seen_messages = asyncio.run(scenario())
+
+    assert responses == [
+        ("telegram:same-chat", "已設定目前任務。\n\n# Active Task\n\n- Status: active\n- Goal: Refactor the agent carefully")
+    ]
+    assert seen_messages == []
+
+
+def test_task_show_and_done_commands_use_current_task_state_immediately():
+    class TaskAgent(FakeAgent):
+        def __init__(self):
+            super().__init__()
+            self.current_task = "# Active Task\n\n- Status: active\n- Goal: Keep the agent on task"
+
+        async def show_active_task(self, chat_id):
+            return "# Active Task\n\n- Status: active\n- Goal: Keep the agent on task"
+
+        async def show_active_task_full(self, chat_id):
+            return self.current_task
+
+        async def show_active_task_history(self, chat_id):
+            return None
+
+        async def set_active_task_from_text(self, chat_id, task_text):
+            self.current_task = f"# Active Task\n\n- Status: active\n- Goal: {task_text}"
+            return self.current_task
+
+        async def mark_active_task_status(self, chat_id, status):
+            if self.current_task is None:
+                return None
+            self.current_task = f"# Active Task\n\n- Status: {status}\n- Goal: Keep the agent on task"
+            return self.current_task
+
+        async def reset_active_task(self, chat_id):
+            self.current_task = None
+
+        async def activate_active_task(self, chat_id):
+            return self.current_task
+
+        async def reopen_active_task(self, chat_id):
+            return self.current_task
+
+        async def reopen_active_task(self, chat_id):
+            return self.current_task
+
+        async def block_active_task(self, chat_id, reason):
+            return self.current_task
+
+        async def wait_on_active_task(self, chat_id, question):
+            return self.current_task
+
+        async def set_active_task_current_step(self, chat_id, step_text):
+            return self.current_task
+
+        async def complete_active_task_step(self, chat_id, next_step_override=None):
+            return self.current_task
+
+        async def complete_active_task_step(self, chat_id, next_step_override=None):
+            return self.current_task
+
+        async def set_active_task_next_step(self, chat_id, step_text):
+            return self.current_task
+
+        async def advance_active_task(self, chat_id):
+            return self.current_task
+
+    async def scenario():
+        agent = TaskAgent()
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, chat_id):
+            responses.append((message.session_chat_id, message.text))
+            if len(responses) == 2:
+                event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="/task show", chat_id="same-chat", channel="telegram")
+            await queue.enqueue_raw(content="/task done", chat_id="same-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return responses
+
+    responses = asyncio.run(scenario())
+
+    assert responses == [
+        ("telegram:same-chat", "# Active Task\n\n- Status: active\n- Goal: Keep the agent on task"),
+        ("telegram:same-chat", "已將目前任務標記為完成。\n\n# Active Task\n\n- Status: done\n- Goal: Keep the agent on task"),
+    ]
+
+
+def test_task_show_full_returns_full_task_block():
+    class TaskAgent(FakeAgent):
+        def __init__(self):
+            super().__init__()
+            self.current_task = "# Active Task\n\n- Status: active\n- Goal: Keep the agent on task\n- Current step: inspect\n- Next step: verify"
+
+        async def show_active_task(self, chat_id):
+            return "# Active Task\n\n- Status: active\n- Goal: Keep the agent on task"
+
+        async def show_active_task_full(self, chat_id):
+            return self.current_task
+
+        async def show_active_task_history(self, chat_id):
+            return None
+
+        async def set_active_task_from_text(self, chat_id, task_text):
+            return self.current_task
+
+        async def mark_active_task_status(self, chat_id, status):
+            return self.current_task
+
+        async def reset_active_task(self, chat_id):
+            self.current_task = None
+
+        async def activate_active_task(self, chat_id):
+            return self.current_task
+
+        async def reopen_active_task(self, chat_id):
+            return self.current_task
+
+        async def block_active_task(self, chat_id, reason):
+            return self.current_task
+
+        async def wait_on_active_task(self, chat_id, question):
+            return self.current_task
+
+        async def set_active_task_current_step(self, chat_id, step_text):
+            return self.current_task
+
+        async def complete_active_task_step(self, chat_id, next_step_override=None):
+            return self.current_task
+
+        async def set_active_task_next_step(self, chat_id, step_text):
+            return self.current_task
+
+        async def advance_active_task(self, chat_id):
+            return self.current_task
+
+    async def scenario():
+        agent = TaskAgent()
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, chat_id):
+            responses.append((message.session_chat_id, message.text))
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="/task show full", chat_id="same-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return responses
+
+    responses = asyncio.run(scenario())
+
+    assert responses == [
+        (
+            "telegram:same-chat",
+            "# Active Task\n\n- Status: active\n- Goal: Keep the agent on task\n- Current step: inspect\n- Next step: verify",
+        )
+    ]
+
+
+def test_task_show_reports_no_active_task_when_empty():
+    class TaskAgent(FakeAgent):
+        async def show_active_task(self, chat_id):
+            return None
+
+        async def show_active_task_history(self, chat_id):
+            return None
+
+        async def set_active_task_from_text(self, chat_id, task_text):
+            return None
+
+        async def mark_active_task_status(self, chat_id, status):
+            return None
+
+        async def reset_active_task(self, chat_id):
+            return None
+
+        async def activate_active_task(self, chat_id):
+            return None
+
+        async def reopen_active_task(self, chat_id):
+            return None
+
+        async def reopen_active_task(self, chat_id):
+            return None
+
+        async def reopen_active_task(self, chat_id):
+            return None
+
+        async def reopen_active_task(self, chat_id):
+            return None
+
+        async def reopen_active_task(self, chat_id):
+            return None
+
+        async def reopen_active_task(self, chat_id):
+            return None
+
+        async def reopen_active_task(self, chat_id):
+            return None
+
+        async def reopen_active_task(self, chat_id):
+            return None
+
+        async def reopen_active_task(self, chat_id):
+            return None
+
+        async def reopen_active_task(self, chat_id):
+            return None
+
+        async def reopen_active_task(self, chat_id):
+            return None
+
+        async def reopen_active_task(self, chat_id):
+            return None
+
+        async def block_active_task(self, chat_id, reason):
+            return None
+
+        async def wait_on_active_task(self, chat_id, question):
+            return None
+
+        async def set_active_task_current_step(self, chat_id, step_text):
+            return None
+
+        async def complete_active_task_step(self, chat_id, next_step_override=None):
+            return None
+
+        async def complete_active_task_step(self, chat_id, next_step_override=None):
+            return None
+
+        async def complete_active_task_step(self, chat_id, next_step_override=None):
+            return None
+
+        async def complete_active_task_step(self, chat_id, next_step_override=None):
+            return None
+
+        async def complete_active_task_step(self, chat_id, next_step_override=None):
+            return None
+
+        async def complete_active_task_step(self, chat_id, next_step_override=None):
+            return None
+
+        async def complete_active_task_step(self, chat_id, next_step_override=None):
+            return None
+
+        async def set_active_task_next_step(self, chat_id, step_text):
+            return None
+
+        async def advance_active_task(self, chat_id):
+            return None
+
+    async def scenario():
+        agent = TaskAgent()
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, chat_id):
+            responses.append((message.session_chat_id, message.text))
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="/task show", chat_id="same-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return responses
+
+    responses = asyncio.run(scenario())
+
+    assert responses == [("telegram:same-chat", "目前沒有進行中的任務。")]
+
+
+def test_task_history_returns_recent_task_events_immediately():
+    class TaskAgent(FakeAgent):
+        def __init__(self):
+            super().__init__()
+            self.history = "# Active Task History\n\n- [2026-04-24 10:00:00] set (user)\n  - status: active"
+
+        async def show_active_task(self, chat_id):
+            return None
+
+        async def show_active_task_history(self, chat_id, *, limit=10):
+            return self.history
+
+        async def set_active_task_from_text(self, chat_id, task_text):
+            return None
+
+        async def mark_active_task_status(self, chat_id, status):
+            return None
+
+        async def reset_active_task(self, chat_id):
+            return None
+
+        async def activate_active_task(self, chat_id):
+            return None
+
+        async def reopen_active_task(self, chat_id):
+            return None
+
+        async def block_active_task(self, chat_id, reason):
+            return None
+
+        async def wait_on_active_task(self, chat_id, question):
+            return None
+
+        async def set_active_task_current_step(self, chat_id, step_text):
+            return None
+
+        async def complete_active_task_step(self, chat_id, next_step_override=None):
+            return None
+
+        async def set_active_task_next_step(self, chat_id, step_text):
+            return None
+
+        async def advance_active_task(self, chat_id):
+            return None
+
+    async def scenario():
+        agent = TaskAgent()
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, chat_id):
+            responses.append((message.session_chat_id, message.text))
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="/task history", chat_id="same-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return responses
+
+    responses = asyncio.run(scenario())
+
+    assert responses == [
+        ("telegram:same-chat", "# Active Task History\n\n- [2026-04-24 10:00:00] set (user)\n  - status: active")
+    ]
+
+
+def test_task_history_respects_optional_limit_argument():
+    class TaskAgent(FakeAgent):
+        async def show_active_task(self, chat_id):
+            return None
+
+        async def show_active_task_history(self, chat_id, *, limit=10):
+            return f"# Active Task History\n\n- limit: {limit}"
+
+        async def set_active_task_from_text(self, chat_id, task_text):
+            return None
+
+        async def mark_active_task_status(self, chat_id, status):
+            return None
+
+        async def reset_active_task(self, chat_id):
+            return None
+
+        async def activate_active_task(self, chat_id):
+            return None
+
+        async def reopen_active_task(self, chat_id):
+            return None
+
+        async def block_active_task(self, chat_id, reason):
+            return None
+
+        async def wait_on_active_task(self, chat_id, question):
+            return None
+
+        async def set_active_task_current_step(self, chat_id, step_text):
+            return None
+
+        async def complete_active_task_step(self, chat_id, next_step_override=None):
+            return None
+
+        async def set_active_task_next_step(self, chat_id, step_text):
+            return None
+
+        async def advance_active_task(self, chat_id):
+            return None
+
+    async def scenario():
+        agent = TaskAgent()
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, chat_id):
+            responses.append((message.session_chat_id, message.text))
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="/task history 1", chat_id="same-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return responses
+
+    responses = asyncio.run(scenario())
+
+    assert responses == [("telegram:same-chat", "# Active Task History\n\n- limit: 1")]
+
+
+def test_task_block_command_marks_task_blocked_immediately():
+    class TaskAgent(FakeAgent):
+        def __init__(self):
+            super().__init__()
+            self.current_task = "# Active Task\n\n- Status: active\n- Goal: Keep the agent on task"
+
+        async def show_active_task(self, chat_id):
+            return self.current_task
+
+        async def show_active_task_history(self, chat_id):
+            return None
+
+        async def set_active_task_from_text(self, chat_id, task_text):
+            return self.current_task
+
+        async def mark_active_task_status(self, chat_id, status):
+            return self.current_task
+
+        async def reset_active_task(self, chat_id):
+            self.current_task = None
+
+        async def activate_active_task(self, chat_id):
+            return self.current_task
+
+        async def reopen_active_task(self, chat_id):
+            return self.current_task
+
+        async def reopen_active_task(self, chat_id):
+            return self.current_task
+
+        async def reopen_active_task(self, chat_id):
+            return self.current_task
+
+        async def reopen_active_task(self, chat_id):
+            return self.current_task
+
+        async def reopen_active_task(self, chat_id):
+            return self.current_task
+
+        async def reopen_active_task(self, chat_id):
+            return self.current_task
+
+        async def reopen_active_task(self, chat_id):
+            return self.current_task
+
+        async def reopen_active_task(self, chat_id):
+            return self.current_task
+
+        async def reopen_active_task(self, chat_id):
+            return self.current_task
+
+        async def reopen_active_task(self, chat_id):
+            return self.current_task
+
+        async def reopen_active_task(self, chat_id):
+            return self.current_task
+
+        async def block_active_task(self, chat_id, reason):
+            self.current_task = f"# Active Task\n\n- Status: blocked\n- Goal: Keep the agent on task\n- Open questions:\n  - {reason}"
+            return self.current_task
+
+        async def wait_on_active_task(self, chat_id, question):
+            return self.current_task
+
+        async def set_active_task_current_step(self, chat_id, step_text):
+            return self.current_task
+
+        async def complete_active_task_step(self, chat_id, next_step_override=None):
+            return self.current_task
+
+        async def complete_active_task_step(self, chat_id, next_step_override=None):
+            return self.current_task
+
+        async def complete_active_task_step(self, chat_id, next_step_override=None):
+            return self.current_task
+
+        async def complete_active_task_step(self, chat_id, next_step_override=None):
+            return self.current_task
+
+        async def complete_active_task_step(self, chat_id, next_step_override=None):
+            return self.current_task
+
+        async def complete_active_task_step(self, chat_id, next_step_override=None):
+            return self.current_task
+
+        async def set_active_task_next_step(self, chat_id, step_text):
+            return self.current_task
+
+        async def advance_active_task(self, chat_id):
+            return self.current_task
+
+    async def scenario():
+        agent = TaskAgent()
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, chat_id):
+            responses.append((message.session_chat_id, message.text))
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="/task block waiting for test environment", chat_id="same-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return responses
+
+    responses = asyncio.run(scenario())
+
+    assert responses == [
+        (
+            "telegram:same-chat",
+            "已將目前任務標記為阻塞。\n\n# Active Task\n\n- Status: blocked\n- Goal: Keep the agent on task\n- Open questions:\n  - waiting for test environment",
+        )
+    ]
+
+
+def test_task_next_without_argument_advances_existing_next_step():
+    class TaskAgent(FakeAgent):
+        def __init__(self):
+            super().__init__()
+            self.current_task = "# Active Task\n\n- Status: active\n- Goal: Keep the agent on task\n- Current step: inspect\n- Next step: verify"
+
+        async def show_active_task(self, chat_id):
+            return self.current_task
+
+        async def show_active_task_history(self, chat_id):
+            return None
+
+        async def set_active_task_from_text(self, chat_id, task_text):
+            return self.current_task
+
+        async def mark_active_task_status(self, chat_id, status):
+            return self.current_task
+
+        async def reset_active_task(self, chat_id):
+            self.current_task = None
+
+        async def activate_active_task(self, chat_id):
+            return self.current_task
+
+        async def reopen_active_task(self, chat_id):
+            return self.current_task
+
+        async def block_active_task(self, chat_id, reason):
+            return self.current_task
+
+        async def wait_on_active_task(self, chat_id, question):
+            return self.current_task
+
+        async def set_active_task_current_step(self, chat_id, step_text):
+            return self.current_task
+
+        async def complete_active_task_step(self, chat_id, next_step_override=None):
+            return self.current_task
+
+        async def set_active_task_next_step(self, chat_id, step_text):
+            self.current_task = f"# Active Task\n\n- Status: active\n- Goal: Keep the agent on task\n- Current step: inspect\n- Next step: {step_text}"
+            return self.current_task
+
+        async def advance_active_task(self, chat_id):
+            self.current_task = "# Active Task\n\n- Status: active\n- Goal: Keep the agent on task\n- Current step: verify\n- Next step: not set"
+            return self.current_task
+
+    async def scenario():
+        agent = TaskAgent()
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, chat_id):
+            responses.append((message.session_chat_id, message.text))
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="/task next", chat_id="same-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return responses
+
+    responses = asyncio.run(scenario())
+
+    assert responses == [
+        (
+            "telegram:same-chat",
+            "已將下一步提升為目前步驟。\n\n# Active Task\n\n- Status: active\n- Goal: Keep the agent on task\n- Current step: verify\n- Next step: not set",
+        )
+    ]
+
+
+def test_task_complete_marks_current_step_complete_immediately():
+    class TaskAgent(FakeAgent):
+        def __init__(self):
+            super().__init__()
+            self.current_task = "# Active Task\n\n- Status: active\n- Goal: Keep the agent on task\n- Current step: verify\n- Next step: not set"
+
+        async def show_active_task(self, chat_id):
+            return self.current_task
+
+        async def show_active_task_history(self, chat_id):
+            return None
+
+        async def set_active_task_from_text(self, chat_id, task_text):
+            return self.current_task
+
+        async def mark_active_task_status(self, chat_id, status):
+            return self.current_task
+
+        async def reset_active_task(self, chat_id):
+            self.current_task = None
+
+        async def activate_active_task(self, chat_id):
+            return self.current_task
+
+        async def reopen_active_task(self, chat_id):
+            return self.current_task
+
+        async def block_active_task(self, chat_id, reason):
+            return self.current_task
+
+        async def wait_on_active_task(self, chat_id, question):
+            return self.current_task
+
+        async def set_active_task_current_step(self, chat_id, step_text):
+            return self.current_task
+
+        async def complete_active_task_step(self, chat_id, next_step_override=None):
+            self.current_task = "# Active Task\n\n- Status: done\n- Goal: Keep the agent on task\n- Current step: not set\n- Next step: not set"
+            return self.current_task
+
+        async def set_active_task_next_step(self, chat_id, step_text):
+            return self.current_task
+
+        async def advance_active_task(self, chat_id):
+            return self.current_task
+
+    async def scenario():
+        agent = TaskAgent()
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, chat_id):
+            responses.append((message.session_chat_id, message.text))
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="/task complete", chat_id="same-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return responses
+
+    responses = asyncio.run(scenario())
+
+    assert responses == [
+        (
+            "telegram:same-chat",
+            "已完成目前步驟。\n\n# Active Task\n\n- Status: done\n- Goal: Keep the agent on task\n- Current step: not set\n- Next step: not set",
+        )
+    ]
+
+
+def test_task_reopen_reactivates_terminal_task():
+    class TaskAgent(FakeAgent):
+        def __init__(self):
+            super().__init__()
+            self.current_task = "# Active Task\n\n- Status: done\n- Goal: Keep the agent on task"
+
+        async def show_active_task(self, chat_id):
+            return self.current_task
+
+        async def show_active_task_history(self, chat_id):
+            return None
+
+        async def set_active_task_from_text(self, chat_id, task_text):
+            return self.current_task
+
+        async def mark_active_task_status(self, chat_id, status):
+            return self.current_task
+
+        async def reset_active_task(self, chat_id):
+            self.current_task = None
+
+        async def activate_active_task(self, chat_id):
+            return self.current_task
+
+        async def reopen_active_task(self, chat_id):
+            self.current_task = "# Active Task\n\n- Status: active\n- Goal: Keep the agent on task"
+            return self.current_task
+
+        async def block_active_task(self, chat_id, reason):
+            return self.current_task
+
+        async def wait_on_active_task(self, chat_id, question):
+            return self.current_task
+
+        async def set_active_task_current_step(self, chat_id, step_text):
+            return self.current_task
+
+        async def complete_active_task_step(self, chat_id, next_step_override=None):
+            return self.current_task
+
+        async def set_active_task_next_step(self, chat_id, step_text):
+            return self.current_task
+
+        async def advance_active_task(self, chat_id):
+            return self.current_task
+
+    async def scenario():
+        agent = TaskAgent()
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, chat_id):
+            responses.append((message.session_chat_id, message.text))
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="/task reopen", chat_id="same-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return responses
+
+    responses = asyncio.run(scenario())
+
+    assert responses == [
+        (
+            "telegram:same-chat",
+            "已重新開啟目前任務。\n\n# Active Task\n\n- Status: active\n- Goal: Keep the agent on task",
+        )
+    ]

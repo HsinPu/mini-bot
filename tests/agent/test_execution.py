@@ -34,8 +34,8 @@ class FakeProvider:
         return self.responses.pop(0)
 
 
-async def _save_message_collector(calls, chat_id, role, content, tool_name=None):
-    calls.append((chat_id, role, content, tool_name))
+async def _save_message_collector(calls, chat_id, role, content, tool_name=None, metadata=None):
+    calls.append((chat_id, role, content, tool_name, dict(metadata or {})))
 
 
 def _make_engine(provider, registry, save_calls, tools_config=None):
@@ -44,8 +44,8 @@ def _make_engine(provider, registry, save_calls, tools_config=None):
         tools=registry,
         tools_config=tools_config or ToolsConfig(max_tool_iterations=3),
         empty_response_fallback="EMPTY",
-        save_message=lambda chat_id, role, content, tool_name=None: _save_message_collector(
-            save_calls, chat_id, role, content, tool_name
+        save_message=lambda chat_id, role, content, tool_name=None, metadata=None: _save_message_collector(
+            save_calls, chat_id, role, content, tool_name, metadata
         ),
         format_log_preview=lambda text, max_chars=200: str(text)[:max_chars],
         summarize_messages=lambda messages, tail=4: f"count={len(messages)}",
@@ -78,7 +78,9 @@ def test_execution_engine_runs_tool_loop_and_persists_tool_result():
     assert result.content == "done"
     assert result.executed_tool_calls == 1
     assert result.used_configure_skill is False
-    assert save_calls == [("chat-1", "tool", "tool:abc", "demo_tool")]
+    assert save_calls == [
+        ("chat-1", "tool", "tool:abc", "demo_tool", {"tool_args": {"value": "abc"}})
+    ]
     assert [message.role for message in messages] == ["user", "assistant", "tool"]
     assert messages[1].tool_calls[0]["function"]["name"] == "demo_tool"
 
@@ -283,7 +285,9 @@ def test_execution_engine_slims_tool_result_for_context_but_persists_full_result
     )
 
     assert result.content == "done"
-    assert save_calls == [("chat-1", "tool", "A" * 2000 + "TAIL", "verbose_tool")]
+    assert save_calls == [
+        ("chat-1", "tool", "A" * 2000 + "TAIL", "verbose_tool", {"tool_args": {}})
+    ]
     assert messages[-1].role == "tool"
     assert "Output truncated for context" in messages[-1].content
     assert len(messages[-1].content) < len("A" * 2000 + "TAIL")

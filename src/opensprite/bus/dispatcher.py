@@ -142,6 +142,12 @@ class MessageQueue:
         return command in {"/cron", "/cron@openspritebot"}
 
     @staticmethod
+    def is_task_command(text: str | None) -> bool:
+        """Return whether a message should use immediate task command handling."""
+        command = (text or "").strip().split(maxsplit=1)[0].lower()
+        return command in {"/task", "/task@openspritebot"}
+
+    @staticmethod
     def _parse_cron_command(text: str | None) -> tuple[str, list[str]]:
         """Parse the cron command into an action and remaining args."""
         try:
@@ -158,6 +164,10 @@ class MessageQueue:
     def _cron_help_text(self) -> str:
         """Return the built-in cron command help text."""
         return self.messages.cron.help_text
+
+    def _task_help_text(self) -> str:
+        """Return the built-in task command help text."""
+        return self.messages.task.help_text
 
     def _cron_default_timezone(self) -> str:
         tools_config = getattr(self.agent, "tools_config", None)
@@ -313,6 +323,185 @@ class MessageQueue:
 
         return self._cron_help_text()
 
+    @staticmethod
+    def _parse_task_command(text: str | None) -> tuple[str, list[str]]:
+        """Parse the task command into an action and remaining args."""
+        try:
+            parts = shlex.split((text or "").strip())
+        except ValueError:
+            return "error", []
+        if not parts:
+            return "help", []
+        args = parts[1:]
+        if not args:
+            return "help", []
+        return args[0].lower(), args[1:]
+
+    async def _handle_task_command(self, session_chat_id: str, text: str | None) -> str:
+        """Handle immediate task management commands for the active session."""
+        action, args = self._parse_task_command(text)
+        if action == "error":
+            return self._task_help_text()
+        if action in {"help", "--help", "-h"}:
+            return self._task_help_text()
+
+        show_task = getattr(self.agent, "show_active_task", None)
+        show_task_full = getattr(self.agent, "show_active_task_full", None)
+        show_history = getattr(self.agent, "show_active_task_history", None)
+        set_task = getattr(self.agent, "set_active_task_from_text", None)
+        mark_status = getattr(self.agent, "mark_active_task_status", None)
+        reset_task = getattr(self.agent, "reset_active_task", None)
+        activate_task = getattr(self.agent, "activate_active_task", None)
+        block_task = getattr(self.agent, "block_active_task", None)
+        wait_task = getattr(self.agent, "wait_on_active_task", None)
+        reopen_task = getattr(self.agent, "reopen_active_task", None)
+        current_step_task = getattr(self.agent, "set_active_task_current_step", None)
+        complete_step_task = getattr(self.agent, "complete_active_task_step", None)
+        next_step_task = getattr(self.agent, "set_active_task_next_step", None)
+        advance_task = getattr(self.agent, "advance_active_task", None)
+
+        if action in {"show", "status"}:
+            if not callable(show_task):
+                return self.messages.task.unavailable
+            if args and args[0].lower() in {"full", "raw"}:
+                if not callable(show_task_full):
+                    return self.messages.task.unavailable
+                rendered = await show_task_full(session_chat_id)
+            else:
+                rendered = await show_task(session_chat_id)
+            return rendered or self.messages.task.no_active_task
+
+        if action in {"history", "log"}:
+            if not callable(show_history):
+                return self.messages.task.unavailable
+            limit = 10
+            if args:
+                try:
+                    limit = int(args[0])
+                except ValueError:
+                    return self.messages.task.error_history_limit
+                if limit <= 0:
+                    return self.messages.task.error_history_limit
+            rendered = await show_history(session_chat_id, limit=limit)
+            return rendered or self.messages.task.no_history
+
+        if action in {"reset", "clear"}:
+            if not callable(show_task) or not callable(reset_task):
+                return self.messages.task.unavailable
+            rendered = await show_task(session_chat_id)
+            if not rendered:
+                return self.messages.task.no_active_task
+            await reset_task(session_chat_id)
+            return self.messages.task.reset_done
+
+        if action == "done":
+            if not callable(mark_status):
+                return self.messages.task.unavailable
+            rendered = await mark_status(session_chat_id, "done")
+            if not rendered:
+                return self.messages.task.no_active_task
+            return f"{self.messages.task.marked_done}\n\n{rendered}"
+
+        if action in {"activate", "resume"}:
+            if not callable(activate_task):
+                return self.messages.task.unavailable
+            rendered = await activate_task(session_chat_id)
+            if not rendered:
+                return self.messages.task.no_active_task
+            return f"{self.messages.task.marked_active}\n\n{rendered}"
+
+        if action == "reopen":
+            if not callable(reopen_task):
+                return self.messages.task.unavailable
+            rendered = await reopen_task(session_chat_id)
+            if not rendered:
+                return self.messages.task.no_active_task
+            return f"{self.messages.task.reopened}\n\n{rendered}"
+
+        if action in {"cancel", "cancelled"}:
+            if not callable(mark_status):
+                return self.messages.task.unavailable
+            rendered = await mark_status(session_chat_id, "cancelled")
+            if not rendered:
+                return self.messages.task.no_active_task
+            return f"{self.messages.task.marked_cancelled}\n\n{rendered}"
+
+        if action == "block":
+            if not callable(block_task):
+                return self.messages.task.unavailable
+            reason = " ".join(args).strip()
+            if not reason:
+                return self.messages.task.error_block_usage
+            rendered = await block_task(session_chat_id, reason)
+            if not rendered:
+                return self.messages.task.no_active_task
+            return f"{self.messages.task.marked_blocked}\n\n{rendered}"
+
+        if action == "wait":
+            if not callable(wait_task):
+                return self.messages.task.unavailable
+            question = " ".join(args).strip()
+            if not question:
+                return self.messages.task.error_wait_usage
+            rendered = await wait_task(session_chat_id, question)
+            if not rendered:
+                return self.messages.task.no_active_task
+            return f"{self.messages.task.marked_waiting}\n\n{rendered}"
+
+        if action == "step":
+            if not callable(current_step_task):
+                return self.messages.task.unavailable
+            step_text = " ".join(args).strip()
+            if not step_text:
+                return self.messages.task.error_step_usage
+            rendered = await current_step_task(session_chat_id, step_text)
+            if not rendered:
+                return self.messages.task.no_active_task
+            return f"{self.messages.task.updated_current_step}\n\n{rendered}"
+
+        if action == "complete":
+            if not callable(complete_step_task):
+                return self.messages.task.unavailable
+            next_step_override = " ".join(args).strip() or None
+            rendered = await complete_step_task(session_chat_id, next_step_override)
+            if rendered is None:
+                return self.messages.task.no_active_task
+            return f"{self.messages.task.completed_current_step}\n\n{rendered}"
+
+        if action == "next":
+            if args:
+                if not callable(next_step_task):
+                    return self.messages.task.unavailable
+                step_text = " ".join(args).strip()
+                rendered = await next_step_task(session_chat_id, step_text)
+                if not rendered:
+                    return self.messages.task.no_active_task
+                return f"{self.messages.task.updated_next_step}\n\n{rendered}"
+            if not callable(advance_task):
+                return self.messages.task.unavailable
+            rendered = await advance_task(session_chat_id)
+            if rendered is None:
+                if not callable(show_task):
+                    return self.messages.task.unavailable
+                current = await show_task(session_chat_id)
+                if current is None:
+                    return self.messages.task.no_active_task
+                return self.messages.task.no_next_step
+            return f"{self.messages.task.advanced_to_next_step}\n\n{rendered}"
+
+        if action == "set":
+            if not callable(set_task):
+                return self.messages.task.unavailable
+            task_text = " ".join(args).strip()
+            if not task_text:
+                return self.messages.task.error_set_usage
+            rendered = await set_task(session_chat_id, task_text)
+            if not rendered:
+                return self.messages.task.error_set_usage
+            return f"{self.messages.task.set_done}\n\n{rendered}"
+
+        return self._task_help_text()
+
     async def _publish_stop_response(
         self,
         *,
@@ -373,6 +562,24 @@ class MessageQueue:
             )
         )
 
+    async def _publish_task_response(
+        self,
+        *,
+        channel: str,
+        transport_chat_id: str,
+        session_chat_id: str,
+        content: str,
+    ) -> None:
+        """Publish the acknowledgement for an immediate task command."""
+        await self.bus.publish_outbound(
+            OutboundMessage(
+                channel=channel,
+                chat_id=transport_chat_id,
+                session_chat_id=session_chat_id,
+                content=content,
+            )
+        )
+
     def unregister_response_handler(self, channel: str) -> None:
         """Remove the outbound response handler for a channel."""
         normalized_channel = self.normalize_channel(channel)
@@ -414,6 +621,16 @@ class MessageQueue:
         if self.is_cron_command(user_message.text):
             response_text = await self._handle_cron_command(session_chat_id, user_message.text)
             await self._publish_cron_response(
+                channel=channel,
+                transport_chat_id=transport_chat_id,
+                session_chat_id=session_chat_id,
+                content=response_text,
+            )
+            return
+
+        if self.is_task_command(user_message.text):
+            response_text = await self._handle_task_command(session_chat_id, user_message.text)
+            await self._publish_task_response(
                 channel=channel,
                 transport_chat_id=transport_chat_id,
                 session_chat_id=session_chat_id,
