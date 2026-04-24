@@ -5,9 +5,17 @@ from opensprite.tools.web_fetch import WebFetchTool
 
 
 class _FakeFetcher:
-    timeout = 30
-    prefer_trafilatura = True
-    firecrawl_api_key = None
+    def __init__(
+        self,
+        max_chars=50000,
+        timeout=30,
+        prefer_trafilatura=True,
+        firecrawl_api_key=None,
+    ):
+        self.max_chars = max_chars
+        self.timeout = timeout
+        self.prefer_trafilatura = prefer_trafilatura
+        self.firecrawl_api_key = firecrawl_api_key
 
     def fetch(self, url: str):
         return {
@@ -43,3 +51,44 @@ def test_web_fetch_returns_unified_web_payload(monkeypatch):
         "truncated": False,
         "items": [],
     }
+
+
+def test_web_fetch_parameter_default_uses_configured_max_chars():
+    tool = WebFetchTool(max_chars=1234)
+
+    max_chars_schema = tool.parameters["properties"]["max_chars"]
+
+    assert max_chars_schema["default"] == 1234
+    assert max_chars_schema["minimum"] == 1
+
+
+def test_web_fetch_execute_uses_configured_max_chars_by_default(monkeypatch):
+    created_fetchers = []
+
+    def fake_fetcher(*args, **kwargs):
+        fetcher = _FakeFetcher(**kwargs)
+        created_fetchers.append(fetcher)
+        return fetcher
+
+    monkeypatch.setattr("opensprite.tools.web_fetch.WebFetcher", fake_fetcher)
+    tool = WebFetchTool(max_chars=1234)
+
+    asyncio.run(tool._execute("https://sqlite.org/fts5.html"))
+
+    assert created_fetchers[-1].max_chars == 1234
+
+
+def test_web_fetch_execute_allows_max_chars_override(monkeypatch):
+    created_fetchers = []
+
+    def fake_fetcher(*args, **kwargs):
+        fetcher = _FakeFetcher(**kwargs)
+        created_fetchers.append(fetcher)
+        return fetcher
+
+    monkeypatch.setattr("opensprite.tools.web_fetch.WebFetcher", fake_fetcher)
+    tool = WebFetchTool(max_chars=1234)
+
+    asyncio.run(tool._execute("https://sqlite.org/fts5.html", max_chars=4321))
+
+    assert created_fetchers[-1].max_chars == 4321

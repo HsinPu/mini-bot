@@ -774,14 +774,20 @@ class WebFetchTool(Tool):
             "type": "object",
             "properties": {
                 "url": {"type": "string", "description": "URL to fetch", "pattern": NON_EMPTY_STRING_PATTERN},
-                "max_chars": {"type": "integer", "description": "Max characters to return", "default": 50000},
+                "max_chars": {
+                    "type": "integer",
+                    "description": "Max characters to return",
+                    "default": self.fetcher.max_chars,
+                    "minimum": 1,
+                },
             },
             "required": ["url"],
         }
 
-    async def _execute(self, url: str, max_chars: int = 50000, **kwargs) -> str:
+    async def _execute(self, url: str, max_chars: int | None = None, **kwargs) -> str:
+        effective_max_chars = max_chars if max_chars is not None else self.fetcher.max_chars
         result = WebFetcher(
-            max_chars=max_chars,
+            max_chars=effective_max_chars,
             timeout=self.fetcher.timeout,
             prefer_trafilatura=self.fetcher.prefer_trafilatura,
             firecrawl_api_key=self.fetcher.firecrawl_api_key,
