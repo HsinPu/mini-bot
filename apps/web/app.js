@@ -39,6 +39,8 @@ const dom = {
   wsUrlInput: document.getElementById("wsUrlInput"),
   displayNameInput: document.getElementById("displayNameInput"),
   chatIdInput: document.getElementById("chatIdInput"),
+  emptyState: document.getElementById("emptyState"),
+  promptCards: document.querySelectorAll("[data-prompt]"),
 };
 
 function readStoredValue(key, fallback) {
@@ -68,7 +70,7 @@ function generateChatId() {
 function summarizeTitle(text) {
   const singleLine = text.trim().replace(/\s+/g, " ");
   if (!singleLine) {
-    return "New workspace";
+    return "New chat";
   }
   return singleLine.length > 30 ? `${singleLine.slice(0, 30)}...` : singleLine;
 }
@@ -84,25 +86,14 @@ function makeMessage(role, text, meta) {
 }
 
 function createIntroMessages() {
-  return [
-    makeMessage(
-      "assistant",
-      "OpenSprite is ready in the browser. This page connects to your local gateway automatically when it opens.",
-      "OpenSprite"
-    ),
-    makeMessage(
-      "assistant",
-      "Use the Connection panel only when you need to change the endpoint, display name, or pinned chat ID.",
-      "Local console"
-    ),
-  ];
+  return [];
 }
 
 function createSession(chatId) {
   return {
     chatId: chatId || generateChatId(),
     sessionChatId: null,
-    title: "New workspace",
+    title: "New chat",
     updatedAt: Date.now(),
     messages: createIntroMessages(),
   };
@@ -119,7 +110,7 @@ const state = {
   socket: null,
   connectionState: "disconnected",
   notice: {
-    text: "Opening a live connection to your local gateway...",
+    text: "Connecting to your local OpenSprite gateway...",
     tone: "info",
   },
 };
@@ -156,7 +147,7 @@ function addMessage(chatId, message) {
   const session = ensureSession(chatId);
   session.messages.push(message);
   session.updatedAt = message.createdAt;
-  if (message.role === "user" && session.title === "New workspace") {
+  if (message.role === "user" && session.title === "New chat") {
     session.title = summarizeTitle(message.text);
   }
   sortSessions();
@@ -356,12 +347,22 @@ function renderMessages() {
   const currentSession = getCurrentSession();
   dom.messageList.innerHTML = "";
   if (!currentSession) {
+    dom.emptyState.hidden = false;
     return;
   }
+
+  dom.emptyState.hidden = currentSession.messages.length > 0;
 
   currentSession.messages.forEach((message) => {
     const article = document.createElement("article");
     article.className = `message message--${message.role}`;
+
+    const avatar = document.createElement("div");
+    avatar.className = "message__avatar";
+    avatar.textContent = message.role === "user" ? "You" : "OS";
+
+    const content = document.createElement("div");
+    content.className = "message__content";
 
     const meta = document.createElement("div");
     meta.className = "message__meta";
@@ -371,7 +372,8 @@ function renderMessages() {
     bubble.className = "message__bubble";
     bubble.textContent = message.text;
 
-    article.append(meta, bubble);
+    content.append(meta, bubble);
+    article.append(avatar, content);
     dom.messageList.appendChild(article);
   });
 }
@@ -379,10 +381,10 @@ function renderMessages() {
 function renderStatus() {
   const currentSession = getCurrentSession();
   const sessionLabel = currentSession?.sessionChatId || "Waiting for live session";
-  const chatId = currentSession?.chatId || "No active draft";
+  const chatId = currentSession?.chatId || "No active chat";
 
-  dom.sessionMeta.textContent = `Chat ID: ${chatId} | Session: ${sessionLabel}`;
-  dom.runtimeHint.textContent = `Endpoint: ${state.wsUrl}`;
+  dom.sessionMeta.textContent = `${currentSession?.title || "New chat"} · ${sessionLabel}`;
+  dom.runtimeHint.textContent = chatId;
 
   const labels = {
     disconnected: "Disconnected",
@@ -502,6 +504,13 @@ dom.messageInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
     submitMessage(event);
   }
+});
+dom.promptCards.forEach((button) => {
+  button.addEventListener("click", () => {
+    dom.messageInput.value = button.dataset.prompt || "";
+    resizeComposer();
+    dom.messageInput.focus();
+  });
 });
 
 dom.settingsToggle.addEventListener("click", openSettings);
