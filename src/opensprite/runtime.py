@@ -291,7 +291,7 @@ async def run(config_path: str | Path | None = None) -> None:
         logger.info("正在關閉...")
     finally:
         await mq.stop()
-        await processor
+        await stop_background_task(processor, name="message queue processor")
         await stop_background_task(search_queue_worker, name="search embedding queue worker")
         await cron_manager.stop()
         await agent.close_background_maintenance()

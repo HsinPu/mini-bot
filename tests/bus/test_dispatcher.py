@@ -63,6 +63,18 @@ def test_message_queue_falls_back_to_inbound_channel_when_response_channel_unkno
     assert received == [("telegram", "telegram", "chat-1", "pong")]
 
 
+def test_message_queue_processor_exits_cleanly_when_cancelled_while_idle():
+    async def scenario():
+        queue = MessageQueue(FakeAgent())
+        processor = asyncio.create_task(queue.process_queue())
+        await asyncio.sleep(0)
+
+        processor.cancel()
+        await asyncio.wait_for(processor, timeout=2)
+
+    asyncio.run(scenario())
+
+
 class SequencingAgent:
     def __init__(self):
         self.events = []

@@ -852,6 +852,9 @@ class MessageQueue:
                     if self._session_tails.get(cid) is t else None
                 )
                 
+            except asyncio.CancelledError:
+                self.running = False
+                break
             except Exception as e:
                 logger.exception(f"Inbound consumer 發生錯誤: {e}")
     
