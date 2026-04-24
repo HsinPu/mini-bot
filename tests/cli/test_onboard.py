@@ -74,6 +74,34 @@ def test_run_onboard_interactive_persists_external_config_updates(monkeypatch, t
     assert channels["telegram"]["token"] == "telegram-secret"
 
 
+def test_interactive_channel_selection_keeps_web_enabled(monkeypatch):
+    config_data = {
+        "llm": {"providers": {}, "default": ""},
+        "channels": {
+            "telegram": {"enabled": False, "token": ""},
+            "web": {"enabled": True, "path": "/ws"},
+            "console": {"enabled": True},
+        },
+    }
+
+    def fake_choice(prompt: str, choices: list[str], default: str | None = None) -> str:
+        if prompt.startswith("Choose the LLM provider"):
+            return onboard.SKIP_CHOICE
+        if prompt.startswith("Choose the chat channel"):
+            return "telegram"
+        raise AssertionError(f"Unexpected prompt: {prompt}")
+
+    monkeypatch.setattr(onboard, "_prompt_choice", fake_choice)
+    monkeypatch.setattr(onboard, "_prompt_visible_value", lambda *args, **kwargs: "telegram-secret")
+    monkeypatch.setattr(onboard, "_prompt_yes_no", lambda *args, **kwargs: True)
+
+    updated = onboard._run_interactive_setup(config_data)
+
+    assert updated["channels"]["telegram"]["enabled"] is True
+    assert updated["channels"]["telegram"]["token"] == "telegram-secret"
+    assert updated["channels"]["web"]["enabled"] is True
+
+
 def test_run_onboard_refresh_preserves_existing_external_config(monkeypatch, tmp_path):
     _patch_home(monkeypatch, tmp_path)
     monkeypatch.setattr(onboard, "sync_templates", lambda app_home: [])

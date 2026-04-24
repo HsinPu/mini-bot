@@ -407,12 +407,15 @@ def _run_interactive_setup(config_data: dict[str, Any]) -> dict[str, Any]:
         default=channel_default,
     )
     if channel_choice != SKIP_CHOICE:
-        for name, channel in channels.items():
-            if name == "console" or not isinstance(channel, dict):
-                continue
-            channel["enabled"] = name == channel_choice
-
         selected_channel = channels.get(channel_choice, {})
+        if isinstance(selected_channel, dict):
+            selected_channel["enabled"] = True
+
+        for name, channel in channels.items():
+            if name in {"console", "web", channel_choice} or not isinstance(channel, dict):
+                continue
+            channel["enabled"] = False
+
         if isinstance(selected_channel, dict) and "token" in selected_channel:
             token_label = f"{channel_choice.capitalize()} token"
             selected_channel["token"] = _prompt_visible_value(
