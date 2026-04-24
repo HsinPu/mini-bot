@@ -243,13 +243,14 @@ Main file snippet:
 
 ### Search `search.json` · 搜尋
 
-**English:** Enabled by default and requires `storage.type="sqlite"`. When enabled, indexes chats and `web_search` / `web_fetch` payloads; embeddings are optional and processed in a background queue. If `search.embedding.api_key` or `base_url` is empty, values fall back to the active LLM provider.
+**English:** Enabled by default with `search.backend="sqlite"`, which requires `storage.type="sqlite"`. When enabled, indexes chats and `web_search` / `web_fetch` payloads; embeddings are optional and processed in a background queue. If `search.embedding.api_key` or `base_url` is empty, values fall back to the active LLM provider.
 
-**中文：** 預設啟用，需搭配 `storage.type` 為 `sqlite`。啟用後會索引對話、`web_search`／`web_fetch` 結果等；embedding 可選、於背景佇列處理。若 embedding 的 `api_key` 或 `base_url` 留空，會改採目前作用中的 LLM 供應商設定。
+**中文：** 預設啟用且 `search.backend="sqlite"`，需搭配 `storage.type` 為 `sqlite`。啟用後會索引對話、`web_search`／`web_fetch` 結果等；embedding 可選、於背景佇列處理。若 embedding 的 `api_key` 或 `base_url` 留空，會改採目前作用中的 LLM 供應商設定。
 
 ```json
 {
   "enabled": true,
+  "backend": "sqlite",
   "history_top_k": 5,
   "knowledge_top_k": 5,
   "embedding": {

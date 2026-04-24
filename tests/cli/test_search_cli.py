@@ -34,6 +34,7 @@ def _write_config(path, db_path, *, search_enabled=True, history_top_k=5, knowle
                 },
                 "search": {
                     "enabled": search_enabled,
+                    "backend": "sqlite",
                     "history_top_k": history_top_k,
                     "knowledge_top_k": knowledge_top_k,
                     "embedding": embedding
@@ -127,7 +128,7 @@ def test_status_command_renders_search_top_k_values(tmp_path):
     result = runner.invoke(app, ["status", "--config", str(config_path)])
 
     assert result.exit_code == 0
-    assert "Search: enabled=yes (history_top_k=7, knowledge_top_k=9)" in result.stdout
+    assert "Search: enabled=yes backend=sqlite (history_top_k=7, knowledge_top_k=9)" in result.stdout
 
 
 def test_search_status_cli_reports_index_and_embedding_counts(tmp_path):

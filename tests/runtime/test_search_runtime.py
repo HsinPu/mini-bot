@@ -43,7 +43,7 @@ def test_create_search_store_requires_sqlite_storage_when_enabled():
         search=SearchConfig(enabled=True),
     )
 
-    with pytest.raises(ValueError, match="storage.type=sqlite"):
+    with pytest.raises(ValueError, match='search.backend="sqlite" requires storage.type="sqlite"'):
         create_search_store(config)
 
 

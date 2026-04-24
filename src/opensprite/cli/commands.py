@@ -139,6 +139,7 @@ def _emit_status(payload: dict[str, object], json_output: bool) -> None:
     typer.echo(
         "Search: "
         f"enabled={_format_presence(bool(search['enabled']))} "
+        f"backend={search['backend']} "
         f"(history_top_k={search['history_top_k']}, knowledge_top_k={search['knowledge_top_k']})"
     )
     typer.echo(
@@ -421,6 +422,7 @@ def status(
             },
             "search": {
                 "enabled": loaded.search.enabled,
+                "backend": loaded.search.backend,
                 "history_top_k": loaded.search.history_top_k,
                 "knowledge_top_k": loaded.search.knowledge_top_k,
             },

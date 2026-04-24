@@ -244,6 +244,7 @@ def test_search_config_provides_embedding_defaults():
     config = SearchConfig()
 
     assert config.enabled is True
+    assert config.backend == "sqlite"
     assert config.embedding.enabled is False
     assert config.embedding.provider == "openai"
     assert config.embedding.batch_size == 16
@@ -261,6 +262,7 @@ def test_config_load_reads_search_from_external_file(tmp_path):
         json.dumps(
             {
                 "enabled": True,
+                "backend": "sqlite",
                 "history_top_k": 7,
                 "knowledge_top_k": 9,
                 "embedding": {
@@ -288,6 +290,7 @@ def test_config_load_reads_search_from_external_file(tmp_path):
     config = Config.from_json(config_path)
 
     assert config.search.enabled is True
+    assert config.search.backend == "sqlite"
     assert config.search.history_top_k == 7
     assert config.search.knowledge_top_k == 9
     assert config.search.embedding.enabled is True
