@@ -63,6 +63,61 @@ def test_exec_background_starts_managed_session_and_process_tool_can_kill(tmp_pa
     asyncio.run(run())
 
 
+def test_background_session_without_explicit_timeout_keeps_running_after_exec_timeout(tmp_path):
+    async def run() -> None:
+        manager = BackgroundProcessManager()
+        exec_tool = ExecTool(workspace=Path(tmp_path), process_manager=manager, timeout=1)
+        exec_tool._output_drain_timeout = lambda timeout_seconds: 0.1
+        process_tool = ProcessTool(manager)
+
+        started = await exec_tool.execute(
+            command=_python_shell_command(
+                "import time; print('still alive', flush=True); time.sleep(3)"
+            ),
+            background=True,
+        )
+        session_id = _extract_session_id(started)
+
+        await asyncio.sleep(1.3)
+        inspected = await process_tool.execute(action="inspect", session_id=session_id)
+
+        assert "Status: running" in inspected
+        assert "Termination: timeout" not in inspected
+
+        await process_tool.execute(action="kill", session_id=session_id)
+
+    asyncio.run(run())
+
+
+def test_background_session_explicit_timeout_still_terminates(tmp_path):
+    async def run() -> None:
+        manager = BackgroundProcessManager()
+        exec_tool = ExecTool(workspace=Path(tmp_path), process_manager=manager, timeout=5)
+        exec_tool._output_drain_timeout = lambda timeout_seconds: 0.1
+        process_tool = ProcessTool(manager)
+
+        started = await exec_tool.execute(
+            command=_python_shell_command(
+                "import time; print('timed background', flush=True); time.sleep(2)"
+            ),
+            background=True,
+            timeout_seconds=1,
+        )
+        session_id = _extract_session_id(started)
+
+        inspected = ""
+        for _ in range(20):
+            inspected = await process_tool.execute(action="inspect", session_id=session_id)
+            if "Status: exited" in inspected:
+                break
+            await asyncio.sleep(0.2)
+
+        assert "Status: exited" in inspected
+        assert "Termination: timeout" in inspected
+
+    asyncio.run(run())
+
+
 def test_exec_yield_ms_moves_running_command_to_background(tmp_path):
     async def run() -> None:
         manager = BackgroundProcessManager()

@@ -356,7 +356,8 @@ class ExecTool(Tool):
         process: asyncio.subprocess.Process,
         read_tasks: list[asyncio.Task[None]],
         output_chunks: list[CapturedOutputChunk],
-        timeout_seconds: float,
+        session_timeout_seconds: float | None,
+        drain_timeout_seconds: float,
         yield_ms: int | None,
         notify_on_exit: bool,
         notify_on_exit_empty_success: bool,
@@ -367,8 +368,8 @@ class ExecTool(Tool):
             process=process,
             read_tasks=read_tasks,
             output_chunks=output_chunks,
-            timeout_seconds=timeout_seconds,
-            drain_timeout=self._output_drain_timeout(timeout_seconds),
+            timeout_seconds=session_timeout_seconds,
+            drain_timeout=self._output_drain_timeout(drain_timeout_seconds),
             exit_notifier=(
                 self._background_notification_factory()
                 if self._background_notification_factory is not None
@@ -414,7 +415,11 @@ class ExecTool(Tool):
                 "timeout_seconds": {
                     "type": "integer",
                     "minimum": 1,
-                    "description": "Optional. Override the per-command timeout in seconds for this run or background session.",
+                    "description": (
+                        "Optional. Override the foreground timeout in seconds. For background "
+                        "sessions, also set a maximum runtime; omitted background sessions run "
+                        "until they exit, are killed, or the agent shuts down."
+                    ),
                 },
                 "notify_on_exit": {
                     "type": "boolean",
@@ -432,7 +437,9 @@ class ExecTool(Tool):
         command = str(kwargs["command"]).strip()
         background = bool(kwargs.get("background", False))
         yield_ms = kwargs.get("yield_ms")
-        timeout_seconds = int(kwargs.get("timeout_seconds") or self.timeout)
+        timeout_arg = kwargs.get("timeout_seconds")
+        timeout_was_supplied = timeout_arg is not None
+        timeout_seconds = int(timeout_arg if timeout_was_supplied else self.timeout)
         notify_on_exit = bool(kwargs.get("notify_on_exit", self.notify_on_exit))
         notify_on_exit_empty_success = bool(
             kwargs.get("notify_on_exit_empty_success", self.notify_on_exit_empty_success)
@@ -463,7 +470,10 @@ class ExecTool(Tool):
                     process=process,
                     read_tasks=read_tasks,
                     output_chunks=output_chunks,
-                    timeout_seconds=timeout_seconds,
+                    session_timeout_seconds=(
+                        float(timeout_seconds) if timeout_was_supplied else None
+                    ),
+                    drain_timeout_seconds=timeout_seconds,
                     yield_ms=None,
                     notify_on_exit=notify_on_exit,
                     notify_on_exit_empty_success=notify_on_exit_empty_success,
@@ -477,7 +487,7 @@ class ExecTool(Tool):
                     await asyncio.wait_for(process.wait(), timeout=wait_timeout)
                 except asyncio.TimeoutError:
                     elapsed = asyncio.get_running_loop().time() - started_at
-                    if elapsed >= float(timeout_seconds):
+                    if timeout_was_supplied and elapsed >= float(timeout_seconds):
                         return await self._handle_timed_out_process(
                             process,
                             read_tasks,
@@ -490,7 +500,12 @@ class ExecTool(Tool):
                         process=process,
                         read_tasks=read_tasks,
                         output_chunks=output_chunks,
-                        timeout_seconds=max(0.001, float(timeout_seconds) - elapsed),
+                        session_timeout_seconds=(
+                            max(0.001, float(timeout_seconds) - elapsed)
+                            if timeout_was_supplied
+                            else None
+                        ),
+                        drain_timeout_seconds=timeout_seconds,
                         yield_ms=yield_ms,
                         notify_on_exit=notify_on_exit,
                         notify_on_exit_empty_success=notify_on_exit_empty_success,

@@ -27,7 +27,7 @@ class BackgroundSession:
     process: asyncio.subprocess.Process
     read_tasks: list[asyncio.Task[None]]
     output_chunks: list[CapturedOutputChunk]
-    timeout_seconds: float
+    timeout_seconds: float | None
     drain_timeout: float
     started_at: float = field(default_factory=time.monotonic)
     started_at_wall: float = field(default_factory=time.time)
@@ -79,7 +79,7 @@ class BackgroundProcessManager:
         process: asyncio.subprocess.Process,
         read_tasks: list[asyncio.Task[None]],
         output_chunks: list[CapturedOutputChunk],
-        timeout_seconds: float,
+        timeout_seconds: float | None,
         drain_timeout: float,
         exit_notifier: SessionExitNotifier | None = None,
         notify_on_exit: bool = True,
@@ -92,7 +92,9 @@ class BackgroundProcessManager:
             process=process,
             read_tasks=read_tasks,
             output_chunks=output_chunks,
-            timeout_seconds=max(0.001, float(timeout_seconds)),
+            timeout_seconds=(
+                None if timeout_seconds is None else max(0.001, float(timeout_seconds))
+            ),
             drain_timeout=max(0.001, float(drain_timeout)),
             exit_notifier=exit_notifier,
             notify_on_exit=notify_on_exit,
@@ -123,7 +125,10 @@ class BackgroundProcessManager:
 
     async def _watch_session(self, session: BackgroundSession) -> None:
         try:
-            await asyncio.wait_for(session.process.wait(), timeout=session.timeout_seconds)
+            if session.timeout_seconds is None:
+                await session.process.wait()
+            else:
+                await asyncio.wait_for(session.process.wait(), timeout=session.timeout_seconds)
             if session.termination_reason is None:
                 session.termination_reason = "exit"
         except asyncio.TimeoutError:
