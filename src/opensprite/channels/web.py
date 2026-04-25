@@ -33,7 +33,9 @@ class WebAdapter(MessageAdapter):
         "health_path": "/healthz",
         "max_message_size": 1024 * 1024,
         "frontend_auto_build": True,
+        "frontend_auto_install": True,
         "frontend_build_timeout": 120,
+        "frontend_install_timeout": 300,
     }
 
     def __init__(self, mq=None, config: dict[str, Any] | None = None):
@@ -61,6 +63,9 @@ class WebAdapter(MessageAdapter):
 
     def _get_frontend_build_timeout(self) -> int:
         return int(self.config.get("frontend_build_timeout", self.DEFAULT_CONFIG["frontend_build_timeout"]))
+
+    def _get_frontend_install_timeout(self) -> int:
+        return int(self.config.get("frontend_install_timeout", self.DEFAULT_CONFIG["frontend_install_timeout"]))
 
     def _get_path(self, key: str) -> str:
         raw = str(self.config.get(key, self.DEFAULT_CONFIG[key]) or self.DEFAULT_CONFIG[key]).strip() or "/"
@@ -113,6 +118,55 @@ class WebAdapter(MessageAdapter):
             return value.strip().lower() not in {"0", "false", "no", "off"}
         return bool(value)
 
+    def _is_frontend_auto_install_enabled(self) -> bool:
+        value = self.config.get("frontend_auto_install", self.DEFAULT_CONFIG["frontend_auto_install"])
+        if isinstance(value, str):
+            return value.strip().lower() not in {"0", "false", "no", "off"}
+        return bool(value)
+
+    def _frontend_dependencies_ready(self, source_dir: Path) -> bool:
+        bin_dir = source_dir / "node_modules" / ".bin"
+        return (bin_dir / "vite").is_file() or (bin_dir / "vite.cmd").is_file()
+
+    def _run_frontend_command(self, source_dir: Path, args: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            args,
+            cwd=source_dir,
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=timeout,
+        )
+
+    def _maybe_install_frontend_dependencies(self, source_dir: Path, npm: str) -> bool:
+        if self._frontend_dependencies_ready(source_dir):
+            return True
+        if not self._is_frontend_auto_install_enabled():
+            logger.warning("Skipping web frontend dependency install because frontend_auto_install is disabled")
+            return False
+
+        install_command = [npm, "ci"] if (source_dir / "package-lock.json").is_file() else [npm, "install"]
+        logger.info("Installing web frontend dependencies before build: {}", source_dir)
+        try:
+            result = self._run_frontend_command(source_dir, install_command, self._get_frontend_install_timeout())
+        except subprocess.TimeoutExpired:
+            logger.warning("Web frontend dependency install timed out after {} seconds", self._get_frontend_install_timeout())
+            return False
+        except OSError as exc:
+            logger.warning("Web frontend dependency install could not start: {}", exc)
+            return False
+
+        if result.returncode != 0:
+            logger.warning(
+                "Web frontend dependency install failed with exit code {} | stdout={} | stderr={}",
+                result.returncode,
+                self._trim_process_output(result.stdout),
+                self._trim_process_output(result.stderr),
+            )
+            return False
+
+        return True
+
     def _maybe_build_frontend(self) -> None:
         if not self._is_frontend_auto_build_enabled():
             return
@@ -126,16 +180,12 @@ class WebAdapter(MessageAdapter):
             logger.warning("Skipping web frontend build because npm was not found")
             return
 
+        if not self._maybe_install_frontend_dependencies(source_dir, npm):
+            return
+
         logger.info("Building web frontend before gateway startup: {}", source_dir)
         try:
-            result = subprocess.run(
-                [npm, "run", "build"],
-                cwd=source_dir,
-                capture_output=True,
-                check=False,
-                text=True,
-                timeout=self._get_frontend_build_timeout(),
-            )
+            result = self._run_frontend_command(source_dir, [npm, "run", "build"], self._get_frontend_build_timeout())
         except subprocess.TimeoutExpired:
             logger.warning("Web frontend build timed out after {} seconds", self._get_frontend_build_timeout())
             return
@@ -290,6 +340,13 @@ class WebAdapter(MessageAdapter):
         return web.json_response({"ok": True, "channel": "web"})
 
     async def _handle_frontend_index(self, request: web.Request) -> web.FileResponse:
+        if self._frontend_dir is None:
+            raise web.HTTPServiceUnavailable(
+                text=(
+                    "OpenSprite web frontend is not built yet. "
+                    "Install Node.js/npm if needed, then restart the gateway or run `npm.cmd run build` in apps/web."
+                )
+            )
         return web.FileResponse(self._resolve_frontend_asset("index.html"))
 
     async def _handle_frontend_asset(self, request: web.Request) -> web.FileResponse:
@@ -371,9 +428,9 @@ class WebAdapter(MessageAdapter):
         self.app = web.Application()
         self.app.router.add_get(ws_path, self._handle_websocket)
         self.app.router.add_get(health_path, self._handle_health)
+        self.app.router.add_get("/", self._handle_frontend_index)
+        self.app.router.add_get("/index.html", self._handle_frontend_index)
         if self._frontend_dir is not None:
-            self.app.router.add_get("/", self._handle_frontend_index)
-            self.app.router.add_get("/index.html", self._handle_frontend_index)
             self.app.router.add_get(r"/{asset_path:.+\..+}", self._handle_frontend_asset)
         else:
             logger.info("Web adapter did not find a frontend directory; serving API endpoints only")

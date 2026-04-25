@@ -36,7 +36,6 @@ async def _run_web_roundtrip():
             "frontend_auto_build": False,
         },
     )
-
     processor = asyncio.create_task(queue.process_queue())
     adapter_task = asyncio.create_task(adapter.run())
 
@@ -112,7 +111,6 @@ async def _run_web_static_serving(tmp_path: Path):
             "frontend_auto_build": False,
         },
     )
-
     processor = asyncio.create_task(queue.process_queue())
     adapter_task = asyncio.create_task(adapter.run())
 
@@ -202,3 +200,47 @@ async def _run_web_source_static_dir_serves_dist(tmp_path: Path):
 
 def test_web_adapter_static_source_dir_serves_dist(tmp_path):
     asyncio.run(_run_web_source_static_dir_serves_dist(tmp_path))
+
+
+async def _run_web_frontend_unavailable_response(tmp_path: Path):
+    missing_frontend = tmp_path / "missing-frontend"
+    agent = EchoAgent()
+    queue = MessageQueue(agent)
+    adapter = WebAdapter(
+        mq=queue,
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "path": "/ws",
+            "health_path": "/healthz",
+            "static_dir": str(missing_frontend),
+            "frontend_auto_build": False,
+        },
+    )
+    adapter._frontend_dir = None
+
+    processor = asyncio.create_task(queue.process_queue())
+    adapter_task = asyncio.create_task(adapter.run())
+
+    try:
+        await adapter.wait_until_started()
+        port = adapter.bound_port
+        assert port is not None
+
+        async with ClientSession() as session:
+            async with session.get(f"http://127.0.0.1:{port}/") as resp:
+                assert resp.status == 503
+                body = await resp.text()
+                assert "OpenSprite web frontend is not built yet" in body
+    finally:
+        adapter_task.cancel()
+        try:
+            await adapter_task
+        except asyncio.CancelledError:
+            pass
+        await queue.stop()
+        await asyncio.wait_for(processor, timeout=2)
+
+
+def test_web_adapter_root_explains_missing_frontend(tmp_path):
+    asyncio.run(_run_web_frontend_unavailable_response(tmp_path))

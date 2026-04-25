@@ -81,7 +81,9 @@ class ChannelsConfig(BaseModel):
         "health_path": "/healthz",
         "max_message_size": 1024 * 1024,
         "frontend_auto_build": True,
+        "frontend_auto_install": True,
         "frontend_build_timeout": 120,
+        "frontend_install_timeout": 300,
     })
     console: dict[str, Any] = Field(default_factory=lambda: {"enabled": True})
 
