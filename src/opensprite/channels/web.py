@@ -67,9 +67,7 @@ class WebAdapter(MessageAdapter):
         candidates.extend(
             [
                 module_path.parents[3] / "apps" / "web" / "dist",
-                module_path.parents[3] / "apps" / "web",
                 Path.cwd() / "apps" / "web" / "dist",
-                Path.cwd() / "apps" / "web",
             ]
         )
 
