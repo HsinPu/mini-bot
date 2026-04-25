@@ -67,7 +67,7 @@ def test_registry_restricts_allowed_tools_by_glob():
     )
 
 
-def test_approval_required_policy_blocks_until_external_approval_layer_exists():
+def test_approval_required_policy_blocks_when_mode_is_unset():
     registry = ToolRegistry(
         permission_policy=ToolPermissionPolicy(approval_required_tools=["apply_patch"])
     )
@@ -75,4 +75,40 @@ def test_approval_required_policy_blocks_until_external_approval_layer_exists():
 
     result = asyncio.run(registry.execute("apply_patch", {}))
 
+    assert registry.tool_names == []
+    assert result == "Error: Tool 'apply_patch' blocked by permission policy: tool 'apply_patch' requires user approval."
+
+
+def test_approval_required_policy_allows_in_auto_mode():
+    registry = ToolRegistry(
+        permission_policy=ToolPermissionPolicy(approval_mode="auto", approval_required_tools=["apply_patch"])
+    )
+    registry.register(EchoTool("apply_patch"))
+
+    result = asyncio.run(registry.execute("apply_patch", {}))
+
+    assert registry.tool_names == ["apply_patch"]
+    assert result == "ran:apply_patch"
+
+
+def test_approval_required_policy_blocks_in_block_mode():
+    registry = ToolRegistry(
+        permission_policy=ToolPermissionPolicy(approval_mode="block", approval_required_tools=["apply_patch"])
+    )
+    registry.register(EchoTool("apply_patch"))
+
+    result = asyncio.run(registry.execute("apply_patch", {}))
+
+    assert result == "Error: Tool 'apply_patch' blocked by permission policy: tool 'apply_patch' requires user approval."
+
+
+def test_approval_required_policy_exposes_but_blocks_execution_in_ask_mode():
+    registry = ToolRegistry(
+        permission_policy=ToolPermissionPolicy(approval_mode="ask", approval_required_tools=["apply_patch"])
+    )
+    registry.register(EchoTool("apply_patch"))
+
+    result = asyncio.run(registry.execute("apply_patch", {}))
+
+    assert registry.tool_names == ["apply_patch"]
     assert result == "Error: Tool 'apply_patch' blocked by permission policy: tool 'apply_patch' requires user approval."

@@ -50,6 +50,9 @@
     "cron": {
       "default_timezone": "UTC"
     },
+    "permissions": {
+      "approval_mode": "auto"
+    },
     "mcp_servers_file": "mcp_servers.json"
   },
   "agent": {

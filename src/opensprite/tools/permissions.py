@@ -21,6 +21,8 @@ ALL_RISK_LEVELS = frozenset(
     }
 )
 
+APPROVAL_MODES = frozenset({"auto", "ask", "block"})
+
 DEFAULT_TOOL_RISKS: dict[str, frozenset[str]] = {
     "read_file": frozenset({"read"}),
     "batch": frozenset({"read"}),
@@ -70,10 +72,12 @@ class ToolPermissionPolicy:
         denied_tools: list[str] | None = None,
         allowed_risk_levels: list[str] | None = None,
         denied_risk_levels: list[str] | None = None,
+        approval_mode: str | None = None,
         approval_required_tools: list[str] | None = None,
         approval_required_risk_levels: list[str] | None = None,
     ):
         self.enabled = enabled
+        self.approval_mode = approval_mode if approval_mode in APPROVAL_MODES else None
         self.allowed_tools = tuple(allowed_tools or ["*"])
         self.denied_tools = tuple(denied_tools or [])
         self.allowed_risk_levels = frozenset(allowed_risk_levels or ALL_RISK_LEVELS)
@@ -101,6 +105,7 @@ class ToolPermissionPolicy:
             denied_tools=list(get("denied_tools", []) or []),
             allowed_risk_levels=list(get("allowed_risk_levels", list(ALL_RISK_LEVELS)) or []),
             denied_risk_levels=list(get("denied_risk_levels", []) or []),
+            approval_mode=get("approval_mode", None),
             approval_required_tools=list(get("approval_required_tools", []) or []),
             approval_required_risk_levels=list(get("approval_required_risk_levels", []) or []),
         )
@@ -116,10 +121,13 @@ class ToolPermissionPolicy:
         return DEFAULT_TOOL_RISKS.get(tool_name, frozenset({"external_side_effect"}))
 
     def is_tool_exposed(self, tool_name: str) -> bool:
-        decision = self.check(tool_name, {})
+        decision = self._check(tool_name, {}, include_approval=self.approval_mode in {None, "block"})
         return decision.allowed
 
     def check(self, tool_name: str, params: Any) -> PermissionDecision:
+        return self._check(tool_name, params, include_approval=self.approval_mode != "auto")
+
+    def _check(self, tool_name: str, params: Any, *, include_approval: bool) -> PermissionDecision:
         if not self.enabled:
             return PermissionDecision(True)
 
@@ -134,11 +142,12 @@ class ToolPermissionPolicy:
         disallowed_risks = sorted(risk for risk in risks if risk not in self.allowed_risk_levels)
         if disallowed_risks:
             return PermissionDecision(False, f"risk level(s) not allowed: {', '.join(disallowed_risks)}")
-        if self._matches_any(tool_name, self.approval_required_tools):
-            return PermissionDecision(False, f"tool '{tool_name}' requires user approval")
-        approval_risks = sorted(risks & self.approval_required_risk_levels)
-        if approval_risks:
-            return PermissionDecision(False, f"risk level(s) require user approval: {', '.join(approval_risks)}")
+        if include_approval:
+            if self._matches_any(tool_name, self.approval_required_tools):
+                return PermissionDecision(False, f"tool '{tool_name}' requires user approval")
+            approval_risks = sorted(risks & self.approval_required_risk_levels)
+            if approval_risks:
+                return PermissionDecision(False, f"risk level(s) require user approval: {', '.join(approval_risks)}")
 
         return PermissionDecision(True)
 
