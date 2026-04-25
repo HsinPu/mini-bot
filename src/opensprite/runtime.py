@@ -4,7 +4,6 @@ import asyncio
 from pathlib import Path
 
 from .agent import AgentLoop
-from .bus.events import OutboundMessage
 from .bus.message import UserMessage
 from .config import AgentConfig
 from .context.paths import split_session_chat_id
@@ -232,19 +231,15 @@ def create_cron_manager(config: Config, agent: AgentLoop, mq: MessageQueue) -> C
             session_chat_id=session_chat_id,
             sender_id="system:cron",
             sender_name="cron",
-            metadata={"source": "cron", "job_id": job.id},
+            metadata={
+                "source": "cron",
+                "job_id": job.id,
+                "_bypass_commands": True,
+                "_suppress_outbound": not job.payload.deliver,
+            },
         )
-        response = await agent.process(user_message)
-        if job.payload.deliver and response.text and job.payload.channel and job.payload.chat_id:
-            await mq.bus.publish_outbound(
-                OutboundMessage(
-                    channel=job.payload.channel,
-                    chat_id=job.payload.chat_id,
-                    session_chat_id=session_chat_id,
-                    content=response.text,
-                )
-            )
-        return response.text
+        await mq.enqueue(user_message)
+        return None
 
     return CronManager(
         workspace_root=Path(agent.tool_workspace or Path.home() / ".opensprite" / "workspace"),

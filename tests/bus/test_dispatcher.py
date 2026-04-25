@@ -100,6 +100,83 @@ def test_message_queue_accepts_empty_text_media_message():
     assert seen_messages[0].images == ["img-a"]
 
 
+def test_message_queue_can_bypass_immediate_commands_for_internal_messages():
+    async def scenario():
+        agent = FakeAgent(response_channel="telegram")
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, chat_id):
+            responses.append((message.session_chat_id, message.text))
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(
+                content="/cron help",
+                chat_id="same-chat",
+                channel="telegram",
+                metadata={"_bypass_commands": True, "source": "cron"},
+            )
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return responses, agent.seen_messages
+
+    responses, seen_messages = asyncio.run(scenario())
+
+    assert responses == [("telegram:same-chat", "pong")]
+    assert seen_messages[0].text == "/cron help"
+    assert seen_messages[0].metadata == {"source": "cron"}
+
+
+def test_message_queue_can_suppress_final_outbound_for_internal_messages():
+    class EventAgent(FakeAgent):
+        def __init__(self):
+            super().__init__(response_channel="telegram")
+            self.done = asyncio.Event()
+
+        async def process(self, user_message):
+            response = await super().process(user_message)
+            self.done.set()
+            return response
+
+    async def scenario():
+        agent = EventAgent()
+        queue = MessageQueue(agent)
+        responses = []
+
+        async def handler(message, channel, chat_id):
+            responses.append((message.session_chat_id, message.text))
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(
+                content="quiet cron",
+                chat_id="same-chat",
+                channel="telegram",
+                metadata={"_suppress_outbound": True, "source": "cron"},
+            )
+            await asyncio.wait_for(agent.done.wait(), timeout=2)
+            await asyncio.sleep(0.05)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return responses, agent.seen_messages
+
+    responses, seen_messages = asyncio.run(scenario())
+
+    assert responses == []
+    assert seen_messages[0].text == "quiet cron"
+    assert seen_messages[0].metadata == {"source": "cron"}
+
+
 def test_message_queue_processor_exits_cleanly_when_cancelled_while_idle():
     async def scenario():
         queue = MessageQueue(FakeAgent())

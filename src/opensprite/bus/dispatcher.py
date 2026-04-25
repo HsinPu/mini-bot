@@ -619,8 +619,9 @@ class MessageQueue:
         transport_chat_id = (user_message.chat_id or "default").strip() or "default"
         session_chat_id = user_message.session_chat_id or self.build_session_chat_id(channel, transport_chat_id)
         metadata = dict(user_message.metadata or {})
+        bypass_commands = bool(metadata.pop("_bypass_commands", False))
 
-        if self.is_stop_command(user_message.text):
+        if not bypass_commands and self.is_stop_command(user_message.text):
             cancelled = await self.cancel_chat(session_chat_id)
             await self._publish_stop_response(
                 channel=channel,
@@ -630,7 +631,7 @@ class MessageQueue:
             )
             return
 
-        if self.is_reset_command(user_message.text):
+        if not bypass_commands and self.is_reset_command(user_message.text):
             cancelled = await self.cancel_chat(session_chat_id)
             await self.agent.reset_history(session_chat_id)
             await self._publish_reset_response(
@@ -641,7 +642,7 @@ class MessageQueue:
             )
             return
 
-        if self.is_cron_command(user_message.text):
+        if not bypass_commands and self.is_cron_command(user_message.text):
             response_text = await self._handle_cron_command(session_chat_id, user_message.text)
             await self._publish_cron_response(
                 channel=channel,
@@ -651,7 +652,7 @@ class MessageQueue:
             )
             return
 
-        if self.is_task_command(user_message.text):
+        if not bypass_commands and self.is_task_command(user_message.text):
             response_text = await self._handle_task_command(session_chat_id, user_message.text)
             await self._publish_task_response(
                 channel=channel,
@@ -725,6 +726,8 @@ class MessageQueue:
         """
         transport_chat_id = inbound.chat_id
         session_chat_id = inbound.session_chat_id or self.build_session_chat_id(inbound.channel, transport_chat_id)
+        metadata = dict(inbound.metadata)
+        suppress_outbound = bool(metadata.pop("_suppress_outbound", False))
         
         try:
             # 取得或建立對話
@@ -741,7 +744,7 @@ class MessageQueue:
                 images=inbound.images or None,
                 audios=inbound.audios or None,
                 videos=inbound.videos or None,
-                metadata=dict(inbound.metadata),
+                metadata=metadata,
                 raw=inbound.raw,
             )
             
@@ -750,15 +753,16 @@ class MessageQueue:
             response_channel = response.channel if response.channel and response.channel != "unknown" else inbound.channel
             
             # 放到 outbound queue（而不是直接發送）
-            outbound = OutboundMessage(
-                channel=response_channel,
-                chat_id=response.chat_id or transport_chat_id,
-                session_chat_id=response.session_chat_id or session_chat_id,
-                content=response.text,
-                metadata=dict(response.metadata or {}),
-                raw=response.raw,
-            )
-            await self.bus.publish_outbound(outbound)
+            if not suppress_outbound:
+                outbound = OutboundMessage(
+                    channel=response_channel,
+                    chat_id=response.chat_id or transport_chat_id,
+                    session_chat_id=response.session_chat_id or session_chat_id,
+                    content=response.text,
+                    metadata=dict(response.metadata or {}),
+                    raw=response.raw,
+                )
+                await self.bus.publish_outbound(outbound)
                 
         except asyncio.CancelledError:
             # Task 被取消時優雅退出
