@@ -10,6 +10,7 @@ from ..config import ToolsConfig
 from ..llms import ChatMessage, LLMProvider
 from ..search.base import SearchStore
 from ..tools import ToolRegistry
+from ..utils import count_messages_tokens, count_text_tokens
 from ..utils.log import logger
 
 
@@ -80,6 +81,7 @@ class ExecutionEngine:
         "Do not output <think> or hidden reasoning. If tools are needed, call them. Otherwise answer now in plain visible text for the user."
     )
     CONTEXT_COMPACTION_RETRY_LIMIT = 1
+    PROACTIVE_CONTEXT_COMPACTION_LIMIT = 1
     COMPACTED_MESSAGE_MAX_CHARS = 900
     COMPACTED_LATEST_USER_MAX_CHARS = 1600
     COMPACTED_TRANSCRIPT_MAX_CHARS = 10_000
@@ -102,6 +104,8 @@ class ExecutionEngine:
         "Do not ask the user to repeat information that is present in the compacted state. "
         "If more tool work is needed, continue using tools; otherwise provide the final answer."
     )
+    CONTEXT_OVERFLOW_STATUS_MESSAGE = "上下文已接近上限，正在壓縮目前任務並繼續…"
+    PROACTIVE_CONTEXT_COMPACTION_STATUS_MESSAGE = "上下文接近上限，正在壓縮目前任務並繼續…"
 
     def __init__(
         self,
@@ -121,6 +125,10 @@ class ExecutionEngine:
         chat_frequency_penalty: float | None,
         chat_presence_penalty: float | None,
         pass_decoding_params: bool,
+        context_compaction_enabled: bool = False,
+        context_compaction_token_budget: int = 0,
+        context_compaction_threshold_ratio: float = 0.9,
+        context_compaction_min_messages: int = 8,
     ):
         self.provider = provider
         self.tools = tools
@@ -130,6 +138,10 @@ class ExecutionEngine:
         self.chat_frequency_penalty = chat_frequency_penalty
         self.chat_presence_penalty = chat_presence_penalty
         self.pass_decoding_params = pass_decoding_params
+        self.context_compaction_enabled = context_compaction_enabled
+        self.context_compaction_token_budget = max(0, context_compaction_token_budget)
+        self.context_compaction_threshold_ratio = context_compaction_threshold_ratio
+        self.context_compaction_min_messages = max(1, context_compaction_min_messages)
         self.tools_config = tools_config or ToolsConfig()
         self.search_store = search_store
         self.empty_response_fallback = empty_response_fallback
@@ -244,6 +256,80 @@ class ExecutionEngine:
         text = f"{type(exc).__name__}: {str(exc)}".lower()
         return any(marker in text for marker in cls.CONTEXT_OVERFLOW_MARKERS)
 
+    def _get_token_model(self) -> str | None:
+        """Best-effort model name lookup for local token estimates."""
+        get_default_model = getattr(self.provider, "get_default_model", None)
+        if not callable(get_default_model):
+            return None
+        try:
+            return str(get_default_model() or "") or None
+        except Exception:
+            return None
+
+    @staticmethod
+    def _estimate_tool_schema_tokens(tools: list[dict[str, Any]] | None, *, model: str | None) -> int:
+        if not tools:
+            return 0
+        try:
+            tool_schema_text = json.dumps(tools, ensure_ascii=False, sort_keys=True)
+        except Exception:
+            tool_schema_text = str(tools)
+        return count_text_tokens(tool_schema_text, model=model)
+
+    def _estimate_request_tokens(
+        self,
+        chat_messages: list[ChatMessage],
+        tools: list[dict[str, Any]] | None,
+    ) -> tuple[int, int, int]:
+        model = self._get_token_model()
+        message_tokens = count_messages_tokens(chat_messages, model=model)
+        tool_schema_tokens = self._estimate_tool_schema_tokens(tools, model=model)
+        return message_tokens + tool_schema_tokens, message_tokens, tool_schema_tokens
+
+    def _build_proactive_compaction(
+        self,
+        chat_messages: list[ChatMessage],
+        *,
+        tools: list[dict[str, Any]] | None,
+        tool_results_history: list[str],
+    ) -> tuple[list[ChatMessage], int, int, int, int, int] | None:
+        """Return compacted messages when the next request is nearing the configured budget."""
+        if not self.context_compaction_enabled:
+            return None
+        if self.context_compaction_token_budget <= 0 or self.context_compaction_threshold_ratio <= 0:
+            return None
+        if len(chat_messages) < self.context_compaction_min_messages:
+            return None
+
+        threshold_tokens = max(1, int(self.context_compaction_token_budget * self.context_compaction_threshold_ratio))
+        estimated_tokens, message_tokens, tool_schema_tokens = self._estimate_request_tokens(chat_messages, tools)
+        if estimated_tokens < threshold_tokens:
+            return None
+
+        compacted_messages = self._compact_messages_for_continuation(
+            chat_messages,
+            tool_results_history=tool_results_history,
+            reason=(
+                "The in-turn context was compacted automatically before the LLM request because "
+                "it was approaching the configured context budget."
+            ),
+        )
+        if compacted_messages is None:
+            return None
+
+        compacted_tokens, _, _ = self._estimate_request_tokens(compacted_messages, tools)
+        if compacted_tokens >= estimated_tokens:
+            return None
+
+        return (
+            compacted_messages,
+            estimated_tokens,
+            compacted_tokens,
+            threshold_tokens,
+            message_tokens,
+            tool_schema_tokens,
+        )
+
     @staticmethod
     def _message_content_to_text(content: Any) -> str:
         """Render ChatMessage content into compact text for deterministic summaries."""
@@ -338,6 +424,7 @@ class ExecutionEngine:
         chat_messages: list[ChatMessage],
         *,
         tool_results_history: list[str],
+        reason: str | None = None,
     ) -> list[ChatMessage] | None:
         """Create a smaller message list that can retry the same turn after overflow."""
         if not chat_messages:
@@ -369,7 +456,8 @@ class ExecutionEngine:
         )
         summary_sections = [
             "# Compacted Conversation State",
-            "The previous in-turn context was compacted automatically after the LLM reported a context-window error.",
+            reason
+            or "The previous in-turn context was compacted automatically after the LLM reported a context-window error.",
             "Continue the same task from this state; do not restart or ask the user to repeat details already summarized here.",
         ]
         if latest_user_text:
@@ -417,11 +505,46 @@ class ExecutionEngine:
         used_configure_skill = False
         had_tool_error = False
         context_compactions = 0
+        proactive_context_compactions = 0
+        overflow_context_compactions = 0
         iteration_limit = (
             max_tool_iterations if max_tool_iterations is not None else self.tools_config.max_tool_iterations
         )
 
         for iteration in range(iteration_limit):
+            if proactive_context_compactions < self.PROACTIVE_CONTEXT_COMPACTION_LIMIT:
+                proactive_compaction = self._build_proactive_compaction(
+                    chat_messages,
+                    tools=tools,
+                    tool_results_history=tool_results_history,
+                )
+                if proactive_compaction is not None:
+                    (
+                        compacted_messages,
+                        estimated_tokens,
+                        compacted_tokens,
+                        threshold_tokens,
+                        message_tokens,
+                        tool_schema_tokens,
+                    ) = proactive_compaction
+                    proactive_context_compactions += 1
+                    context_compactions += 1
+                    before_count = len(chat_messages)
+                    chat_messages[:] = compacted_messages
+                    logger.warning(
+                        f"[{log_id}] llm.context-proactive-compact | iter={iteration + 1} "
+                        f"compaction={proactive_context_compactions}/{self.PROACTIVE_CONTEXT_COMPACTION_LIMIT} "
+                        f"estimated_tokens={estimated_tokens} compacted_tokens={compacted_tokens} "
+                        f"threshold={threshold_tokens} budget={self.context_compaction_token_budget} "
+                        f"message_tokens={message_tokens} tool_schema_tokens={tool_schema_tokens} "
+                        f"messages_before={before_count} messages_after={len(chat_messages)}"
+                    )
+                    if on_llm_status is not None:
+                        try:
+                            await on_llm_status(self.PROACTIVE_CONTEXT_COMPACTION_STATUS_MESSAGE)
+                        except Exception:
+                            logger.exception(f"[{log_id}] llm.context-proactive.status-hook.error")
+
             logger.info(
                 f"[{log_id}] llm.request | iter={iteration + 1} messages={len(chat_messages)} "
                 f"tools={'on' if tools else 'off'} tail={self.summarize_messages(chat_messages)}"
@@ -449,7 +572,7 @@ class ExecutionEngine:
                     break
                 except Exception as exc:
                     if (
-                        context_compactions < self.CONTEXT_COMPACTION_RETRY_LIMIT
+                        overflow_context_compactions < self.CONTEXT_COMPACTION_RETRY_LIMIT
                         and self._looks_like_context_overflow(exc)
                     ):
                         compacted_messages = self._compact_messages_for_continuation(
@@ -457,18 +580,19 @@ class ExecutionEngine:
                             tool_results_history=tool_results_history,
                         )
                         if compacted_messages is not None:
+                            overflow_context_compactions += 1
                             context_compactions += 1
                             before_count = len(chat_messages)
                             chat_messages[:] = compacted_messages
                             logger.warning(
                                 f"[{log_id}] llm.context-overflow | iter={iteration + 1} "
-                                f"compaction={context_compactions}/{self.CONTEXT_COMPACTION_RETRY_LIMIT} "
+                                f"compaction={overflow_context_compactions}/{self.CONTEXT_COMPACTION_RETRY_LIMIT} "
                                 f"messages_before={before_count} messages_after={len(chat_messages)} retrying=true "
                                 f"error={self.format_log_preview(str(exc), max_chars=240)}"
                             )
                             if on_llm_status is not None:
                                 try:
-                                    await on_llm_status("上下文已接近上限，正在壓縮目前任務並繼續…")
+                                    await on_llm_status(self.CONTEXT_OVERFLOW_STATUS_MESSAGE)
                                 except Exception:
                                     logger.exception(f"[{log_id}] llm.context-overflow.status-hook.error")
                             continue

@@ -54,6 +54,9 @@
   "agent": {
     "max_history": 120,
     "history_token_budget": 64000,
+    "context_compaction_enabled": true,
+    "context_compaction_threshold_ratio": 0.9,
+    "context_compaction_min_messages": 8,
     "skill_review_enabled": true,
     "skill_review_min_tool_calls": 5,
     "skill_review_max_tool_iterations": 6,

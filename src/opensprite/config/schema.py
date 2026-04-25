@@ -43,6 +43,9 @@ class AgentConfig(BaseModel):
     
     max_history: int = 120
     history_token_budget: int = 64000
+    context_compaction_enabled: bool = True
+    context_compaction_threshold_ratio: float = Field(default=0.9, gt=0.0, le=1.0)
+    context_compaction_min_messages: int = Field(default=8, ge=2)
     # After the main reply, optionally run a quiet LLM pass to upsert skills (extra API cost).
     skill_review_enabled: bool = True
     skill_review_min_tool_calls: int = Field(default=5, ge=1)
@@ -1285,6 +1288,9 @@ class Config:
             "agent": {
                 "max_history": self.agent.max_history,
                 "history_token_budget": self.agent.history_token_budget,
+                "context_compaction_enabled": self.agent.context_compaction_enabled,
+                "context_compaction_threshold_ratio": self.agent.context_compaction_threshold_ratio,
+                "context_compaction_min_messages": self.agent.context_compaction_min_messages,
                 "skill_review_enabled": self.agent.skill_review_enabled,
                 "skill_review_min_tool_calls": self.agent.skill_review_min_tool_calls,
                 "skill_review_max_tool_iterations": self.agent.skill_review_max_tool_iterations,

@@ -634,6 +634,10 @@ class AgentLoop:
             chat_frequency_penalty=self.llm_chat_frequency_penalty,
             chat_presence_penalty=self.llm_chat_presence_penalty,
             pass_decoding_params=self.llm_pass_decoding_params,
+            context_compaction_enabled=self.config.context_compaction_enabled,
+            context_compaction_token_budget=self.config.history_token_budget,
+            context_compaction_threshold_ratio=self.config.context_compaction_threshold_ratio,
+            context_compaction_min_messages=self.config.context_compaction_min_messages,
         )
 
     def _setup_user_profile_update(self) -> UserProfileUpdateService:

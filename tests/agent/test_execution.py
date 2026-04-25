@@ -53,7 +53,9 @@ async def _save_message_collector(calls, chat_id, role, content, tool_name=None,
     calls.append((chat_id, role, content, tool_name, dict(metadata or {})))
 
 
-def _make_engine(provider, registry, save_calls, tools_config=None):
+def _make_engine(provider, registry, save_calls, tools_config=None, **engine_kwargs):
+    chat_kwargs = Config.packaged_execution_engine_chat_kwargs()
+    chat_kwargs.update(engine_kwargs)
     return ExecutionEngine(
         provider=provider,
         tools=registry,
@@ -65,7 +67,7 @@ def _make_engine(provider, registry, save_calls, tools_config=None):
         format_log_preview=lambda text, max_chars=200: str(text)[:max_chars],
         summarize_messages=lambda messages, tail=4: f"count={len(messages)}",
         sanitize_response_content=lambda text: text.strip(),
-        **Config.packaged_execution_engine_chat_kwargs(),
+        **chat_kwargs,
     )
 
 
@@ -443,6 +445,117 @@ def test_execution_respects_max_tool_iterations_override():
 
     assert "超過了最大迭代次數（1次）" in result.content
     assert result.executed_tool_calls == 1
+
+
+def test_execution_proactively_compacts_before_llm_request_when_near_budget():
+    provider = FakeProvider([LLMResponse(content="after compact", model="fake-model")])
+    engine = _make_engine(
+        provider,
+        ToolRegistry(),
+        [],
+        context_compaction_enabled=True,
+        context_compaction_token_budget=120,
+        context_compaction_threshold_ratio=0.5,
+        context_compaction_min_messages=3,
+    )
+    statuses = []
+    messages = [
+        ChatMessage(role="system", content="SYSTEM"),
+        ChatMessage(role="user", content="old detail " + "A" * 12000),
+        ChatMessage(role="assistant", content="intermediate answer"),
+        ChatMessage(role="user", content="latest instruction"),
+    ]
+
+    async def status_hook(text: str):
+        statuses.append(text)
+
+    result = asyncio.run(
+        engine.execute_messages(
+            "chat-1",
+            messages,
+            allow_tools=False,
+            on_llm_status=status_hook,
+        )
+    )
+
+    assert result.content == "after compact"
+    assert result.context_compactions == 1
+    assert len(provider.calls) == 1
+    sent_messages = provider.calls[0]["messages"]
+    assert [message.role for message in sent_messages] == ["system", "system", "user"]
+    assert sent_messages[0].content == "SYSTEM"
+    assert "# Compacted Conversation State" in sent_messages[1].content
+    assert "approaching the configured context budget" in sent_messages[1].content
+    assert "latest instruction" in sent_messages[1].content
+    assert "A" * 2000 not in sent_messages[1].content
+    assert sent_messages[2].content == ExecutionEngine.CONTINUATION_AFTER_COMPACTION_MESSAGE
+    assert statuses == [ExecutionEngine.PROACTIVE_CONTEXT_COMPACTION_STATUS_MESSAGE]
+
+
+def test_execution_skips_proactive_compaction_below_budget():
+    provider = FakeProvider([LLMResponse(content="done", model="fake-model")])
+    engine = _make_engine(
+        provider,
+        ToolRegistry(),
+        [],
+        context_compaction_enabled=True,
+        context_compaction_token_budget=10000,
+        context_compaction_threshold_ratio=0.9,
+        context_compaction_min_messages=3,
+    )
+    messages = [
+        ChatMessage(role="system", content="SYSTEM"),
+        ChatMessage(role="user", content="old detail"),
+        ChatMessage(role="assistant", content="intermediate answer"),
+        ChatMessage(role="user", content="latest instruction"),
+    ]
+
+    result = asyncio.run(engine.execute_messages("chat-1", messages, allow_tools=False))
+
+    assert result.content == "done"
+    assert result.context_compactions == 0
+    assert len(provider.calls) == 1
+    assert provider.calls[0]["messages"] == messages
+
+
+def test_proactive_compaction_does_not_consume_overflow_retry():
+    provider = OverflowThenSuccessProvider("after overflow retry")
+    engine = _make_engine(
+        provider,
+        ToolRegistry(),
+        [],
+        context_compaction_enabled=True,
+        context_compaction_token_budget=120,
+        context_compaction_threshold_ratio=0.5,
+        context_compaction_min_messages=3,
+    )
+    statuses = []
+    messages = [
+        ChatMessage(role="system", content="SYSTEM"),
+        ChatMessage(role="user", content="old detail " + "A" * 12000),
+        ChatMessage(role="assistant", content="intermediate answer"),
+        ChatMessage(role="user", content="latest instruction"),
+    ]
+
+    async def status_hook(text: str):
+        statuses.append(text)
+
+    result = asyncio.run(
+        engine.execute_messages(
+            "chat-1",
+            messages,
+            allow_tools=False,
+            on_llm_status=status_hook,
+        )
+    )
+
+    assert result.content == "after overflow retry"
+    assert result.context_compactions == 2
+    assert len(provider.calls) == 2
+    assert statuses == [
+        ExecutionEngine.PROACTIVE_CONTEXT_COMPACTION_STATUS_MESSAGE,
+        ExecutionEngine.CONTEXT_OVERFLOW_STATUS_MESSAGE,
+    ]
 
 
 def test_execution_compacts_and_retries_after_context_overflow():
