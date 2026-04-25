@@ -4,7 +4,21 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from opensprite.config.schema import ChannelsConfig, Config, MCPServerConfig, MessagesConfig, ProviderConfig, SearchConfig, SearchEmbeddingConfig, SpeechConfig, StorageConfig, ToolsConfig, VideoConfig, VisionConfig
+from opensprite.config.schema import (
+    ChannelsConfig,
+    Config,
+    LLMsConfig,
+    MCPServerConfig,
+    MessagesConfig,
+    ProviderConfig,
+    SearchConfig,
+    SearchEmbeddingConfig,
+    SpeechConfig,
+    StorageConfig,
+    ToolsConfig,
+    VideoConfig,
+    VisionConfig,
+)
 
 
 def test_storage_config_accepts_supported_types():
@@ -31,6 +45,7 @@ def test_config_load_reads_llm_providers_from_external_file(tmp_path):
                     "enabled": True,
                     "model": "gpt-4.1",
                     "base_url": "https://api.openai.com/v1",
+                    "context_window_tokens": 128000,
                 }
             }
         ),
@@ -42,6 +57,7 @@ def test_config_load_reads_llm_providers_from_external_file(tmp_path):
                 "llm": {
                     "providers_file": "llm.providers.json",
                     "default": "openai",
+                    "context_window_tokens": 32000,
                     "temperature": 0.7,
                     "max_tokens": 2048,
                 },
@@ -57,7 +73,32 @@ def test_config_load_reads_llm_providers_from_external_file(tmp_path):
     assert isinstance(config.llm.providers["openai"], ProviderConfig)
     assert config.llm.providers["openai"].api_key == "key-1"
     assert config.llm.providers["openai"].model == "gpt-4.1"
+    assert config.llm.providers["openai"].context_window_tokens == 128000
+    assert config.llm.context_window_tokens == 32000
+    assert config.llm.get_active().context_window_tokens == 128000
     assert config.llm.providers_file == "llm.providers.json"
+
+
+def test_llm_context_window_falls_back_to_top_level_setting():
+    llm = LLMsConfig(
+        **{
+            **Config.packaged_llm_flat_dict(),
+            "providers": {
+                "openai": {
+                    "api_key": "key-1",
+                    "enabled": True,
+                    "model": "gpt-4.1",
+                    "base_url": "https://api.openai.com/v1",
+                }
+            },
+            "default": "openai",
+            "api_key": "",
+            "model": "",
+            "context_window_tokens": 32000,
+        }
+    )
+
+    assert llm.get_active().context_window_tokens == 32000
 
 
 def test_tools_config_parses_mcp_server_entries():
@@ -506,11 +547,13 @@ def test_config_save_writes_llm_providers_to_external_file(tmp_path):
 
     config = Config.from_json(config_path)
     config.llm.default = "openai"
+    config.llm.context_window_tokens = 32000
     config.llm.providers["openai"] = ProviderConfig(
         api_key="new-key",
         enabled=True,
         model="gpt-4.1",
         base_url="https://api.openai.com/v1",
+        context_window_tokens=128000,
     )
     config.save(config_path)
 
@@ -518,9 +561,11 @@ def test_config_save_writes_llm_providers_to_external_file(tmp_path):
     saved_providers = json.loads((tmp_path / "llm.providers.json").read_text(encoding="utf-8"))
 
     assert saved_main["llm"]["providers_file"] == "llm.providers.json"
+    assert saved_main["llm"]["context_window_tokens"] == 32000
     assert "providers" not in saved_main["llm"]
     assert saved_providers["openai"]["api_key"] == "new-key"
     assert saved_providers["openai"]["model"] == "gpt-4.1"
+    assert saved_providers["openai"]["context_window_tokens"] == 128000
 
 
 def test_config_load_merges_external_mcp_servers_file(tmp_path):
@@ -682,6 +727,7 @@ def test_copy_template_creates_external_llm_providers_file(tmp_path):
     providers_path = tmp_path / "llm.providers.json"
 
     assert template_data["llm"]["providers_file"] == "llm.providers.json"
+    assert template_data["llm"]["context_window_tokens"] is None
     assert providers_path.exists()
     assert json.loads(providers_path.read_text(encoding="utf-8")) == Config.load_external_template_data("llm.providers")
 

@@ -12,6 +12,7 @@ class ProviderConfig(BaseModel):
     model: str = ""
     base_url: str | None = None
     enabled: bool = False
+    context_window_tokens: int | None = Field(default=None, ge=1)
 
 
 class LLMsConfig(BaseModel):
@@ -23,6 +24,7 @@ class LLMsConfig(BaseModel):
     api_key: str = ""
     model: str = ""
     base_url: str | None = None
+    context_window_tokens: int | None = Field(default=None, ge=1)
     temperature: float
     max_tokens: int
     top_p: float = Field(ge=0.0, le=1.0)
@@ -34,8 +36,22 @@ class LLMsConfig(BaseModel):
     def get_active(self) -> ProviderConfig:
         """Get the active provider configuration."""
         if self.providers and self.default and self.default in self.providers:
-            return self.providers[self.default]
-        return ProviderConfig(api_key=self.api_key, model=self.model, base_url=self.base_url, enabled=True)
+            provider = self.providers[self.default]
+            if provider.context_window_tokens is not None or self.context_window_tokens is None:
+                return provider
+            return ProviderConfig(
+                **{
+                    **provider.model_dump(),
+                    "context_window_tokens": self.context_window_tokens,
+                }
+            )
+        return ProviderConfig(
+            api_key=self.api_key,
+            model=self.model,
+            base_url=self.base_url,
+            enabled=True,
+            context_window_tokens=self.context_window_tokens,
+        )
 
 
 class AgentConfig(BaseModel):
@@ -1264,6 +1280,7 @@ class Config:
             "llm": {
                 "providers_file": self.llm.providers_file,
                 "default": self.llm.default,
+                "context_window_tokens": self.llm.context_window_tokens,
                 "temperature": self.llm.temperature,
                 "max_tokens": self.llm.max_tokens,
                 "top_p": self.llm.top_p,

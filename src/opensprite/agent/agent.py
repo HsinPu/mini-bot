@@ -419,6 +419,7 @@ class AgentLoop:
         llm_chat_frequency_penalty: float | None,
         llm_chat_presence_penalty: float | None,
         llm_pass_decoding_params: bool,
+        llm_context_window_tokens: int | None = None,
         llm_configured: bool = True,
         messages_config: MessagesConfig | None = None,
     ):
@@ -430,6 +431,7 @@ class AgentLoop:
         self.llm_chat_frequency_penalty = llm_chat_frequency_penalty
         self.llm_chat_presence_penalty = llm_chat_presence_penalty
         self.llm_pass_decoding_params = llm_pass_decoding_params
+        self.llm_context_window_tokens = llm_context_window_tokens
         self.llm_configured = llm_configured
         self.messages = messages_config or MessagesConfig()
         self.memory_config = memory_config or MemoryConfig(
@@ -502,7 +504,7 @@ class AgentLoop:
         tool_schema_tokens: int = 0,
     ) -> tuple[list[dict[str, Any]], int, int, int]:
         """Trim oldest history messages when the prompt would exceed the history token budget."""
-        budget = max(0, self.config.history_token_budget)
+        budget = self._effective_context_token_budget()
         base_messages = self._context_builder.build_messages(
             history=[],
             current_message=current_message,
@@ -543,6 +545,18 @@ class AgentLoop:
                 f"[{chat_id}] prompt.trim | budget={budget} base_tokens={base_tokens} history_before={len(history)} history_after={len(trimmed_history)} estimated_tokens={running_tokens}"
             )
         return trimmed_history, base_tokens, retained_history_tokens, running_tokens
+
+    def _effective_context_token_budget(self) -> int:
+        """Return the prompt token budget after applying model window and output reserve."""
+        history_budget = max(0, self.config.history_token_budget)
+        if self.llm_context_window_tokens is None:
+            return history_budget
+
+        output_reserve = max(0, self.llm_chat_max_tokens)
+        model_input_budget = max(1, self.llm_context_window_tokens - output_reserve)
+        if history_budget <= 0:
+            return model_input_budget
+        return min(history_budget, model_input_budget)
 
     def _estimate_tool_schema_tokens(self, *, allow_tools: bool, tool_registry: ToolRegistry | None = None) -> int:
         """Estimate token cost of tool schemas sent with the request."""
@@ -635,7 +649,7 @@ class AgentLoop:
             chat_presence_penalty=self.llm_chat_presence_penalty,
             pass_decoding_params=self.llm_pass_decoding_params,
             context_compaction_enabled=self.config.context_compaction_enabled,
-            context_compaction_token_budget=self.config.history_token_budget,
+            context_compaction_token_budget=self._effective_context_token_budget(),
             context_compaction_threshold_ratio=self.config.context_compaction_threshold_ratio,
             context_compaction_min_messages=self.config.context_compaction_min_messages,
         )
@@ -1443,8 +1457,12 @@ class AgentLoop:
             chat_id=chat_id,
             tool_schema_tokens=tool_schema_tokens,
         )
+        effective_context_budget = self._effective_context_token_budget()
         logger.info(
-            f"[{chat_id}] prompt.tokens | budget={self.config.history_token_budget} base={base_tokens} tools={tool_schema_tokens} history={history_tokens} final_estimated={final_tokens}"
+            f"[{chat_id}] prompt.tokens | budget={effective_context_budget} "
+            f"history_budget={self.config.history_token_budget} model_window={self.llm_context_window_tokens or '-'} "
+            f"output_reserve={self.llm_chat_max_tokens} base={base_tokens} tools={tool_schema_tokens} "
+            f"history={history_tokens} final_estimated={final_tokens}"
         )
         self._sync_runtime_mcp_tools_context()
         full_messages = self._context_builder.build_messages(

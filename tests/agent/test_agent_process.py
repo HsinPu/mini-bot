@@ -791,6 +791,32 @@ def test_trim_history_reports_base_tokens_without_history(tmp_path):
     assert final_tokens == base_tokens
 
 
+def test_effective_context_budget_uses_model_window_and_manual_cap(tmp_path):
+    chat_kwargs = Config.packaged_agent_llm_chat_kwargs()
+    chat_kwargs["llm_chat_max_tokens"] = 200
+    agent = AgentLoop(
+        config=AgentConfig(history_token_budget=1000),
+        provider=FakeProvider(),
+        storage=FakeStorage(),
+        context_builder=FakeContextBuilder(tmp_path),
+        tools=ToolRegistry(),
+        memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
+        tools_config=ToolsConfig(),
+        log_config=LogConfig(),
+        search_config=SearchConfig(),
+        user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+        recent_summary_config=RecentSummaryConfig(**{**Config.load_template_data()["recent_summary"], "enabled": False}),
+        llm_context_window_tokens=500,
+        **chat_kwargs,
+    )
+
+    assert agent._effective_context_token_budget() == 300
+    assert agent.execution_engine.context_compaction_token_budget == 300
+
+    agent.config.history_token_budget = 150
+    assert agent._effective_context_token_budget() == 150
+
+
 def test_tool_schema_tokens_reduce_history_budget(tmp_path):
     storage = HistoryStorage([StoredMessage(role="assistant", content="recent message", timestamp=1.0)])
     registry = ToolRegistry()
