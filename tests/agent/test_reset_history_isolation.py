@@ -1,59 +1,10 @@
 import asyncio
-from pathlib import Path
 
-from opensprite.agent.agent import AgentLoop
-from opensprite.config.schema import AgentConfig, Config, LogConfig, MemoryConfig, SearchConfig, ToolsConfig, UserProfileConfig
+from agent_test_helpers import FakeContextBuilder, make_agent_loop
 from opensprite.documents.active_task import create_active_task_store
 from opensprite.documents.recent_summary import RecentSummaryStore
 from opensprite.storage.base import StoredMessage
 from opensprite.storage.memory import MemoryStorage
-from opensprite.tools.base import Tool
-from opensprite.tools.registry import ToolRegistry
-
-
-class FakeContextBuilder:
-    def __init__(self, workspace: Path):
-        self.app_home = workspace / "home"
-        self.tool_workspace = workspace / "workspace"
-        self.workspace = workspace
-        self.memory_dir = workspace / "memory"
-
-    def build_system_prompt(self, chat_id: str = "default") -> str:
-        return "system"
-
-    def build_messages(self, history, current_message, current_images=None, channel=None, chat_id=None):
-        return [{"role": "user", "content": current_message}]
-
-    def add_tool_result(self, messages, tool_call_id, tool_name, result):
-        return messages
-
-    def add_assistant_message(self, messages, content, tool_calls=None):
-        return messages
-
-
-class FakeProvider:
-    async def chat(self, messages, tools=None, model=None, temperature=0.7, max_tokens=2048, **kwargs):
-        raise AssertionError("provider.chat should not be called in this test")
-
-    def get_default_model(self) -> str:
-        return "fake-model"
-
-
-class DummyTool(Tool):
-    @property
-    def name(self) -> str:
-        return "dummy"
-
-    @property
-    def description(self) -> str:
-        return "dummy"
-
-    @property
-    def parameters(self) -> dict:
-        return {"type": "object", "properties": {}}
-
-    async def _execute(self, **kwargs):
-        return "ok"
 
 
 class FakeSearchStore:
@@ -71,21 +22,15 @@ def test_reset_history_only_clears_target_session(tmp_path):
         await storage.add_message("telegram:user-b", StoredMessage(role="user", content="B1", timestamp=2.0))
 
         search_store = FakeSearchStore()
-        registry = ToolRegistry()
-        registry.register(DummyTool())
-        agent = AgentLoop(
-            config=Config.load_agent_template_config(),
-            provider=FakeProvider(),
+        agent = make_agent_loop(
+            tmp_path,
             storage=storage,
-            context_builder=FakeContextBuilder(tmp_path),
-            tools=registry,
-            memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
-            tools_config=ToolsConfig(),
-            log_config=LogConfig(),
-            search_config=SearchConfig(),
-            user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+            context_builder=FakeContextBuilder(
+                tmp_path,
+                app_home=tmp_path / "home",
+                tool_workspace=tmp_path / "workspace",
+            ),
             search_store=search_store,
-            **Config.packaged_agent_llm_chat_kwargs(),
         )
 
         summary_store = RecentSummaryStore(agent.memory.memory_base)
