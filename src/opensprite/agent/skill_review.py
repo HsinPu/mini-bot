@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Sequence
+from typing import Any, Awaitable, Callable, Sequence
+
+from ..llms import ChatMessage
+from ..storage import StorageProvider
+from ..tools import ToolRegistry
+from ..utils.log import logger
 
 SKILL_REVIEW_SYSTEM = """You are OpenSprite's background skill curator. The main assistant already replied to the user; your work is invisible to them.
 
@@ -53,3 +58,58 @@ def build_skill_review_user_content(transcript: str) -> str:
         "Review the transcript. If a reusable how-to should be saved or updated as a skill, use the tools. "
         "Otherwise reply with exactly: Nothing to save."
     )
+
+
+class SkillReviewService:
+    """Runs the background skill persistence review pass."""
+
+    def __init__(
+        self,
+        *,
+        storage: StorageProvider,
+        tools: ToolRegistry,
+        transcript_message_limit_getter: Callable[[], int],
+        max_tool_iterations_getter: Callable[[], int],
+        build_system_prompt: Callable[[str], str],
+        execute_messages: Callable[..., Awaitable[Any]],
+    ):
+        self.storage = storage
+        self.tools = tools
+        self._transcript_message_limit_getter = transcript_message_limit_getter
+        self._max_tool_iterations_getter = max_tool_iterations_getter
+        self._build_system_prompt = build_system_prompt
+        self._execute_messages = execute_messages
+
+    def tool_registry(self) -> ToolRegistry | None:
+        """Return the restricted tool registry allowed during background skill review."""
+        allowed = frozenset({"read_skill", "configure_skill"})
+        available = set(self.tools.tool_names)
+        if not allowed.issubset(available):
+            return None
+        excluded = available - allowed
+        return self.tools.filtered(exclude_names=excluded)
+
+    async def run(self, chat_id: str, *, tool_registry: ToolRegistry) -> None:
+        """Execute one review pass for a chat using the restricted skill tool registry."""
+        stored = await self.storage.get_messages(chat_id, limit=self._transcript_message_limit_getter())
+        transcript = format_stored_messages_for_transcript(stored)
+        if len(transcript) < 80:
+            logger.info("[%s] skill.review.skip | reason=transcript-too-short", chat_id)
+            return
+
+        user_content = build_skill_review_user_content(transcript)
+        chat_messages = [
+            ChatMessage(role="system", content=SKILL_REVIEW_SYSTEM),
+            ChatMessage(role="user", content=user_content),
+        ]
+        await self._execute_messages(
+            f"{chat_id}:skill-review",
+            chat_messages,
+            allow_tools=True,
+            tool_result_chat_id=None,
+            tool_registry=tool_registry,
+            on_tool_before_execute=None,
+            refresh_system_prompt=lambda: self._build_system_prompt(chat_id),
+            max_tool_iterations=self._max_tool_iterations_getter(),
+        )
+        logger.info("[%s] skill.review.done", chat_id)

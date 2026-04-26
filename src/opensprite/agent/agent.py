@@ -22,19 +22,16 @@ opensprite/agent.py - Agent Loop
 
 import asyncio
 from contextvars import ContextVar
-import json
-import re
 import time
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
-from ..bus.events import OutboundMessage
 from ..bus.message import UserMessage, AssistantMessage
 from ..llms import LLMProvider, ChatMessage
-from ..storage import StorageProvider, StoredMessage
+from ..storage import StorageProvider
 from ..storage.base import get_storage_message_count
-from ..documents.active_task import ActiveTaskConsolidator, build_initial_active_task_block, create_active_task_store, should_replace_active_task
+from ..documents.active_task import ActiveTaskConsolidator, create_active_task_store
 from ..context.builder import ContextBuilder
 from ..documents.memory import MemoryStore
 from ..context.paths import get_chat_workspace, get_recent_summary_state_file
@@ -42,39 +39,31 @@ from ..documents.recent_summary import RecentSummaryConsolidator, RecentSummaryS
 from ..media import MediaRouter
 from ..documents.user_profile import UserProfileConsolidator, create_user_profile_store
 from ..search.base import SearchStore
-from ..subagent_session import (
-    build_child_subagent_chat_id,
-    extract_subagent_prompt_type,
-    new_subagent_task_id,
-    validate_subagent_task_id,
-)
 from ..tools import ToolRegistry
 from ..tools.approval import PermissionRequest, PermissionRequestManager
 from ..tools.permissions import PermissionApprovalResult, PermissionDecision
 from ..tools.process_runtime import BackgroundSession
-from ..tools.shell_runtime import format_captured_output
-from ..utils import count_messages_tokens, count_text_tokens, json_safe_payload, json_safe_value, sanitize_assistant_visible_text, strip_assistant_internal_scaffolding
 from ..utils.log import logger
 from ..config import AgentConfig, MemoryConfig, ToolsConfig, LogConfig, SearchConfig, UserProfileConfig, ActiveTaskConfig, RecentSummaryConfig, MessagesConfig, Config
 from .active_task_commands import ActiveTaskCommandService
+from .background_notifications import BackgroundSessionNotificationService
 from .background_tasks import CoalescingTaskScheduler
 from .consolidation import MemoryConsolidationService, RecentSummaryUpdateService, UserProfileUpdateService, ActiveTaskUpdateService
 from .execution import ExecutionEngine, ExecutionResult
 from .file_changes import RunFileChangeService
+from .history_reset import HistoryResetService
+from .maintenance import PostResponseMaintenanceService
 from .media import AgentMediaService
+from .message_history import MessageHistoryService
 from .mcp_lifecycle import McpLifecycleService
+from .permission_events import PermissionEventRecorder
+from .prompt_budget import PromptBudgetService
+from .prompt_logging import PromptLoggingService
 from .run_trace import RunTraceRecorder
-from .skill_review import (
-    SKILL_REVIEW_SYSTEM,
-    build_skill_review_user_content,
-    format_stored_messages_for_transcript,
-)
-from .subagent_policy import build_subagent_tool_registry, profile_for_subagent
+from .run_hooks import RunHookService
+from .skill_review import SkillReviewService
+from .subagents import SubagentRunService
 from .tool_registration import register_default_tools, register_memory_tool
-
-
-LOG_WHITESPACE_RE = re.compile(r"\s+")
-
 
 class AgentLoop:
     """
@@ -103,147 +92,45 @@ class AgentLoop:
     @staticmethod
     def _sanitize_log_filename(value: str) -> str:
         """Sanitize a string for use in per-prompt log filenames."""
-        cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip("-._")
-        return cleaned[:80] or "prompt"
+        return PromptLoggingService.sanitize_log_filename(value)
 
     def _get_system_prompt_log_path(self, log_id: str) -> Path:
         """Return a unique file path for one full system prompt log entry."""
-        logs_root = (self.app_home or Path.home() / ".opensprite") / "logs" / "system-prompts"
-        if ":subagent:" in log_id:
-            logs_root = logs_root / "subagents"
-        dated_root = logs_root / time.strftime("%Y-%m-%d")
-        dated_root.mkdir(parents=True, exist_ok=True)
-        timestamp = time.strftime("%H-%M-%S")
-        suffix = str(time.time_ns())[-6:]
-        safe_log_id = self._sanitize_log_filename(log_id)
-        filename = f"{timestamp}_{safe_log_id}_{suffix}.md"
-        return dated_root / filename
+        return self.prompt_logging.get_system_prompt_log_path(log_id)
 
     def _write_full_system_prompt_log(self, log_id: str, content: str) -> None:
         """Write the full system prompt to a dedicated per-prompt log file."""
-        try:
-            log_path = self._get_system_prompt_log_path(log_id)
-            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-            entry = (
-                f"[{timestamp}] [{log_id}] prompt.system.begin\n"
-                f"{content}\n"
-                f"[{timestamp}] [{log_id}] prompt.system.end\n"
-            )
-            with log_path.open("w", encoding="utf-8") as f:
-                f.write(entry)
-        except Exception as e:
-            logger.error(f"[{log_id}] prompt.file.error | error={e}")
+        self.prompt_logging.write_full_system_prompt_log(log_id, content)
 
     @staticmethod
     def _sanitize_response_content(content: str) -> str:
         """Remove provider-internal control blocks from visible replies."""
-        return sanitize_assistant_visible_text(content)
+        return PromptLoggingService.sanitize_response_content(content)
 
     @staticmethod
     def _format_log_preview(content: str | list[dict[str, Any]] | None, max_chars: int = 160) -> str:
         """Build a compact, single-line preview for logs."""
-        if isinstance(content, list):
-            text_parts: list[str] = []
-            image_count = 0
-            other_items = 0
-            for item in content:
-                if not isinstance(item, dict):
-                    other_items += 1
-                    continue
-                item_type = item.get("type")
-                if item_type == "text":
-                    text_parts.append(str(item.get("text", "")))
-                elif item_type == "image_url":
-                    image_count += 1
-                else:
-                    other_items += 1
-
-            text = " ".join(part for part in text_parts if part)
-            text = strip_assistant_internal_scaffolding(text)
-            text = LOG_WHITESPACE_RE.sub(" ", text).strip() or "<multimodal>"
-            suffix_parts = []
-            if image_count:
-                suffix_parts.append(f"images={image_count}")
-            if other_items:
-                suffix_parts.append(f"items={other_items}")
-            if suffix_parts:
-                text = f"{text} [{' '.join(suffix_parts)}]"
-        else:
-            text = strip_assistant_internal_scaffolding(str(content or ""))
-            text = LOG_WHITESPACE_RE.sub(" ", text).strip()
-
-        if not text:
-            return "<empty>"
-        if len(text) <= max_chars:
-            return text
-        return text[: max_chars - 3] + "..."
+        return PromptLoggingService.format_log_preview(content, max_chars=max_chars)
 
     @staticmethod
     def _summarize_messages(messages: list[ChatMessage], tail: int = 4) -> str:
         """Build a compact summary of the trailing chat messages for diagnostics."""
-        summary = []
-        for msg in messages[-tail:]:
-            content = getattr(msg, "content", "")
-            if isinstance(content, list):
-                content_kind = f"list[{len(content)}]"
-            else:
-                content_kind = f"str[{len(content or '')}]"
-            summary.append(
-                f"{getattr(msg, 'role', '?')}({content_kind},tool_id={'y' if getattr(msg, 'tool_call_id', None) else 'n'},tool_calls={len(getattr(msg, 'tool_calls', None) or [])})"
-            )
-        return ", ".join(summary) if summary else "<empty>"
+        return PromptLoggingService.summarize_messages(messages, tail=tail)
 
     @staticmethod
     def _extract_available_subagents(system_prompt: str) -> list[str]:
         """Parse the Available Subagents section from a rendered system prompt."""
-        in_section = False
-        subagents: list[str] = []
-
-        for raw_line in system_prompt.splitlines():
-            line = raw_line.strip()
-            if not in_section:
-                if line in {"# Available Subagents", "## Available Subagents"}:
-                    in_section = True
-                continue
-
-            if not line:
-                continue
-            if line == "---" or line.startswith("#"):
-                break
-            if not line.startswith("- `"):
-                continue
-
-            end_tick = line.find("`", 3)
-            if end_tick <= 3:
-                continue
-            subagents.append(line[3:end_tick])
-
-        return subagents
+        return PromptLoggingService.extract_available_subagents(system_prompt)
 
     @staticmethod
     def _tool_warrants_progress_notice(tool_name: str) -> bool:
         """Whether to send a short interim message before this tool runs (main agent only)."""
-        if tool_name in {"read_skill", "delegate"}:
-            return True
-        return tool_name.startswith("mcp_")
+        return RunHookService.tool_warrants_progress_notice(tool_name)
 
     @staticmethod
     def _format_tool_progress_message(tool_name: str, tool_args: dict[str, Any]) -> str:
         """User-facing one-line status for skill / subagent / MCP tool execution."""
-        args = tool_args or {}
-        if tool_name == "read_skill":
-            name = args.get("skill_name") or "?"
-            return f"正在讀取技能〈{name}〉…"
-        if tool_name == "delegate":
-            task_id = args.get("task_id")
-            ptype = args.get("prompt_type") or "writer"
-            if task_id:
-                return f"正在續跑子代理任務（{task_id}）…"
-            return f"正在委派子代理（{ptype}）…"
-        if tool_name.startswith("mcp_"):
-            tail = tool_name[4:] if tool_name.startswith("mcp_") else tool_name
-            return f"正在呼叫 MCP：{tail}…"
-        return "處理中…"
+        return RunHookService.format_tool_progress_message(tool_name, tool_args)
 
     def _make_tool_progress_hook(
         self,
@@ -255,62 +142,13 @@ class AgentLoop:
         enabled: bool,
     ) -> Callable[[str, dict[str, Any]], Awaitable[None]] | None:
         """Publish run telemetry and a brief outbound status before selected tools run."""
-        if not enabled or run_id is None:
-            return None
-        bus = self._message_bus
-        ch = channel
-        tid = str(transport_chat_id) if transport_chat_id is not None else None
-        sid = session_chat_id
-        rid = run_id
-
-        async def _hook(tool_name: str, tool_args: dict[str, Any]) -> None:
-            safe_args = json_safe_payload(tool_args or {})
-            args_preview = self._format_log_preview(json.dumps(safe_args, ensure_ascii=False), max_chars=240)
-            await self._add_run_part(
-                sid,
-                rid,
-                "tool_call",
-                content=json.dumps(safe_args, ensure_ascii=False, sort_keys=True),
-                tool_name=tool_name,
-                metadata={"args": safe_args, "args_preview": args_preview},
-            )
-            await self._emit_run_event(
-                sid,
-                rid,
-                "tool_started",
-                {
-                    "tool_name": tool_name,
-                    "args_preview": args_preview,
-                },
-                channel=ch,
-                transport_chat_id=tid,
-            )
-            if tool_name == "verify":
-                await self._emit_run_event(
-                    sid,
-                    rid,
-                    "verification_started",
-                    {
-                        "action": (tool_args or {}).get("action", "auto"),
-                        "path": (tool_args or {}).get("path", "."),
-                    },
-                    channel=ch,
-                    transport_chat_id=tid,
-                )
-            if bus is None or not ch or tid is None or not AgentLoop._tool_warrants_progress_notice(tool_name):
-                return
-            text = AgentLoop._format_tool_progress_message(tool_name, tool_args)
-            await bus.publish_outbound(
-                OutboundMessage(
-                    channel=ch,
-                    chat_id=tid,
-                    session_chat_id=sid,
-                    content=text,
-                    metadata={"interim": True, "kind": "tool_progress", "tool_name": tool_name},
-                )
-            )
-
-        return _hook
+        return self.run_hooks.make_tool_progress_hook(
+            channel=channel,
+            transport_chat_id=transport_chat_id,
+            session_chat_id=session_chat_id,
+            run_id=run_id,
+            enabled=enabled,
+        )
 
     def _make_tool_result_hook(
         self,
@@ -322,58 +160,13 @@ class AgentLoop:
         enabled: bool,
     ) -> Callable[[str, dict[str, Any], str], Awaitable[None]] | None:
         """Publish structured run telemetry after a tool finishes."""
-        if not enabled or run_id is None:
-            return None
-        tid = str(transport_chat_id) if transport_chat_id is not None else None
-        rid = run_id
-
-        async def _hook(tool_name: str, tool_args: dict[str, Any], result: str) -> None:
-            safe_args = json_safe_payload(tool_args or {})
-            result_text = str(result or "")
-            result_preview = self._format_log_preview(result_text, max_chars=240)
-            ok = not result_text.lstrip().startswith("Error:")
-            await self._add_run_part(
-                session_chat_id,
-                rid,
-                "tool_result",
-                content=result_text,
-                tool_name=tool_name,
-                metadata={
-                    "args": safe_args,
-                    "ok": ok,
-                    "result_len": len(result_text),
-                    "result_preview": result_preview,
-                },
-            )
-            await self._emit_run_event(
-                session_chat_id,
-                rid,
-                "tool_result",
-                {
-                    "tool_name": tool_name,
-                    "ok": ok,
-                    "result_len": len(result_text),
-                    "result_preview": result_preview,
-                },
-                channel=channel,
-                transport_chat_id=tid,
-            )
-            if tool_name == "verify":
-                await self._emit_run_event(
-                    session_chat_id,
-                    rid,
-                    "verification_result",
-                    {
-                        "action": (tool_args or {}).get("action", "auto"),
-                        "path": (tool_args or {}).get("path", "."),
-                        "ok": ok,
-                        "result_preview": result_preview,
-                    },
-                    channel=channel,
-                    transport_chat_id=tid,
-                )
-
-        return _hook
+        return self.run_hooks.make_tool_result_hook(
+            channel=channel,
+            transport_chat_id=transport_chat_id,
+            session_chat_id=session_chat_id,
+            run_id=run_id,
+            enabled=enabled,
+        )
 
     def _make_llm_status_hook(
         self,
@@ -385,36 +178,13 @@ class AgentLoop:
         enabled: bool,
     ) -> Callable[[str], Awaitable[None]] | None:
         """在 LLM 長時間等待或重試前，對使用者發送短暫狀態（與工具進度相同走 MessageBus）。"""
-        if not enabled or run_id is None:
-            return None
-        bus = self._message_bus
-        ch = channel
-        tid = str(transport_chat_id) if transport_chat_id is not None else None
-        sid = session_chat_id
-        rid = run_id
-
-        async def _hook(text: str) -> None:
-            await self._emit_run_event(
-                sid,
-                rid,
-                "llm_status",
-                {"message": text},
-                channel=ch,
-                transport_chat_id=tid,
-            )
-            if bus is None or not ch or tid is None:
-                return
-            await bus.publish_outbound(
-                OutboundMessage(
-                    channel=ch,
-                    chat_id=tid,
-                    session_chat_id=sid,
-                    content=text,
-                    metadata={"interim": True, "kind": "llm_wait"},
-                )
-            )
-
-        return _hook
+        return self.run_hooks.make_llm_status_hook(
+            channel=channel,
+            transport_chat_id=transport_chat_id,
+            session_chat_id=session_chat_id,
+            run_id=run_id,
+            enabled=enabled,
+        )
 
     async def _create_run(
         self,
@@ -535,105 +305,20 @@ class AgentLoop:
         request: PermissionRequest,
     ) -> None:
         """Persist and publish permission approval lifecycle events for a run."""
-        if not request.chat_id or not request.run_id:
-            return
-        try:
-            params_preview = json.dumps(
-                json_safe_value(request.params),
-                ensure_ascii=False,
-                sort_keys=True,
-            )
-        except Exception:
-            params_preview = str(request.params)
-        payload = {
-            "request_id": request.request_id,
-            "tool_name": request.tool_name,
-            "reason": request.reason,
-            "status": request.status,
-            "args_preview": self._format_log_preview(params_preview, max_chars=240),
-            "created_at": request.created_at,
-            "expires_at": request.expires_at,
-        }
-        if request.resolved_at is not None:
-            payload.update(
-                {
-                    "resolved_at": request.resolved_at,
-                    "resolution_reason": request.resolution_reason,
-                    "timed_out": request.timed_out,
-                }
-            )
-        await self._emit_run_event(
-            request.chat_id,
-            request.run_id,
-            event_type,
-            payload,
-            channel=request.channel,
-            transport_chat_id=request.transport_chat_id,
-        )
+        await self.permission_events.emit(event_type, request)
 
     @staticmethod
     def _format_background_session_exit_message(session: BackgroundSession) -> str:
         """Render a concise outbound notice when a managed background session exits."""
-        output_tail = format_captured_output(
-            session.output_chunks,
-            max_chars=1200,
-        )
-        runtime_seconds = max(
-            0.0,
-            (session.finished_at or time.monotonic()) - session.started_at,
-        )
-        return "\n".join(
-            [
-                "Background session finished.",
-                f"Session ID: {session.session_id}",
-                f"Termination: {session.termination_reason or 'exit'}",
-                f"Exit code: {session.exit_code}",
-                f"Runtime: {runtime_seconds:.2f}s",
-                "Output tail:",
-                output_tail,
-            ]
-        )
+        return BackgroundSessionNotificationService.format_exit_message(session)
 
     def _make_background_session_exit_notifier(self) -> Callable[[BackgroundSession], Awaitable[None]] | None:
         """Build an outbound notifier for managed background session completion."""
-        channel = self._current_channel.get()
-        transport_chat_id = self._current_transport_chat_id.get()
-        session_chat_id = self._get_current_chat_id()
-        if (
-            not self._message_bus
-            or not channel
-            or transport_chat_id is None
-            or session_chat_id is None
-        ):
-            return None
-
-        bus = self._message_bus
-        ch = channel
-        tid = str(transport_chat_id)
-        sid = session_chat_id
-
-        async def _notify(session: BackgroundSession) -> None:
-            content = AgentLoop._format_background_session_exit_message(session)
-            metadata = {
-                "channel": ch,
-                "transport_chat_id": tid,
-                "kind": "background_session_exit",
-                "session_id": session.session_id,
-                "termination_reason": session.termination_reason or "exit",
-                "exit_code": session.exit_code,
-            }
-            await self._save_message(sid, "assistant", content, metadata=metadata)
-            await bus.publish_outbound(
-                OutboundMessage(
-                    channel=ch,
-                    chat_id=tid,
-                    session_chat_id=sid,
-                    content=content,
-                    metadata=metadata,
-                )
-            )
-
-        return _notify
+        return self.background_notifications.make_exit_notifier(
+            channel=self._current_channel.get(),
+            transport_chat_id=self._current_transport_chat_id.get(),
+            session_chat_id=self._get_current_chat_id(),
+        )
 
     def __init__(
         self,
@@ -710,6 +395,10 @@ class AgentLoop:
         self.app_home: Path | None = None
         self.tool_workspace: Path | None = None
         self.config_path: Path | None = Path(config_path).expanduser().resolve() if config_path is not None else None
+        self.prompt_logging = PromptLoggingService(
+            log_config=self.log_config,
+            app_home_getter=lambda: self.app_home,
+        )
         self._skill_review_scheduler = CoalescingTaskScheduler[str](
             on_exception=lambda chat_id, _exc: logger.exception("[%s] skill.review.failed", chat_id),
             on_rerun=lambda chat_id: logger.info("[%s] skill.review.rerun", chat_id),
@@ -718,13 +407,11 @@ class AgentLoop:
                 chat_id,
             ),
         )
-        self._maintenance_scheduler = CoalescingTaskScheduler[tuple[str, str]](
-            on_rerun=lambda key: logger.info("[{}] maintenance.rerun | kind={}", key[1], key[0]),
-        )
+        self.post_response_maintenance = PostResponseMaintenanceService()
         self._skill_review_tasks = self._skill_review_scheduler.tasks
         self._skill_review_rerun = self._skill_review_scheduler.rerun_keys
-        self._maintenance_tasks = self._maintenance_scheduler.tasks
-        self._maintenance_rerun = self._maintenance_scheduler.rerun_keys
+        self._maintenance_tasks = self.post_response_maintenance.tasks
+        self._maintenance_rerun = self.post_response_maintenance.rerun_keys
         # Set by runtime after MessageQueue is created; used for interim tool progress outbound messages.
         self._message_bus: Any = None
         self.permission_requests = PermissionRequestManager(
@@ -733,10 +420,35 @@ class AgentLoop:
         )
 
         self.storage = self._setup_storage(storage)
+        self.message_history = MessageHistoryService(
+            storage=self.storage,
+            search_store=self.search_store,
+            max_history_getter=lambda: self.config.max_history,
+        )
         self._context_builder = self._setup_context_builder(context_builder)
+        self.history_reset = HistoryResetService(
+            storage=self.storage,
+            search_store=self.search_store,
+            clear_active_task=self._clear_active_task,
+            clear_recent_summary=self._clear_recent_summary,
+        )
         self.run_trace = RunTraceRecorder(
             storage=self.storage,
             message_bus_getter=lambda: self._message_bus,
+        )
+        self.permission_events = PermissionEventRecorder(
+            emit_run_event=self._emit_run_event,
+            format_log_preview=self._format_log_preview,
+        )
+        self.run_hooks = RunHookService(
+            message_bus_getter=lambda: self._message_bus,
+            add_run_part=self._add_run_part,
+            emit_run_event=self._emit_run_event,
+            format_log_preview=self._format_log_preview,
+        )
+        self.background_notifications = BackgroundSessionNotificationService(
+            message_bus_getter=lambda: self._message_bus,
+            save_message=self._save_message,
         )
         self.file_changes = RunFileChangeService(
             storage=self.storage,
@@ -751,6 +463,27 @@ class AgentLoop:
         )
         self.tools = self._setup_tools(tools)
         self.tools.set_permission_request_handler(self._handle_tool_permission_request)
+        self.subagents = SubagentRunService(
+            storage=self.storage,
+            tools=self.tools,
+            max_history_getter=lambda: self.config.max_history,
+            app_home_getter=lambda: self.app_home,
+            workspace_getter=self._get_current_workspace,
+            current_chat_id_getter=self._get_current_chat_id,
+            skills_loader_getter=lambda: getattr(self._context_builder, "skills_loader", None),
+            save_message=self._save_message,
+            execute_messages=self._execute_messages,
+            log_prepared_messages=self._log_prepared_messages,
+            format_log_preview=self._format_log_preview,
+        )
+        self.prompt_budget = PromptBudgetService(
+            context_builder=self._context_builder,
+            provider=self.provider,
+            tools=self.tools,
+            history_token_budget_getter=lambda: self.config.history_token_budget,
+            context_window_tokens_getter=lambda: self.llm_context_window_tokens,
+            output_token_reserve_getter=lambda: self.llm_chat_max_tokens,
+        )
         self.mcp_lifecycle = McpLifecycleService(
             tools=self.tools,
             tools_config=self.tools_config,
@@ -761,6 +494,14 @@ class AgentLoop:
         self.memory_consolidation = self._setup_memory_consolidation()
         self._register_memory_tool()
         self.execution_engine = self._setup_execution_engine()
+        self.skill_review = SkillReviewService(
+            storage=self.storage,
+            tools=self.tools,
+            transcript_message_limit_getter=lambda: self.config.skill_review_transcript_messages,
+            max_tool_iterations_getter=lambda: self.config.skill_review_max_tool_iterations,
+            build_system_prompt=lambda chat_id: self._context_builder.build_system_prompt(chat_id),
+            execute_messages=self._execute_messages,
+        )
         self.user_profile_update = self._setup_user_profile_update()
         self.active_task_update = self._setup_active_task_update()
         self.active_task_commands = ActiveTaskCommandService(
@@ -780,75 +521,24 @@ class AgentLoop:
         tool_schema_tokens: int = 0,
     ) -> tuple[list[dict[str, Any]], int, int, int]:
         """Trim oldest history messages when the prompt would exceed the history token budget."""
-        budget = self._effective_context_token_budget()
-        base_messages = self._context_builder.build_messages(
-            history=[],
+        return self.prompt_budget.trim_history_to_token_budget(
+            history=history,
             current_message=current_message,
-            current_images=None,
             channel=channel,
             chat_id=chat_id,
+            tool_schema_tokens=tool_schema_tokens,
         )
-        base_tokens = count_messages_tokens(base_messages, model=self.provider.get_default_model()) + tool_schema_tokens
-        if budget <= 0 or not history:
-            history_tokens = count_messages_tokens(history, model=self.provider.get_default_model()) if history else 0
-            return history, base_tokens, history_tokens, base_tokens + history_tokens
-
-        if base_tokens >= budget:
-            logger.warning(
-                f"[{chat_id}] prompt.trim | base_tokens={base_tokens} budget={budget} history_retained=0 reason=base-exceeds-budget"
-            )
-            return [], base_tokens, 0, base_tokens
-
-        trimmed_reversed: list[dict[str, Any]] = []
-        running_tokens = base_tokens
-        retained_history_tokens = 0
-        for message in reversed(history):
-            message_tokens = count_messages_tokens([message], model=self.provider.get_default_model())
-            if trimmed_reversed and running_tokens + message_tokens > budget:
-                break
-            if not trimmed_reversed and running_tokens + message_tokens > budget:
-                logger.warning(
-                    f"[{chat_id}] prompt.trim | base_tokens={base_tokens} first_history_tokens={message_tokens} budget={budget} history_retained=0 reason=first-message-exceeds-budget"
-                )
-                return [], base_tokens, 0, base_tokens
-            trimmed_reversed.append(message)
-            running_tokens += message_tokens
-            retained_history_tokens += message_tokens
-
-        trimmed_history = list(reversed(trimmed_reversed))
-        if len(trimmed_history) != len(history):
-            logger.info(
-                f"[{chat_id}] prompt.trim | budget={budget} base_tokens={base_tokens} history_before={len(history)} history_after={len(trimmed_history)} estimated_tokens={running_tokens}"
-            )
-        return trimmed_history, base_tokens, retained_history_tokens, running_tokens
 
     def _effective_context_token_budget(self) -> int:
         """Return the prompt token budget after applying model window and output reserve."""
-        history_budget = max(0, self.config.history_token_budget)
-        if self.llm_context_window_tokens is None:
-            return history_budget
-
-        output_reserve = max(0, self.llm_chat_max_tokens)
-        model_input_budget = max(1, self.llm_context_window_tokens - output_reserve)
-        if history_budget <= 0:
-            return model_input_budget
-        return min(history_budget, model_input_budget)
+        return self.prompt_budget.effective_context_token_budget()
 
     def _estimate_tool_schema_tokens(self, *, allow_tools: bool, tool_registry: ToolRegistry | None = None) -> int:
         """Estimate token cost of tool schemas sent with the request."""
-        if not allow_tools:
-            return 0
-
-        active_tools = tool_registry or self.tools
-        if not active_tools.tool_names:
-            return 0
-
-        try:
-            tool_schema_text = json.dumps(active_tools.get_definitions(), ensure_ascii=False, sort_keys=True)
-        except Exception:
-            return 0
-
-        return count_text_tokens(tool_schema_text, model=self.provider.get_default_model())
+        return self.prompt_budget.estimate_tool_schema_tokens(
+            allow_tools=allow_tools,
+            tool_registry=tool_registry,
+        )
 
     def _setup_storage(self, storage: StorageProvider | None) -> StorageProvider:
         """Resolve the storage provider used by the agent."""
@@ -1034,38 +724,25 @@ class AgentLoop:
         runner: Callable[[str], Awaitable[None]],
     ) -> None:
         """Run one maintenance path in the background with per-chat coalescing."""
-        self._maintenance_scheduler.schedule((kind, chat_id), lambda: runner(chat_id))
+        self.post_response_maintenance.schedule(kind=kind, chat_id=chat_id, runner=runner)
 
     def _schedule_post_response_maintenance(self, chat_id: str) -> None:
         """Queue post-response document maintenance without blocking the reply."""
-        self._schedule_background_maintenance(
-            kind="memory",
-            chat_id=chat_id,
-            runner=self._maybe_consolidate_memory,
-        )
-        self._schedule_background_maintenance(
-            kind="recent_summary",
-            chat_id=chat_id,
-            runner=self._maybe_update_recent_summary,
-        )
-        self._schedule_background_maintenance(
-            kind="user_profile",
-            chat_id=chat_id,
-            runner=self._maybe_update_user_profile,
-        )
-        self._schedule_background_maintenance(
-            kind="active_task",
-            chat_id=chat_id,
-            runner=self._maybe_update_active_task,
+        self.post_response_maintenance.schedule_post_response(
+            chat_id,
+            memory_runner=self._maybe_consolidate_memory,
+            recent_summary_runner=self._maybe_update_recent_summary,
+            user_profile_runner=self._maybe_update_user_profile,
+            active_task_runner=self._maybe_update_active_task,
         )
 
     async def wait_for_background_maintenance(self) -> None:
         """Wait until all currently scheduled maintenance tasks finish."""
-        await self._maintenance_scheduler.wait()
+        await self.post_response_maintenance.wait()
 
     async def close_background_maintenance(self) -> None:
         """Cancel and drain any in-flight maintenance tasks."""
-        await self._maintenance_scheduler.close()
+        await self.post_response_maintenance.close()
 
     async def wait_for_background_skill_reviews(self) -> None:
         """Wait until all currently scheduled skill review tasks finish."""
@@ -1085,37 +762,11 @@ class AgentLoop:
 
     async def _maybe_seed_active_task(self, chat_id: str, current_message: str) -> None:
         """Create a minimal ACTIVE_TASK.md before the first heavy turn when no task is active yet."""
-        if not self.active_task_config.enabled or self.app_home is None:
-            return
-
-        store = create_active_task_store(
-            self.app_home,
+        await self.active_task_commands.maybe_seed(
             chat_id,
-            workspace_root=self.tool_workspace,
+            current_message,
+            enabled=self.active_task_config.enabled,
         )
-        current_status = store.read_status()
-        replacing = False
-        if current_status in {"active", "blocked", "waiting_user"}:
-            if not should_replace_active_task(store.read_managed_block(), current_message):
-                return
-            replacing = True
-
-        initial_task = build_initial_active_task_block(current_message)
-        if not initial_task:
-            return
-
-        store.write_managed_block(initial_task)
-        message_count = await get_storage_message_count(self.storage, chat_id)
-        store.set_processed_index(chat_id, max(0, message_count - 1))
-        compact_message = re.sub(r"\s+", " ", current_message).strip()
-        if len(compact_message) > 120:
-            compact_message = compact_message[:117].rstrip() + "..."
-        store.append_event(
-            "seed",
-            "immediate",
-            details={"replace": replacing, "message": compact_message},
-        )
-        logger.info("[{}] active_task.seeded | replace={}", chat_id, replacing)
 
     async def reload_mcp_from_config(self) -> str:
         """Reload MCP settings from disk and reconnect MCP tools for this agent."""
@@ -1266,21 +917,7 @@ class AgentLoop:
             ChatMessage 物件列表，供 LLM 使用。
             List of ChatMessage objects for LLM consumption.
         """
-        # 從 storage 取訊息（使用 agent.max_history 限制數量）
-        stored_messages = await self.storage.get_messages(
-            chat_id, 
-            limit=self.config.max_history
-        )
-
-        # 轉換成 ChatMessage 格式
-        chat_messages = []
-        for m in stored_messages:
-            if isinstance(m, dict):
-                chat_messages.append(ChatMessage(role=m.get("role", "?"), content=m.get("content", "")))
-            else:
-                chat_messages.append(ChatMessage(role=m.role, content=m.content))
-        
-        return chat_messages
+        return await self.message_history.load_history(chat_id)
 
     async def _save_message(
         self,
@@ -1303,61 +940,17 @@ class AgentLoop:
             tool_name: 如果是工具結果，記錄工具名稱。
                        Tool name if this is a tool result.
         """
-        created_at = time.time()
-        await self.storage.add_message(
+        await self.message_history.save_message(
             chat_id,
-            StoredMessage(
-                role=role,
-                content=content,
-                timestamp=created_at,
-                tool_name=tool_name,
-                metadata=dict(metadata or {}),
-            )
+            role,
+            content,
+            tool_name=tool_name,
+            metadata=metadata,
         )
-        if self.search_store is not None:
-            try:
-                await self.search_store.index_message(
-                    chat_id=chat_id,
-                    role=role,
-                    content=content,
-                    tool_name=tool_name,
-                    created_at=created_at,
-                )
-            except Exception as e:
-                logger.warning("[{}] Failed to index message for search: {}", chat_id, e)
 
     def _log_prepared_messages(self, log_id: str, messages: list[dict[str, Any]]) -> None:
         """Log prepared prompt/messages when prompt logging is enabled."""
-        if not self.log_config.log_system_prompt:
-            return
-
-        try:
-            system_msg = next((m for m in messages if m.get("role") == "system"), None)
-            if system_msg:
-                system_prompt = str(system_msg.get("content", ""))
-                self._write_full_system_prompt_log(log_id, system_prompt)
-                max_chars = 240
-                if self.log_config.log_system_prompt_lines > 0:
-                    max_chars = max(120, self.log_config.log_system_prompt_lines * 120)
-                logger.info(
-                    f"[{log_id}] prompt.system | {self._format_log_preview(system_prompt, max_chars=max_chars)}"
-                )
-                if ":subagent:" not in log_id:
-                    available_subagents = self._extract_available_subagents(system_prompt)
-                    names = ", ".join(available_subagents) if available_subagents else "<none>"
-                    logger.info(
-                        f"[{log_id}] prompt.subagents | count={len(available_subagents)} names={names}"
-                    )
-
-            for index, msg in enumerate(messages):
-                role = msg.get("role", "unknown")
-                if role == "system":
-                    continue
-                logger.info(
-                    f"[{log_id}] prompt.message[{index}] | role={role} preview={self._format_log_preview(msg.get('content', ''))}"
-                )
-        except Exception as e:
-            logger.error(f"[{log_id}] prompt.log.error | error={e}")
+        self.prompt_logging.log_prepared_messages(log_id, messages)
 
     async def _execute_messages(
         self,
@@ -1389,12 +982,7 @@ class AgentLoop:
 
     def _build_subagent_tools(self, prompt_type: str, *, workspace: Path | None = None) -> ToolRegistry:
         """Build the tool registry exposed to one subagent profile."""
-        return build_subagent_tool_registry(
-            self.tools,
-            prompt_type,
-            app_home=self.app_home,
-            session_workspace=workspace or self._get_current_workspace(),
-        )
+        return self.subagents.build_tools(prompt_type, workspace=workspace)
 
     def _get_current_images(self) -> list[str] | None:
         """Return images attached to the current active turn."""
@@ -1597,12 +1185,7 @@ class AgentLoop:
 
     def _skill_review_tool_registry(self) -> ToolRegistry | None:
         """Tools allowed during background skill review (subset of main registry)."""
-        allowed = frozenset({"read_skill", "configure_skill"})
-        available = set(self.tools.tool_names)
-        if not allowed.issubset(available):
-            return None
-        excluded = available - allowed
-        return self.tools.filtered(exclude_names=excluded)
+        return self.skill_review.tool_registry()
 
     def _maybe_schedule_skill_review(self, chat_id: str, result: ExecutionResult) -> None:
         """Fire-and-forget background pass after a heavy tool turn without skill upsert."""
@@ -1621,34 +1204,11 @@ class AgentLoop:
         tool_registry = self._skill_review_tool_registry()
         if tool_registry is None:
             return
-
-        stored = await self.storage.get_messages(chat_id, limit=self.config.skill_review_transcript_messages)
-        transcript = format_stored_messages_for_transcript(stored)
-        if len(transcript) < 80:
-            logger.info("[%s] skill.review.skip | reason=transcript-too-short", chat_id)
-            return
-
-        user_content = build_skill_review_user_content(transcript)
-        chat_messages = [
-            ChatMessage(role="system", content=SKILL_REVIEW_SYSTEM),
-            ChatMessage(role="user", content=user_content),
-        ]
-        log_id = f"{chat_id}:skill-review"
         token = self._current_chat_id.set(chat_id)
         try:
-            await self._execute_messages(
-                log_id,
-                chat_messages,
-                allow_tools=True,
-                tool_result_chat_id=None,
-                tool_registry=tool_registry,
-                on_tool_before_execute=None,
-                refresh_system_prompt=lambda: self._context_builder.build_system_prompt(chat_id),
-                max_tool_iterations=self.config.skill_review_max_tool_iterations,
-            )
+            await self.skill_review.run(chat_id, tool_registry=tool_registry)
         finally:
             self._current_chat_id.reset(token)
-        logger.info("[%s] skill.review.done", chat_id)
 
     async def run_subagent(
         self,
@@ -1657,124 +1217,7 @@ class AgentLoop:
         task_id: str | None = None,
     ) -> str:
         """Run or resume a delegated subagent task through a child storage session."""
-        from .subagent_builder import SubagentMessageBuilder
-        from ..subagent_prompts import get_all_subagents
-
-        task_text = str(task or "").strip()
-        if not task_text:
-            return "Error: subagent task must be a non-empty string."
-
-        workspace = self._get_current_workspace()
-        subagents = get_all_subagents(self.app_home, session_workspace=workspace)
-        parent_chat_id = self._get_current_chat_id() or "default"
-
-        resume_task_id = str(task_id or "").strip() or None
-        is_resume = resume_task_id is not None
-        if resume_task_id:
-            validation_error = validate_subagent_task_id(resume_task_id)
-            if validation_error:
-                return validation_error
-            child_task_id = resume_task_id
-        else:
-            child_task_id = new_subagent_task_id()
-
-        child_chat_id = build_child_subagent_chat_id(parent_chat_id, child_task_id)
-        existing_child_messages = await self.storage.get_messages(child_chat_id)
-        if is_resume and not existing_child_messages:
-            return f"Error: unknown task_id '{child_task_id}' for current chat. Start a new delegate task instead."
-
-        stored_prompt_type = extract_subagent_prompt_type(existing_child_messages)
-        requested_prompt_type = str(prompt_type).strip() if prompt_type is not None else ""
-        effective_prompt_type = requested_prompt_type or stored_prompt_type or "writer"
-        if stored_prompt_type and requested_prompt_type and requested_prompt_type != stored_prompt_type:
-            return (
-                f"Error: task_id '{child_task_id}' was created with prompt_type '{stored_prompt_type}', "
-                f"not '{requested_prompt_type}'. Omit prompt_type or use the original prompt_type to resume."
-            )
-        if effective_prompt_type not in subagents:
-            available = ", ".join(subagents)
-            return f"Error: unknown subagent type '{effective_prompt_type}'. Available: {available}"
-
-        try:
-            subagent_tools = self._build_subagent_tools(effective_prompt_type, workspace=workspace)
-            subagent_profile = profile_for_subagent(
-                effective_prompt_type,
-                app_home=self.app_home,
-                session_workspace=workspace,
-            )
-        except ValueError as e:
-            return f"Error: {str(e)}"
-
-        await self._save_message(
-            child_chat_id,
-            "user",
-            task_text,
-            metadata={
-                "kind": "subagent_task",
-                "task_id": child_task_id,
-                "parent_chat_id": parent_chat_id,
-                "prompt_type": effective_prompt_type,
-                "resume": is_resume,
-            },
-        )
-
-        log_id = f"{parent_chat_id}:subagent:{effective_prompt_type}:{child_task_id}"
-
-        subagent_builder = SubagentMessageBuilder(
-            skills_loader=getattr(self._context_builder, "skills_loader", None)
-        )
-        chat_messages = [
-            ChatMessage(
-                role="system",
-                content=subagent_builder.build_system_prompt(
-                    effective_prompt_type,
-                    workspace=workspace,
-                    app_home=self.app_home,
-                ),
-            )
-        ]
-        stored_child_messages = await self.storage.get_messages(child_chat_id, limit=self.config.max_history)
-        for message in stored_child_messages:
-            role = message.get("role", "?") if isinstance(message, dict) else getattr(message, "role", "?")
-            if role == "tool":
-                continue
-            content = message.get("content", "") if isinstance(message, dict) else getattr(message, "content", "")
-            chat_messages.append(ChatMessage(role=role, content=content))
-
-        self._log_prepared_messages(
-            log_id,
-            [{"role": msg.role, "content": msg.content} for msg in chat_messages],
-        )
-        logger.info(
-            f"[{log_id}] subagent.run | child_chat_id={child_chat_id} resume={is_resume} "
-            f"workspace={workspace} task={self._format_log_preview(task_text, max_chars=200)}"
-        )
-        logger.info(
-            f"[{log_id}] subagent.tools | profile={subagent_profile.name} names={', '.join(subagent_tools.tool_names) or '<none>'}"
-        )
-        sub_result = await self._execute_messages(
-            log_id,
-            chat_messages,
-            allow_tools=bool(subagent_tools.tool_names),
-            tool_result_chat_id=child_chat_id,
-            tool_registry=subagent_tools,
-        )
-        await self._save_message(
-            child_chat_id,
-            "assistant",
-            sub_result.content,
-            metadata={
-                "kind": "subagent_result",
-                "task_id": child_task_id,
-                "parent_chat_id": parent_chat_id,
-                "prompt_type": effective_prompt_type,
-            },
-        )
-        return (
-            f"Task ID: {child_task_id}\n"
-            f"Subagent: {effective_prompt_type}\n\n"
-            f"Result:\n{sub_result.content}"
-        )
+        return await self.subagents.run(task, prompt_type=prompt_type, task_id=task_id)
 
     async def process(self, user_message: UserMessage) -> AssistantMessage:
         """
@@ -2199,24 +1642,4 @@ class AgentLoop:
             chat_id: 聊天室 ID。如果為 None 則清除所有聊天室。
                       The chat session ID. If None, clears all chats.
         """
-        if chat_id:
-            await self.storage.clear_messages(chat_id)
-            self._clear_active_task(chat_id)
-            self._clear_recent_summary(chat_id)
-            if self.search_store is not None:
-                try:
-                    await self.search_store.clear_chat(chat_id)
-                except Exception as e:
-                    logger.warning("[{}] Failed to clear search index: {}", chat_id, e)
-        else:
-            # 清除所有聊天室
-            all_chats = await self.storage.get_all_chats()
-            for c in all_chats:
-                await self.storage.clear_messages(c)
-                self._clear_active_task(c)
-                self._clear_recent_summary(c)
-                if self.search_store is not None:
-                    try:
-                        await self.search_store.clear_chat(c)
-                    except Exception as e:
-                        logger.warning("[{}] Failed to clear search index: {}", c, e)
+        await self.history_reset.reset(chat_id)

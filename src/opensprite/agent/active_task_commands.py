@@ -1,22 +1,26 @@
-"""User-facing active task command helpers for AgentLoop."""
+"""Active task state helpers for AgentLoop."""
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Callable
 
 from ..documents.active_task import (
     _extract_task_field,
+    build_initial_active_task_block,
     build_task_block_from_text,
     create_active_task_store,
     infer_immediate_task_transition,
+    should_replace_active_task,
 )
 from ..storage import StorageProvider
 from ..storage.base import get_storage_message_count
+from ..utils.log import logger
 
 
 class ActiveTaskCommandService:
-    """Handles direct user commands that inspect or mutate ACTIVE_TASK state."""
+    """Handles direct commands and immediate updates for ACTIVE_TASK state."""
 
     def __init__(
         self,
@@ -80,6 +84,38 @@ class ActiveTaskCommandService:
 
         await self._mark_processed(chat_id, store)
         store.append_event("auto_direct_transition", "immediate", details={"status": status, "reason": detail or ""})
+
+    async def maybe_seed(self, chat_id: str, current_message: str, *, enabled: bool) -> None:
+        """Create a minimal ACTIVE_TASK.md before the first heavy turn when appropriate."""
+        if not enabled:
+            return
+        store = self.get_store(chat_id)
+        if store is None:
+            return
+
+        current_status = store.read_status()
+        replacing = False
+        if current_status in {"active", "blocked", "waiting_user"}:
+            if not should_replace_active_task(store.read_managed_block(), current_message):
+                return
+            replacing = True
+
+        initial_task = build_initial_active_task_block(current_message)
+        if not initial_task:
+            return
+
+        store.write_managed_block(initial_task)
+        message_count = await get_storage_message_count(self.storage, chat_id)
+        store.set_processed_index(chat_id, max(0, message_count - 1))
+        compact_message = re.sub(r"\s+", " ", current_message).strip()
+        if len(compact_message) > 120:
+            compact_message = compact_message[:117].rstrip() + "..."
+        store.append_event(
+            "seed",
+            "immediate",
+            details={"replace": replacing, "message": compact_message},
+        )
+        logger.info("[{}] active_task.seeded | replace={}", chat_id, replacing)
 
     async def show(self, chat_id: str) -> str | None:
         """Return the current ACTIVE_TASK block for user display, if any."""
