@@ -64,6 +64,7 @@ from .run_hooks import RunHookService
 from .skill_review import SkillReviewService
 from .subagents import SubagentRunService
 from .tool_registration import register_default_tools, register_memory_tool
+from .turn_context import TurnContextService
 
 class AgentLoop:
     """
@@ -392,6 +393,16 @@ class AgentLoop:
             default=None,
         )
         self._current_run_id: ContextVar[str | None] = ContextVar("current_run_id", default=None)
+        self.turn_context = TurnContextService(
+            current_chat_id=self._current_chat_id,
+            current_channel=self._current_channel,
+            current_transport_chat_id=self._current_transport_chat_id,
+            current_images=self._current_images,
+            current_audios=self._current_audios,
+            current_videos=self._current_videos,
+            current_outbound_media=self._current_outbound_media,
+            current_run_id=self._current_run_id,
+        )
         self.app_home: Path | None = None
         self.tool_workspace: Path | None = None
         self.config_path: Path | None = Path(config_path).expanduser().resolve() if config_path is not None else None
@@ -1332,202 +1343,190 @@ class AgentLoop:
                 metadata=assistant_metadata,
             )
 
-        token = self._current_chat_id.set(session_chat_id)
-        channel_token = self._current_channel.set(channel)
-        transport_chat_id_token = self._current_transport_chat_id.set(
-            str(user_message.chat_id) if user_message.chat_id is not None else None
-        )
-        images_token = self._current_images.set(list(user_message.images or []))
-        audios_token = self._current_audios.set(list(user_message.audios or []))
-        videos_token = self._current_videos.set(list(user_message.videos or []))
-        outbound_media_token = self._current_outbound_media.set(
-            {"images": [], "voices": [], "audios": [], "videos": []}
-        )
-        run_token = self._current_run_id.set(run_id)
-        try:
-            if not self.llm_configured:
-                logger.warning("[{}] agent.skip | reason=llm-not-configured", session_chat_id)
+        with self.turn_context.activate(
+            chat_id=session_chat_id,
+            channel=channel,
+            transport_chat_id=transport_chat_id,
+            images=user_message.images,
+            audios=user_message.audios,
+            videos=user_message.videos,
+            run_id=run_id,
+        ):
+            try:
+                if not self.llm_configured:
+                    logger.warning("[{}] agent.skip | reason=llm-not-configured", session_chat_id)
+                    await self._save_message(session_chat_id, "user", user_message.text, metadata=user_metadata)
+                    response = self.messages.agent.llm_not_configured
+                    logger.info(
+                        f"[{session_chat_id}] outbound | text={self._format_log_preview(response, max_chars=200)}"
+                    )
+                    await self._add_run_part(
+                        session_chat_id,
+                        run_id,
+                        "assistant_message",
+                        content=response,
+                        metadata={"reason": "llm_not_configured", "response_len": len(response or "")},
+                    )
+                    await self._save_message(session_chat_id, "assistant", response, metadata=assistant_metadata)
+                    finished_at = time.time()
+                    await self._emit_run_event(
+                        session_chat_id,
+                        run_id,
+                        "run_finished",
+                        {"status": "completed", "reason": "llm_not_configured", "response_len": len(response or "")},
+                        channel=channel,
+                        transport_chat_id=transport_chat_id,
+                    )
+                    await self._update_run_status(session_chat_id, run_id, "completed", finished_at=finished_at)
+                    return AssistantMessage(
+                        text=response,
+                        channel=channel or "unknown",
+                        chat_id=user_message.chat_id,
+                        session_chat_id=session_chat_id,
+                        metadata=assistant_metadata,
+                    )
+
+                await self.connect_mcp()
+
+                # 1. 把使用者訊息存入 storage
                 await self._save_message(session_chat_id, "user", user_message.text, metadata=user_metadata)
-                response = self.messages.agent.llm_not_configured
-                logger.info(
-                    f"[{session_chat_id}] outbound | text={self._format_log_preview(response, max_chars=200)}"
+
+                # 2. 呼叫 LLM（傳入 channel 和圖片）
+                logger.info(f"[{session_chat_id}] agent.run | status=processing")
+                await self._emit_run_event(
+                    session_chat_id,
+                    run_id,
+                    "llm_status",
+                    {"message": "processing"},
+                    channel=channel,
+                    transport_chat_id=transport_chat_id,
                 )
+                exec_result = await self.call_llm(
+                    session_chat_id,
+                    current_message=user_message.text,
+                    channel=channel,
+                    user_images=user_message.images,
+                    user_image_files=image_files,
+                    user_audio_files=audio_files,
+                    user_video_files=video_files,
+                    transport_chat_id=transport_chat_id,
+                    emit_tool_progress=True,
+                )
+                response = exec_result.content
+                outbound_media = self._get_queued_outbound_media()
+
+                for compaction_event in exec_result.context_compaction_events:
+                    compaction_metadata = vars(compaction_event)
+                    await self._add_run_part(
+                        session_chat_id,
+                        run_id,
+                        "context_compaction",
+                        content=(
+                            f"{compaction_event.trigger}:"
+                            f"{compaction_event.strategy}:"
+                            f"{compaction_event.outcome}"
+                        ),
+                        metadata=compaction_metadata,
+                    )
+
                 await self._add_run_part(
                     session_chat_id,
                     run_id,
                     "assistant_message",
                     content=response,
-                    metadata={"reason": "llm_not_configured", "response_len": len(response or "")},
+                    metadata={
+                        "response_len": len(response or ""),
+                        "executed_tool_calls": exec_result.executed_tool_calls,
+                        "had_tool_error": exec_result.had_tool_error,
+                        "context_compactions": exec_result.context_compactions,
+                    },
                 )
+
+                logger.info(
+                    f"[{session_chat_id}] outbound | text={self._format_log_preview(response, max_chars=200)}"
+                )
+
+                # 3. 把 AI 回覆存入 storage
                 await self._save_message(session_chat_id, "assistant", response, metadata=assistant_metadata)
+
+                # 3.5 先套用保守的即時 task 狀態轉換，再交給背景更新做細化
+                await self._maybe_apply_immediate_task_transition(session_chat_id, response, exec_result)
+
+                # 4. 在背景排程維護工作，避免拖慢主回覆
+                self._schedule_post_response_maintenance(session_chat_id)
+
+                self._maybe_schedule_skill_review(session_chat_id, exec_result)
+
                 finished_at = time.time()
                 await self._emit_run_event(
                     session_chat_id,
                     run_id,
                     "run_finished",
-                    {"status": "completed", "reason": "llm_not_configured", "response_len": len(response or "")},
+                    {
+                        "status": "completed",
+                        "response_len": len(response or ""),
+                        "executed_tool_calls": exec_result.executed_tool_calls,
+                        "had_tool_error": exec_result.had_tool_error,
+                        "context_compactions": exec_result.context_compactions,
+                    },
                     channel=channel,
                     transport_chat_id=transport_chat_id,
                 )
-                await self._update_run_status(session_chat_id, run_id, "completed", finished_at=finished_at)
+                await self._update_run_status(
+                    session_chat_id,
+                    run_id,
+                    "completed",
+                    metadata={
+                        "executed_tool_calls": exec_result.executed_tool_calls,
+                        "had_tool_error": exec_result.had_tool_error,
+                        "context_compactions": exec_result.context_compactions,
+                    },
+                    finished_at=finished_at,
+                )
+
+                # 5. 回傳
                 return AssistantMessage(
                     text=response,
                     channel=channel or "unknown",
                     chat_id=user_message.chat_id,
                     session_chat_id=session_chat_id,
+                    images=outbound_media["images"] or None,
+                    voices=outbound_media["voices"] or None,
+                    audios=outbound_media["audios"] or None,
+                    videos=outbound_media["videos"] or None,
                     metadata=assistant_metadata,
                 )
-
-            await self.connect_mcp()
-
-            # 1. 把使用者訊息存入 storage
-            await self._save_message(session_chat_id, "user", user_message.text, metadata=user_metadata)
-
-            # 2. 呼叫 LLM（傳入 channel 和圖片）
-            logger.info(f"[{session_chat_id}] agent.run | status=processing")
-            await self._emit_run_event(
-                session_chat_id,
-                run_id,
-                "llm_status",
-                {"message": "processing"},
-                channel=channel,
-                transport_chat_id=transport_chat_id,
-            )
-            exec_result = await self.call_llm(
-                session_chat_id,
-                current_message=user_message.text,
-                channel=channel,
-                user_images=user_message.images,
-                user_image_files=image_files,
-                user_audio_files=audio_files,
-                user_video_files=video_files,
-                transport_chat_id=transport_chat_id,
-                emit_tool_progress=True,
-            )
-            response = exec_result.content
-            outbound_media = self._get_queued_outbound_media()
-
-            for compaction_event in exec_result.context_compaction_events:
-                compaction_metadata = vars(compaction_event)
-                await self._add_run_part(
+            except asyncio.CancelledError:
+                finished_at = time.time()
+                await self._emit_run_event(
                     session_chat_id,
                     run_id,
-                    "context_compaction",
-                    content=(
-                        f"{compaction_event.trigger}:"
-                        f"{compaction_event.strategy}:"
-                        f"{compaction_event.outcome}"
-                    ),
-                    metadata=compaction_metadata,
+                    "run_failed",
+                    {"status": "cancelled", "error": "cancelled"},
+                    channel=channel,
+                    transport_chat_id=transport_chat_id,
                 )
-
-            await self._add_run_part(
-                session_chat_id,
-                run_id,
-                "assistant_message",
-                content=response,
-                metadata={
-                    "response_len": len(response or ""),
-                    "executed_tool_calls": exec_result.executed_tool_calls,
-                    "had_tool_error": exec_result.had_tool_error,
-                    "context_compactions": exec_result.context_compactions,
-                },
-            )
-
-            logger.info(
-                f"[{session_chat_id}] outbound | text={self._format_log_preview(response, max_chars=200)}"
-            )
-
-            # 3. 把 AI 回覆存入 storage
-            await self._save_message(session_chat_id, "assistant", response, metadata=assistant_metadata)
-
-            # 3.5 先套用保守的即時 task 狀態轉換，再交給背景更新做細化
-            await self._maybe_apply_immediate_task_transition(session_chat_id, response, exec_result)
-
-            # 4. 在背景排程維護工作，避免拖慢主回覆
-            self._schedule_post_response_maintenance(session_chat_id)
-
-            self._maybe_schedule_skill_review(session_chat_id, exec_result)
-
-            finished_at = time.time()
-            await self._emit_run_event(
-                session_chat_id,
-                run_id,
-                "run_finished",
-                {
-                    "status": "completed",
-                    "response_len": len(response or ""),
-                    "executed_tool_calls": exec_result.executed_tool_calls,
-                    "had_tool_error": exec_result.had_tool_error,
-                    "context_compactions": exec_result.context_compactions,
-                },
-                channel=channel,
-                transport_chat_id=transport_chat_id,
-            )
-            await self._update_run_status(
-                session_chat_id,
-                run_id,
-                "completed",
-                metadata={
-                    "executed_tool_calls": exec_result.executed_tool_calls,
-                    "had_tool_error": exec_result.had_tool_error,
-                    "context_compactions": exec_result.context_compactions,
-                },
-                finished_at=finished_at,
-            )
-
-            # 5. 回傳
-            return AssistantMessage(
-                text=response,
-                channel=channel or "unknown",
-                chat_id=user_message.chat_id,
-                session_chat_id=session_chat_id,
-                images=outbound_media["images"] or None,
-                voices=outbound_media["voices"] or None,
-                audios=outbound_media["audios"] or None,
-                videos=outbound_media["videos"] or None,
-                metadata=assistant_metadata,
-            )
-        except asyncio.CancelledError:
-            finished_at = time.time()
-            await self._emit_run_event(
-                session_chat_id,
-                run_id,
-                "run_failed",
-                {"status": "cancelled", "error": "cancelled"},
-                channel=channel,
-                transport_chat_id=transport_chat_id,
-            )
-            await self._update_run_status(session_chat_id, run_id, "cancelled", finished_at=finished_at)
-            raise
-        except Exception as exc:
-            logger.exception(
-                f"[{session_chat_id}] Agent.process failed: channel={channel}, "
-                f"text_len={len(user_message.text or '')}, images={len(user_message.images or [])}, audios={len(user_message.audios or [])}, videos={len(user_message.videos or [])}"
-            )
-            finished_at = time.time()
-            await self._emit_run_event(
-                session_chat_id,
-                run_id,
-                "run_failed",
-                {
-                    "status": "failed",
-                    "error": self._format_log_preview(f"{type(exc).__name__}: {exc}", max_chars=240),
-                },
-                channel=channel,
-                transport_chat_id=transport_chat_id,
-            )
-            await self._update_run_status(session_chat_id, run_id, "failed", finished_at=finished_at)
-            raise
-        finally:
-            self._current_run_id.reset(run_token)
-            self._current_outbound_media.reset(outbound_media_token)
-            self._current_videos.reset(videos_token)
-            self._current_audios.reset(audios_token)
-            self._current_images.reset(images_token)
-            self._current_transport_chat_id.reset(transport_chat_id_token)
-            self._current_channel.reset(channel_token)
-            self._current_chat_id.reset(token)
+                await self._update_run_status(session_chat_id, run_id, "cancelled", finished_at=finished_at)
+                raise
+            except Exception as exc:
+                logger.exception(
+                    f"[{session_chat_id}] Agent.process failed: channel={channel}, "
+                    f"text_len={len(user_message.text or '')}, images={len(user_message.images or [])}, audios={len(user_message.audios or [])}, videos={len(user_message.videos or [])}"
+                )
+                finished_at = time.time()
+                await self._emit_run_event(
+                    session_chat_id,
+                    run_id,
+                    "run_failed",
+                    {
+                        "status": "failed",
+                        "error": self._format_log_preview(f"{type(exc).__name__}: {exc}", max_chars=240),
+                    },
+                    channel=channel,
+                    transport_chat_id=transport_chat_id,
+                )
+                await self._update_run_status(session_chat_id, run_id, "failed", finished_at=finished_at)
+                raise
 
     async def _maybe_consolidate_memory(self, chat_id: str) -> None:
         """
