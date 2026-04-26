@@ -57,6 +57,7 @@ from .media import AgentMediaService
 from .message_history import MessageHistoryService
 from .mcp_lifecycle import McpLifecycleService
 from .permission_events import PermissionEventRecorder
+from .permission_flow import AgentPermissionService
 from .prompt_budget import PromptBudgetService
 from .prompt_logging import PromptLoggingService
 from .response_finalizer import AgentResponseFinalizer
@@ -272,11 +273,11 @@ class AgentLoop:
 
     def pending_permission_requests(self) -> list[PermissionRequest]:
         """Return permission requests waiting for an external decision."""
-        return self.permission_requests.pending_requests()
+        return self.permissions.pending_requests()
 
     async def approve_permission_request(self, request_id: str) -> PermissionRequest | None:
         """Approve one pending tool permission request."""
-        return await self.permission_requests.approve_once(request_id)
+        return await self.permissions.approve_request(request_id)
 
     async def deny_permission_request(
         self,
@@ -284,7 +285,7 @@ class AgentLoop:
         reason: str = "user denied approval",
     ) -> PermissionRequest | None:
         """Deny one pending tool permission request."""
-        return await self.permission_requests.deny(request_id, reason=reason)
+        return await self.permissions.deny_request(request_id, reason=reason)
 
     async def _handle_tool_permission_request(
         self,
@@ -293,15 +294,7 @@ class AgentLoop:
         decision: PermissionDecision,
     ) -> PermissionApprovalResult:
         """Create an ask-mode approval request for the current run context."""
-        return await self.permission_requests.request(
-            tool_name=tool_name,
-            params=params,
-            reason=decision.reason,
-            chat_id=self._current_chat_id.get(),
-            run_id=self._current_run_id.get(),
-            channel=self._current_channel.get(),
-            transport_chat_id=self._current_transport_chat_id.get(),
-        )
+        return await self.permissions.handle_tool_permission_request(tool_name, params, decision)
 
     async def _emit_permission_request_event(
         self,
@@ -309,7 +302,7 @@ class AgentLoop:
         request: PermissionRequest,
     ) -> None:
         """Persist and publish permission approval lifecycle events for a run."""
-        await self.permission_events.emit(event_type, request)
+        await self.permissions.emit_request_event(event_type, request)
 
     @staticmethod
     def _format_background_session_exit_message(session: BackgroundSession) -> str:
@@ -476,6 +469,14 @@ class AgentLoop:
         self.permission_events = PermissionEventRecorder(
             emit_run_event=self._emit_run_event,
             format_log_preview=self._format_log_preview,
+        )
+        self.permissions = AgentPermissionService(
+            requests=self.permission_requests,
+            events=self.permission_events,
+            current_chat_id=lambda: self._current_chat_id.get(),
+            current_run_id=lambda: self._current_run_id.get(),
+            current_channel=lambda: self._current_channel.get(),
+            current_transport_chat_id=lambda: self._current_transport_chat_id.get(),
         )
         self.run_hooks = RunHookService(
             message_bus_getter=lambda: self._message_bus,
