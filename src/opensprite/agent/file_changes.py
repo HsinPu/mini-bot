@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import difflib
-import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from ..storage import StorageProvider, StoredRunFileChange
+from ..utils.json_safe import json_safe_payload
 from ..utils.log import logger
-from .run_trace import json_safe_event_payload
+from ..utils.text_changes import format_unified_diff, text_sha256
 
 
 RUN_FILE_REVERT_DIFF_MAX_CHARS = 12_000
@@ -28,41 +27,6 @@ class PreparedRunFileChangeRevert:
     change: StoredRunFileChange | None = None
     file_path: Path | None = None
     target_content: str | None = None
-
-
-def text_sha256(content: str) -> str:
-    """Return a stable UTF-8 SHA256 hash for text content."""
-    return hashlib.sha256(content.encode("utf-8")).hexdigest()
-
-
-def format_revert_diff(path: str, before: str | None, after: str | None) -> str:
-    """Return a bounded unified diff for the proposed revert."""
-    if before == after:
-        return "(no changes)"
-
-    before_text = before or ""
-    after_text = after or ""
-    fromfile = "/dev/null" if before is None else f"a/{path}"
-    tofile = "/dev/null" if after is None else f"b/{path}"
-    diff = "\n".join(
-        difflib.unified_diff(
-            before_text.splitlines(),
-            after_text.splitlines(),
-            fromfile=fromfile,
-            tofile=tofile,
-            lineterm="",
-        )
-    )
-    if not diff:
-        if before is None:
-            diff = f"--- /dev/null\n+++ b/{path}\n@@\n(empty file created)"
-        elif after is None:
-            diff = f"--- a/{path}\n+++ /dev/null\n@@\n(empty file deleted)"
-        else:
-            diff = "(no changes)"
-    if len(diff) > RUN_FILE_REVERT_DIFF_MAX_CHARS:
-        return diff[:RUN_FILE_REVERT_DIFF_MAX_CHARS] + f"\n... (diff truncated, total {len(diff)} chars)"
-    return diff
 
 
 class RunFileChangeService:
@@ -107,7 +71,7 @@ class RunFileChangeService:
 
             diff = str(raw_change.get("diff") or "")
             raw_metadata = raw_change.get("metadata")
-            metadata = json_safe_event_payload(raw_metadata if isinstance(raw_metadata, dict) else {})
+            metadata = json_safe_payload(raw_metadata if isinstance(raw_metadata, dict) else {})
             metadata.setdefault("diff_len", len(diff))
             try:
                 await add_change(
@@ -256,7 +220,12 @@ class RunFileChangeService:
         failure = self._validate_revert_preconditions(change, current_content, current_sha, current_error, target_content)
         if failure is not None:
             if failure.get("include_diff"):
-                failure["diff"] = format_revert_diff(change.path, current_content, target_content)
+                failure["diff"] = format_unified_diff(
+                    change.path,
+                    current_content,
+                    target_content,
+                    max_chars=RUN_FILE_REVERT_DIFF_MAX_CHARS,
+                )
                 failure.pop("include_diff", None)
             return PreparedRunFileChangeRevert(
                 preview={**preview, **failure},
@@ -271,7 +240,12 @@ class RunFileChangeService:
                 "status": "ready",
                 "ok": True,
                 "reason": "ready to revert",
-                "diff": format_revert_diff(change.path, current_content, target_content),
+                "diff": format_unified_diff(
+                    change.path,
+                    current_content,
+                    target_content,
+                    max_chars=RUN_FILE_REVERT_DIFF_MAX_CHARS,
+                ),
             },
             change=change,
             file_path=file_path,

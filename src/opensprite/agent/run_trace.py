@@ -7,28 +7,11 @@ from typing import Any, Callable
 
 from ..bus.events import RunEvent
 from ..storage import StorageProvider
+from ..utils.json_safe import json_safe_payload
 from ..utils.log import logger
 
 
 RUN_PART_CONTENT_MAX_CHARS = 20_000
-
-
-def json_safe_event_value(value: Any) -> Any:
-    """Convert event payload values into JSON-safe shapes."""
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, dict):
-        return {str(key): json_safe_event_value(val) for key, val in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [json_safe_event_value(item) for item in value]
-    return str(value)
-
-
-def json_safe_event_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
-    """Return a JSON-serializable event payload dictionary."""
-    if not payload:
-        return {}
-    return {str(key): json_safe_event_value(value) for key, value in payload.items()}
 
 
 def truncate_run_part_content(
@@ -111,7 +94,7 @@ class RunTraceRecorder:
             return
         try:
             stored_content, content_metadata = truncate_run_part_content(str(content or ""))
-            safe_metadata = json_safe_event_payload(metadata)
+            safe_metadata = json_safe_payload(metadata)
             safe_metadata.update(content_metadata)
             await add_part(
                 chat_id,
@@ -136,7 +119,7 @@ class RunTraceRecorder:
     ) -> None:
         """Persist and publish one structured run event."""
         created_at = time.time()
-        safe_payload = json_safe_event_payload(payload)
+        safe_payload = json_safe_payload(payload)
         add_event = getattr(self.storage, "add_run_event", None)
         if callable(add_event):
             try:

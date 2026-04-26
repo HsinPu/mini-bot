@@ -1,15 +1,14 @@
 """Filesystem tools for reading and writing files."""
 
 import asyncio
-import difflib
 import fnmatch
-import hashlib
 import re
 import shutil
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from ..skills import SkillsLoader
+from ..utils import format_unified_diff, text_sha256
 from ..utils.log import logger
 from .base import Tool
 from .skill_config import path_touches_read_only_app_skills_dir
@@ -127,48 +126,10 @@ def _display_path(workspace: Path, path: Path) -> str:
         return str(path)
 
 
-def _format_unified_diff(
-    display_path: str,
-    before: str | None,
-    after: str | None,
-) -> str:
-    """Return a concise unified diff for user-visible tool results."""
-    if before == after:
-        return "(no changes)"
-
-    before_text = before or ""
-    after_text = after or ""
-    fromfile = "/dev/null" if before is None else f"a/{display_path}"
-    tofile = "/dev/null" if after is None else f"b/{display_path}"
-    diff = "\n".join(
-        difflib.unified_diff(
-            before_text.splitlines(),
-            after_text.splitlines(),
-            fromfile=fromfile,
-            tofile=tofile,
-            lineterm="",
-        )
-    )
-    if not diff:
-        if before is None:
-            diff = f"--- /dev/null\n+++ b/{display_path}\n@@\n(empty file created)"
-        elif after is None:
-            diff = f"--- a/{display_path}\n+++ /dev/null\n@@\n(empty file deleted)"
-        else:
-            diff = "(no changes)"
-    if len(diff) > _MAX_DIFF_CHARS:
-        return diff[:_MAX_DIFF_CHARS] + f"\n... (diff truncated, total {len(diff)} chars)"
-    return diff
-
-
-def _content_sha256(content: str) -> str:
-    return hashlib.sha256(content.encode("utf-8")).hexdigest()
-
-
 def _hash_label(content: str | None) -> str:
     if content is None:
         return "missing"
-    return _content_sha256(content)
+    return text_sha256(content)
 
 
 def _change_action(before: str | None, after: str | None) -> str | None:
@@ -206,11 +167,16 @@ def _build_file_change_record(display_path: str, before: str | None, after: str 
     return {
         "path": display_path,
         "action": action,
-        "before_sha256": _content_sha256(before) if before is not None else None,
-        "after_sha256": _content_sha256(after) if after is not None else None,
+        "before_sha256": text_sha256(before) if before is not None else None,
+        "after_sha256": text_sha256(after) if after is not None else None,
         "before_content": before_snapshot,
         "after_content": after_snapshot,
-        "diff": _format_unified_diff(display_path, before, after),
+        "diff": format_unified_diff(
+            display_path,
+            before,
+            after,
+            max_chars=_MAX_DIFF_CHARS,
+        ),
         "metadata": {
             **before_metadata,
             **after_metadata,
@@ -245,7 +211,7 @@ def _validate_expected_sha256(path: str, content: str, expected_sha256: Any) -> 
     if not isinstance(expected_sha256, str):
         return f"Error: Stale-read guard failed for {path}: expected_sha256 must be a string."
 
-    current_sha256 = _content_sha256(content)
+    current_sha256 = text_sha256(content)
     if expected_sha256.lower() != current_sha256:
         return (
             f"Error: Stale-read guard failed for {path}: current SHA256 is {current_sha256}, "
@@ -536,7 +502,7 @@ class ReadFileTool(Tool):
             has_more = total_lines > last_line or truncated_by_chars
             header = [
                 f"File: {_display_path(workspace, file_path)}",
-                f"SHA256: {_content_sha256(content)}",
+                f"SHA256: {text_sha256(content)}",
                 f"Lines: {offset}-{last_line if selected else 0} of {total_lines}",
                 "",
             ]
@@ -918,7 +884,14 @@ class ApplyPatchTool(Tool):
                     continue
                 changed_paths.append(file_path)
                 metadata.append(_format_file_metadata(display_paths[file_path], before, after))
-                diffs.append(_format_unified_diff(display_paths[file_path], before, after))
+                diffs.append(
+                    format_unified_diff(
+                        display_paths[file_path],
+                        before,
+                        after,
+                        max_chars=_MAX_DIFF_CHARS,
+                    )
+                )
                 record = _build_file_change_record(display_paths[file_path], before, after)
                 if record is not None:
                     file_change_records.append(record)
@@ -1027,7 +1000,12 @@ class WriteFileTool(Tool):
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(content, encoding="utf-8")
             display_path = _display_path(workspace, file_path)
-            diff = _format_unified_diff(display_path, before, content)
+            diff = format_unified_diff(
+                display_path,
+                before,
+                content,
+                max_chars=_MAX_DIFF_CHARS,
+            )
             metadata = _format_file_metadata(display_path, before, content)
             record = _build_file_change_record(display_path, before, content)
             await _record_file_changes(
@@ -1177,7 +1155,12 @@ class EditFileTool(Tool):
             new_content = content.replace(old_text, new_text, 1)
             file_path.write_text(new_content, encoding="utf-8")
             display_path = _display_path(workspace, file_path)
-            diff = _format_unified_diff(display_path, content, new_content)
+            diff = format_unified_diff(
+                display_path,
+                content,
+                new_content,
+                max_chars=_MAX_DIFF_CHARS,
+            )
             metadata = _format_file_metadata(display_path, content, new_content)
             record = _build_file_change_record(display_path, content, new_content)
             await _record_file_changes(

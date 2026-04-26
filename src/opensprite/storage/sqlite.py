@@ -18,6 +18,7 @@ from ..search.indexing import (
     build_knowledge_chunks,
     build_knowledge_documents_from_message,
 )
+from ..utils.json_safe import json_safe_value as json_safe
 from ..utils.log import logger
 from .base import StorageProvider, StoredMessage, StoredRun, StoredRunEvent, StoredRunFileChange, StoredRunPart
 
@@ -534,17 +535,6 @@ def find_message_owner_id(
         (chat_id, role, content, tool_name, tool_name),
     ).fetchone()
     return int(fallback["id"]) if fallback is not None else 0
-
-
-def json_safe(value: Any) -> Any:
-    """Convert metadata into JSON-serializable structures."""
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, dict):
-        return {str(key): json_safe(val) for key, val in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [json_safe(item) for item in value]
-    return str(value)
 
 
 def table_exists(conn: sqlite3.Connection, name: str) -> bool:

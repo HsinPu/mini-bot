@@ -56,17 +56,14 @@ from ..tools.approval import PermissionRequest, PermissionRequestManager
 from ..tools.permissions import PermissionApprovalResult, PermissionDecision
 from ..tools.process_runtime import BackgroundSession
 from ..tools.shell_runtime import format_captured_output
-from ..utils import count_messages_tokens, count_text_tokens, sanitize_assistant_visible_text, strip_assistant_internal_scaffolding
+from ..utils import count_messages_tokens, count_text_tokens, json_safe_payload, json_safe_value, sanitize_assistant_visible_text, strip_assistant_internal_scaffolding
 from ..utils.log import logger
 from ..config import AgentConfig, MemoryConfig, ToolsConfig, LogConfig, SearchConfig, UserProfileConfig, ActiveTaskConfig, RecentSummaryConfig, MessagesConfig, Config
+from .background_tasks import CoalescingTaskScheduler
 from .consolidation import MemoryConsolidationService, RecentSummaryUpdateService, UserProfileUpdateService, ActiveTaskUpdateService
 from .execution import ExecutionEngine, ExecutionResult
 from .file_changes import RunFileChangeService
-from .run_trace import (
-    RunTraceRecorder,
-    json_safe_event_payload,
-    json_safe_event_value,
-)
+from .run_trace import RunTraceRecorder
 from .skill_review import (
     SKILL_REVIEW_SYSTEM,
     build_skill_review_user_content,
@@ -297,7 +294,7 @@ class AgentLoop:
         rid = run_id
 
         async def _hook(tool_name: str, tool_args: dict[str, Any]) -> None:
-            safe_args = json_safe_event_payload(tool_args or {})
+            safe_args = json_safe_payload(tool_args or {})
             args_preview = self._format_log_preview(json.dumps(safe_args, ensure_ascii=False), max_chars=240)
             await self._add_run_part(
                 sid,
@@ -361,7 +358,7 @@ class AgentLoop:
         rid = run_id
 
         async def _hook(tool_name: str, tool_args: dict[str, Any], result: str) -> None:
-            safe_args = json_safe_event_payload(tool_args or {})
+            safe_args = json_safe_payload(tool_args or {})
             result_text = str(result or "")
             result_preview = self._format_log_preview(result_text, max_chars=240)
             ok = not result_text.lstrip().startswith("Error:")
@@ -572,7 +569,7 @@ class AgentLoop:
             return
         try:
             params_preview = json.dumps(
-                json_safe_event_value(request.params),
+                json_safe_value(request.params),
                 ensure_ascii=False,
                 sort_keys=True,
             )
@@ -751,10 +748,21 @@ class AgentLoop:
         self._mcp_connect_lock = asyncio.Lock()
         self._mcp_connect_failures = 0
         self._mcp_retry_after = 0.0
-        self._skill_review_tasks: dict[str, asyncio.Task] = {}
-        self._skill_review_rerun: set[str] = set()
-        self._maintenance_tasks: dict[tuple[str, str], asyncio.Task] = {}
-        self._maintenance_rerun: set[tuple[str, str]] = set()
+        self._skill_review_scheduler = CoalescingTaskScheduler[str](
+            on_exception=lambda chat_id, _exc: logger.exception("[%s] skill.review.failed", chat_id),
+            on_rerun=lambda chat_id: logger.info("[%s] skill.review.rerun", chat_id),
+            on_schedule_error=lambda chat_id, _exc: logger.warning(
+                "[%s] skill.review.skip | reason=no-running-event-loop",
+                chat_id,
+            ),
+        )
+        self._maintenance_scheduler = CoalescingTaskScheduler[tuple[str, str]](
+            on_rerun=lambda key: logger.info("[{}] maintenance.rerun | kind={}", key[1], key[0]),
+        )
+        self._skill_review_tasks = self._skill_review_scheduler.tasks
+        self._skill_review_rerun = self._skill_review_scheduler.rerun_keys
+        self._maintenance_tasks = self._maintenance_scheduler.tasks
+        self._maintenance_rerun = self._maintenance_scheduler.rerun_keys
         # Set by runtime after MessageQueue is created; used for interim tool progress outbound messages.
         self._message_bus: Any = None
         self.permission_requests = PermissionRequestManager(
@@ -1129,31 +1137,7 @@ class AgentLoop:
         runner: Callable[[str], Awaitable[None]],
     ) -> None:
         """Run one maintenance path in the background with per-chat coalescing."""
-        key = (kind, chat_id)
-        existing = self._maintenance_tasks.get(key)
-        if existing is not None and not existing.done():
-            self._maintenance_rerun.add(key)
-            return
-
-        task: asyncio.Task | None = None
-
-        async def _run() -> None:
-            try:
-                while True:
-                    self._maintenance_rerun.discard(key)
-                    await runner(chat_id)
-                    if key not in self._maintenance_rerun:
-                        break
-                    logger.info("[{}] maintenance.rerun | kind={}", chat_id, kind)
-            except asyncio.CancelledError:
-                pass
-            finally:
-                if task is not None and self._maintenance_tasks.get(key) is task:
-                    self._maintenance_tasks.pop(key, None)
-                self._maintenance_rerun.discard(key)
-
-        task = asyncio.create_task(_run())
-        self._maintenance_tasks[key] = task
+        self._maintenance_scheduler.schedule((kind, chat_id), lambda: runner(chat_id))
 
     def _schedule_post_response_maintenance(self, chat_id: str) -> None:
         """Queue post-response document maintenance without blocking the reply."""
@@ -1180,39 +1164,19 @@ class AgentLoop:
 
     async def wait_for_background_maintenance(self) -> None:
         """Wait until all currently scheduled maintenance tasks finish."""
-        while True:
-            tasks = [task for task in self._maintenance_tasks.values() if not task.done()]
-            if not tasks:
-                return
-            await asyncio.gather(*tasks, return_exceptions=True)
+        await self._maintenance_scheduler.wait()
 
     async def close_background_maintenance(self) -> None:
         """Cancel and drain any in-flight maintenance tasks."""
-        tasks = [task for task in self._maintenance_tasks.values() if not task.done()]
-        self._maintenance_tasks.clear()
-        self._maintenance_rerun.clear()
-        for task in tasks:
-            task.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+        await self._maintenance_scheduler.close()
 
     async def wait_for_background_skill_reviews(self) -> None:
         """Wait until all currently scheduled skill review tasks finish."""
-        while True:
-            tasks = [task for task in self._skill_review_tasks.values() if not task.done()]
-            if not tasks:
-                return
-            await asyncio.gather(*tasks, return_exceptions=True)
+        await self._skill_review_scheduler.wait()
 
     async def close_background_skill_reviews(self) -> None:
         """Cancel and drain any in-flight skill review tasks."""
-        tasks = [task for task in self._skill_review_tasks.values() if not task.done()]
-        self._skill_review_tasks.clear()
-        self._skill_review_rerun.clear()
-        for task in tasks:
-            task.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+        await self._skill_review_scheduler.close()
 
     async def close_background_processes(self) -> None:
         """Terminate managed background exec sessions before the event loop closes."""
@@ -1859,36 +1823,7 @@ class AgentLoop:
         if self._skill_review_tool_registry() is None:
             return
 
-        existing = self._skill_review_tasks.get(chat_id)
-        if existing is not None and not existing.done():
-            self._skill_review_rerun.add(chat_id)
-            return
-
-        task: asyncio.Task | None = None
-
-        async def _run() -> None:
-            try:
-                while True:
-                    self._skill_review_rerun.discard(chat_id)
-                    try:
-                        await self._run_skill_review(chat_id)
-                    except Exception:
-                        logger.exception("[%s] skill.review.failed", chat_id)
-                    if chat_id not in self._skill_review_rerun:
-                        break
-                    logger.info("[%s] skill.review.rerun", chat_id)
-            except asyncio.CancelledError:
-                pass
-            finally:
-                if task is not None and self._skill_review_tasks.get(chat_id) is task:
-                    self._skill_review_tasks.pop(chat_id, None)
-                self._skill_review_rerun.discard(chat_id)
-
-        try:
-            task = asyncio.get_running_loop().create_task(_run())
-            self._skill_review_tasks[chat_id] = task
-        except RuntimeError:
-            logger.warning("[%s] skill.review.skip | reason=no-running-event-loop", chat_id)
+        self._skill_review_scheduler.schedule(chat_id, lambda: self._run_skill_review(chat_id))
 
     async def _run_skill_review(self, chat_id: str) -> None:
         tool_registry = self._skill_review_tool_registry()
