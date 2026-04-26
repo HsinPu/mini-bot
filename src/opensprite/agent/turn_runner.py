@@ -1,8 +1,10 @@
-"""Normal LLM turn orchestration for AgentLoop.process."""
+"""User turn orchestration for AgentLoop.process."""
 
 from __future__ import annotations
 
+import asyncio
 from typing import Awaitable, Callable
+from uuid import uuid4
 
 from ..bus.message import AssistantMessage, UserMessage
 from ..utils.log import logger
@@ -10,17 +12,19 @@ from .execution import ExecutionResult
 from .media import AgentMediaService
 from .response_finalizer import AgentResponseFinalizer
 from .run_trace import RunTraceRecorder
+from .turn_context import TurnContextService
 from .turn_input import PreparedTurnInput
 
 
 class AgentTurnRunner:
-    """Runs the normal LLM-backed user turn path."""
+    """Runs user-turn branches after inbound turn input is prepared."""
 
     def __init__(
         self,
         *,
         run_trace: RunTraceRecorder,
         response_finalizer: AgentResponseFinalizer,
+        turn_context: TurnContextService,
         connect_mcp: Callable[[], Awaitable[None]],
         save_message: Callable[..., Awaitable[None]],
         emit_run_event: Callable[..., Awaitable[None]],
@@ -28,12 +32,14 @@ class AgentTurnRunner:
         get_queued_outbound_media: Callable[[], dict[str, list[str]]],
         media_saved_ack: Callable[[], str],
         llm_not_configured_message: Callable[[], str],
+        format_log_preview: Callable[..., str],
         apply_immediate_task_transition: Callable[[str, str, ExecutionResult], Awaitable[None]],
         schedule_post_response_maintenance: Callable[[str], None],
         maybe_schedule_skill_review: Callable[[str, ExecutionResult], None],
     ):
         self.run_trace = run_trace
         self.response_finalizer = response_finalizer
+        self.turn_context = turn_context
         self._connect_mcp = connect_mcp
         self._save_message = save_message
         self._emit_run_event = emit_run_event
@@ -41,6 +47,7 @@ class AgentTurnRunner:
         self._get_queued_outbound_media = get_queued_outbound_media
         self._media_saved_ack = media_saved_ack
         self._llm_not_configured_message = llm_not_configured_message
+        self._format_log_preview = format_log_preview
         self._apply_immediate_task_transition = apply_immediate_task_transition
         self._schedule_post_response_maintenance = schedule_post_response_maintenance
         self._maybe_schedule_skill_review = maybe_schedule_skill_review
@@ -54,6 +61,85 @@ class AgentTurnRunner:
             audios=user_message.audios,
             videos=user_message.videos,
         )
+
+    async def run_user_turn(
+        self,
+        *,
+        user_message: UserMessage,
+        turn: PreparedTurnInput,
+        llm_configured: bool,
+    ) -> AssistantMessage:
+        """Start run telemetry and dispatch one prepared user turn."""
+        run_id = f"run_{uuid4().hex}"
+        await self.run_trace.start_turn_run(
+            turn.session_chat_id,
+            run_id,
+            channel=turn.channel,
+            transport_chat_id=turn.transport_chat_id,
+            sender_id=user_message.sender_id,
+            sender_name=user_message.sender_name,
+            text=user_message.text,
+            images=user_message.images,
+            audios=user_message.audios,
+            videos=user_message.videos,
+        )
+
+        if self.is_media_only_message(user_message):
+            return await self.run_media_only_turn(
+                user_message=user_message,
+                turn=turn,
+                run_id=run_id,
+            )
+
+        with self.turn_context.activate(
+            chat_id=turn.session_chat_id,
+            channel=turn.channel,
+            transport_chat_id=turn.transport_chat_id,
+            images=user_message.images,
+            audios=user_message.audios,
+            videos=user_message.videos,
+            run_id=run_id,
+        ):
+            try:
+                if not llm_configured:
+                    return await self.run_llm_not_configured_turn(
+                        user_message=user_message,
+                        turn=turn,
+                        run_id=run_id,
+                    )
+
+                return await self.run_normal_turn(
+                    user_message=user_message,
+                    turn=turn,
+                    run_id=run_id,
+                )
+            except asyncio.CancelledError:
+                await self.run_trace.fail_run(
+                    turn.session_chat_id,
+                    run_id,
+                    status="cancelled",
+                    event_payload={"status": "cancelled", "error": "cancelled"},
+                    channel=turn.channel,
+                    transport_chat_id=turn.transport_chat_id,
+                )
+                raise
+            except Exception as exc:
+                logger.exception(
+                    f"[{turn.session_chat_id}] Agent.process failed: channel={turn.channel}, "
+                    f"text_len={len(user_message.text or '')}, images={len(user_message.images or [])}, audios={len(user_message.audios or [])}, videos={len(user_message.videos or [])}"
+                )
+                await self.run_trace.fail_run(
+                    turn.session_chat_id,
+                    run_id,
+                    status="failed",
+                    event_payload={
+                        "status": "failed",
+                        "error": self._format_log_preview(f"{type(exc).__name__}: {exc}", max_chars=240),
+                    },
+                    channel=turn.channel,
+                    transport_chat_id=turn.transport_chat_id,
+                )
+                raise
 
     async def run_media_only_turn(
         self,

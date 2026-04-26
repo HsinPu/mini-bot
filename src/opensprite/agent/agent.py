@@ -20,11 +20,9 @@ opensprite/agent.py - Agent Loop
 - Tool 由 ToolRegistry 管理
 """
 
-import asyncio
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, Awaitable, Callable
-from uuid import uuid4
 
 from ..bus.message import UserMessage, AssistantMessage
 from ..llms import LLMProvider, ChatMessage
@@ -451,6 +449,7 @@ class AgentLoop:
         self.turn_runner = AgentTurnRunner(
             run_trace=self.run_trace,
             response_finalizer=self.response_finalizer,
+            turn_context=self.turn_context,
             connect_mcp=lambda: self.connect_mcp(),
             save_message=lambda *args, **kwargs: self._save_message(*args, **kwargs),
             emit_run_event=lambda *args, **kwargs: self._emit_run_event(*args, **kwargs),
@@ -458,6 +457,7 @@ class AgentLoop:
             get_queued_outbound_media=self._get_queued_outbound_media,
             media_saved_ack=lambda: self.messages.agent.media_saved_ack,
             llm_not_configured_message=lambda: self.messages.agent.llm_not_configured,
+            format_log_preview=self._format_log_preview,
             apply_immediate_task_transition=lambda chat_id, response, result: self._maybe_apply_immediate_task_transition(
                 chat_id,
                 response,
@@ -1164,79 +1164,11 @@ class AgentLoop:
             AssistantMessage: 統一格式的回覆
         """
         turn = self.turn_inputs.prepare(user_message)
-        session_chat_id = turn.session_chat_id
-        channel = turn.channel
-        transport_chat_id = turn.transport_chat_id
-        run_id = f"run_{uuid4().hex}"
-        await self.run_trace.start_turn_run(
-            session_chat_id,
-            run_id,
-            channel=channel,
-            transport_chat_id=transport_chat_id,
-            sender_id=user_message.sender_id,
-            sender_name=user_message.sender_name,
-            text=user_message.text,
-            images=user_message.images,
-            audios=user_message.audios,
-            videos=user_message.videos,
+        return await self.turn_runner.run_user_turn(
+            user_message=user_message,
+            turn=turn,
+            llm_configured=self.llm_configured,
         )
-
-        if self.turn_runner.is_media_only_message(user_message):
-            return await self.turn_runner.run_media_only_turn(
-                user_message=user_message,
-                turn=turn,
-                run_id=run_id,
-            )
-
-        with self.turn_context.activate(
-            chat_id=session_chat_id,
-            channel=channel,
-            transport_chat_id=transport_chat_id,
-            images=user_message.images,
-            audios=user_message.audios,
-            videos=user_message.videos,
-            run_id=run_id,
-        ):
-            try:
-                if not self.llm_configured:
-                    return await self.turn_runner.run_llm_not_configured_turn(
-                        user_message=user_message,
-                        turn=turn,
-                        run_id=run_id,
-                    )
-
-                return await self.turn_runner.run_normal_turn(
-                    user_message=user_message,
-                    turn=turn,
-                    run_id=run_id,
-                )
-            except asyncio.CancelledError:
-                await self.run_trace.fail_run(
-                    session_chat_id,
-                    run_id,
-                    status="cancelled",
-                    event_payload={"status": "cancelled", "error": "cancelled"},
-                    channel=channel,
-                    transport_chat_id=transport_chat_id,
-                )
-                raise
-            except Exception as exc:
-                logger.exception(
-                    f"[{session_chat_id}] Agent.process failed: channel={channel}, "
-                    f"text_len={len(user_message.text or '')}, images={len(user_message.images or [])}, audios={len(user_message.audios or [])}, videos={len(user_message.videos or [])}"
-                )
-                await self.run_trace.fail_run(
-                    session_chat_id,
-                    run_id,
-                    status="failed",
-                    event_payload={
-                        "status": "failed",
-                        "error": self._format_log_preview(f"{type(exc).__name__}: {exc}", max_chars=240),
-                    },
-                    channel=channel,
-                    transport_chat_id=transport_chat_id,
-                )
-                raise
 
     async def _maybe_consolidate_memory(self, chat_id: str) -> None:
         """
