@@ -58,6 +58,7 @@ from .mcp_lifecycle import McpLifecycleService
 from .permission_events import PermissionEventRecorder
 from .prompt_budget import PromptBudgetService
 from .prompt_logging import PromptLoggingService
+from .response_finalizer import AgentResponseFinalizer
 from .run_trace import RunTraceRecorder
 from .run_hooks import RunHookService
 from .skill_review import SkillReviewService
@@ -445,6 +446,11 @@ class AgentLoop:
         self.run_trace = RunTraceRecorder(
             storage=self.storage,
             message_bus_getter=lambda: self._message_bus,
+        )
+        self.response_finalizer = AgentResponseFinalizer(
+            run_trace=self.run_trace,
+            save_message=self._save_message,
+            format_log_preview=self._format_log_preview,
         )
         self.permission_events = PermissionEventRecorder(
             emit_run_event=self._emit_run_event,
@@ -1303,29 +1309,22 @@ class AgentLoop:
             )
             await self._save_message(session_chat_id, "user", media_history_content, metadata=user_metadata)
             response = self.messages.agent.media_saved_ack
-            logger.info(
-                f"[{session_chat_id}] outbound | media_only=true text={self._format_log_preview(response, max_chars=200)}"
-            )
-            await self.run_trace.record_assistant_message_part(
-                session_chat_id,
-                run_id,
-                response,
-                metadata={"reason": "media_only", "response_len": len(response or "")},
-            )
-            await self._save_message(session_chat_id, "assistant", response, metadata=assistant_metadata)
-            await self.run_trace.complete_run(
-                session_chat_id,
-                run_id,
-                event_payload={"status": "completed", "reason": "media_only", "response_len": len(response or "")},
-                channel=channel,
-                transport_chat_id=transport_chat_id,
-            )
-            return AssistantMessage(
-                text=response,
-                channel=channel or "unknown",
-                chat_id=user_message.chat_id,
+            return await self.response_finalizer.finalize(
                 session_chat_id=session_chat_id,
-                metadata=assistant_metadata,
+                run_id=run_id,
+                response=response,
+                channel=channel,
+                chat_id=user_message.chat_id,
+                transport_chat_id=transport_chat_id,
+                assistant_metadata=assistant_metadata,
+                run_part_metadata={"reason": "media_only", "response_len": len(response or "")},
+                run_event_payload={
+                    "status": "completed",
+                    "reason": "media_only",
+                    "response_len": len(response or ""),
+                },
+                log_prefix="media_only=true ",
+                log_before_record=True,
             )
 
         with self.turn_context.activate(
@@ -1342,33 +1341,21 @@ class AgentLoop:
                     logger.warning("[{}] agent.skip | reason=llm-not-configured", session_chat_id)
                     await self._save_message(session_chat_id, "user", user_message.text, metadata=user_metadata)
                     response = self.messages.agent.llm_not_configured
-                    logger.info(
-                        f"[{session_chat_id}] outbound | text={self._format_log_preview(response, max_chars=200)}"
-                    )
-                    await self.run_trace.record_assistant_message_part(
-                        session_chat_id,
-                        run_id,
-                        response,
-                        metadata={"reason": "llm_not_configured", "response_len": len(response or "")},
-                    )
-                    await self._save_message(session_chat_id, "assistant", response, metadata=assistant_metadata)
-                    await self.run_trace.complete_run(
-                        session_chat_id,
-                        run_id,
-                        event_payload={
+                    return await self.response_finalizer.finalize(
+                        session_chat_id=session_chat_id,
+                        run_id=run_id,
+                        response=response,
+                        channel=channel,
+                        chat_id=user_message.chat_id,
+                        transport_chat_id=transport_chat_id,
+                        assistant_metadata=assistant_metadata,
+                        run_part_metadata={"reason": "llm_not_configured", "response_len": len(response or "")},
+                        run_event_payload={
                             "status": "completed",
                             "reason": "llm_not_configured",
                             "response_len": len(response or ""),
                         },
-                        channel=channel,
-                        transport_chat_id=transport_chat_id,
-                    )
-                    return AssistantMessage(
-                        text=response,
-                        channel=channel or "unknown",
-                        chat_id=user_message.chat_id,
-                        session_chat_id=session_chat_id,
-                        metadata=assistant_metadata,
+                        log_before_record=True,
                     )
 
                 await self.connect_mcp()
@@ -1412,58 +1399,33 @@ class AgentLoop:
                     "had_tool_error": exec_result.had_tool_error,
                     "context_compactions": exec_result.context_compactions,
                 }
-                await self.run_trace.record_assistant_message_part(
-                    session_chat_id,
-                    run_id,
-                    response,
-                    metadata=response_metadata,
-                )
+                status_metadata = {
+                    "executed_tool_calls": exec_result.executed_tool_calls,
+                    "had_tool_error": exec_result.had_tool_error,
+                    "context_compactions": exec_result.context_compactions,
+                }
 
-                logger.info(
-                    f"[{session_chat_id}] outbound | text={self._format_log_preview(response, max_chars=200)}"
-                )
+                async def after_response_saved() -> None:
+                    await self._maybe_apply_immediate_task_transition(session_chat_id, response, exec_result)
+                    self._schedule_post_response_maintenance(session_chat_id)
+                    self._maybe_schedule_skill_review(session_chat_id, exec_result)
 
-                # 3. 把 AI 回覆存入 storage
-                await self._save_message(session_chat_id, "assistant", response, metadata=assistant_metadata)
-
-                # 3.5 先套用保守的即時 task 狀態轉換，再交給背景更新做細化
-                await self._maybe_apply_immediate_task_transition(session_chat_id, response, exec_result)
-
-                # 4. 在背景排程維護工作，避免拖慢主回覆
-                self._schedule_post_response_maintenance(session_chat_id)
-
-                self._maybe_schedule_skill_review(session_chat_id, exec_result)
-
-                await self.run_trace.complete_run(
-                    session_chat_id,
-                    run_id,
-                    event_payload={
-                        "status": "completed",
-                        "response_len": len(response or ""),
-                        "executed_tool_calls": exec_result.executed_tool_calls,
-                        "had_tool_error": exec_result.had_tool_error,
-                        "context_compactions": exec_result.context_compactions,
-                    },
-                    status_metadata={
-                        "executed_tool_calls": exec_result.executed_tool_calls,
-                        "had_tool_error": exec_result.had_tool_error,
-                        "context_compactions": exec_result.context_compactions,
-                    },
-                    channel=channel,
-                    transport_chat_id=transport_chat_id,
-                )
-
-                # 5. 回傳
-                return AssistantMessage(
-                    text=response,
-                    channel=channel or "unknown",
-                    chat_id=user_message.chat_id,
+                return await self.response_finalizer.finalize(
                     session_chat_id=session_chat_id,
+                    run_id=run_id,
+                    response=response,
+                    channel=channel,
+                    chat_id=user_message.chat_id,
+                    transport_chat_id=transport_chat_id,
+                    assistant_metadata=assistant_metadata,
+                    run_part_metadata=response_metadata,
+                    run_event_payload={"status": "completed", **response_metadata},
+                    status_metadata=status_metadata,
                     images=outbound_media["images"] or None,
                     voices=outbound_media["voices"] or None,
                     audios=outbound_media["audios"] or None,
                     videos=outbound_media["videos"] or None,
-                    metadata=assistant_metadata,
+                    after_save=after_response_saved,
                 )
             except asyncio.CancelledError:
                 await self.run_trace.fail_run(
