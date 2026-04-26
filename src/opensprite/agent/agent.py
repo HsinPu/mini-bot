@@ -22,7 +22,6 @@ opensprite/agent.py - Agent Loop
 
 import asyncio
 from contextvars import ContextVar
-import time
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 from uuid import uuid4
@@ -1283,27 +1282,17 @@ class AgentLoop:
 
         transport_chat_id = str(user_message.chat_id) if user_message.chat_id is not None else None
         run_id = f"run_{uuid4().hex}"
-        run_metadata = {
-            "channel": channel,
-            "transport_chat_id": transport_chat_id,
-            "sender_id": user_message.sender_id,
-            "sender_name": user_message.sender_name,
-        }
-        run_metadata = {key: value for key, value in run_metadata.items() if value is not None}
-        await self._create_run(session_chat_id, run_id, status="running", metadata=run_metadata)
-        await self._emit_run_event(
+        await self.run_trace.start_turn_run(
             session_chat_id,
             run_id,
-            "run_started",
-            {
-                "status": "running",
-                "text_len": len(user_message.text or ""),
-                "images_count": len(user_message.images or []),
-                "audios_count": len(user_message.audios or []),
-                "videos_count": len(user_message.videos or []),
-            },
             channel=channel,
             transport_chat_id=transport_chat_id,
+            sender_id=user_message.sender_id,
+            sender_name=user_message.sender_name,
+            text=user_message.text,
+            images=user_message.images,
+            audios=user_message.audios,
+            videos=user_message.videos,
         )
 
         if self._is_media_only_message(user_message):
@@ -1317,24 +1306,20 @@ class AgentLoop:
             logger.info(
                 f"[{session_chat_id}] outbound | media_only=true text={self._format_log_preview(response, max_chars=200)}"
             )
-            await self._add_run_part(
+            await self.run_trace.record_assistant_message_part(
                 session_chat_id,
                 run_id,
-                "assistant_message",
-                content=response,
+                response,
                 metadata={"reason": "media_only", "response_len": len(response or "")},
             )
             await self._save_message(session_chat_id, "assistant", response, metadata=assistant_metadata)
-            finished_at = time.time()
-            await self._emit_run_event(
+            await self.run_trace.complete_run(
                 session_chat_id,
                 run_id,
-                "run_finished",
-                {"status": "completed", "reason": "media_only", "response_len": len(response or "")},
+                event_payload={"status": "completed", "reason": "media_only", "response_len": len(response or "")},
                 channel=channel,
                 transport_chat_id=transport_chat_id,
             )
-            await self._update_run_status(session_chat_id, run_id, "completed", finished_at=finished_at)
             return AssistantMessage(
                 text=response,
                 channel=channel or "unknown",
@@ -1360,24 +1345,24 @@ class AgentLoop:
                     logger.info(
                         f"[{session_chat_id}] outbound | text={self._format_log_preview(response, max_chars=200)}"
                     )
-                    await self._add_run_part(
+                    await self.run_trace.record_assistant_message_part(
                         session_chat_id,
                         run_id,
-                        "assistant_message",
-                        content=response,
+                        response,
                         metadata={"reason": "llm_not_configured", "response_len": len(response or "")},
                     )
                     await self._save_message(session_chat_id, "assistant", response, metadata=assistant_metadata)
-                    finished_at = time.time()
-                    await self._emit_run_event(
+                    await self.run_trace.complete_run(
                         session_chat_id,
                         run_id,
-                        "run_finished",
-                        {"status": "completed", "reason": "llm_not_configured", "response_len": len(response or "")},
+                        event_payload={
+                            "status": "completed",
+                            "reason": "llm_not_configured",
+                            "response_len": len(response or ""),
+                        },
                         channel=channel,
                         transport_chat_id=transport_chat_id,
                     )
-                    await self._update_run_status(session_chat_id, run_id, "completed", finished_at=finished_at)
                     return AssistantMessage(
                         text=response,
                         channel=channel or "unknown",
@@ -1415,31 +1400,23 @@ class AgentLoop:
                 response = exec_result.content
                 outbound_media = self._get_queued_outbound_media()
 
-                for compaction_event in exec_result.context_compaction_events:
-                    compaction_metadata = vars(compaction_event)
-                    await self._add_run_part(
-                        session_chat_id,
-                        run_id,
-                        "context_compaction",
-                        content=(
-                            f"{compaction_event.trigger}:"
-                            f"{compaction_event.strategy}:"
-                            f"{compaction_event.outcome}"
-                        ),
-                        metadata=compaction_metadata,
-                    )
-
-                await self._add_run_part(
+                await self.run_trace.record_context_compaction_parts(
                     session_chat_id,
                     run_id,
-                    "assistant_message",
-                    content=response,
-                    metadata={
-                        "response_len": len(response or ""),
-                        "executed_tool_calls": exec_result.executed_tool_calls,
-                        "had_tool_error": exec_result.had_tool_error,
-                        "context_compactions": exec_result.context_compactions,
-                    },
+                    exec_result.context_compaction_events,
+                )
+
+                response_metadata = {
+                    "response_len": len(response or ""),
+                    "executed_tool_calls": exec_result.executed_tool_calls,
+                    "had_tool_error": exec_result.had_tool_error,
+                    "context_compactions": exec_result.context_compactions,
+                }
+                await self.run_trace.record_assistant_message_part(
+                    session_chat_id,
+                    run_id,
+                    response,
+                    metadata=response_metadata,
                 )
 
                 logger.info(
@@ -1457,31 +1434,23 @@ class AgentLoop:
 
                 self._maybe_schedule_skill_review(session_chat_id, exec_result)
 
-                finished_at = time.time()
-                await self._emit_run_event(
+                await self.run_trace.complete_run(
                     session_chat_id,
                     run_id,
-                    "run_finished",
-                    {
+                    event_payload={
                         "status": "completed",
                         "response_len": len(response or ""),
                         "executed_tool_calls": exec_result.executed_tool_calls,
                         "had_tool_error": exec_result.had_tool_error,
                         "context_compactions": exec_result.context_compactions,
                     },
-                    channel=channel,
-                    transport_chat_id=transport_chat_id,
-                )
-                await self._update_run_status(
-                    session_chat_id,
-                    run_id,
-                    "completed",
-                    metadata={
+                    status_metadata={
                         "executed_tool_calls": exec_result.executed_tool_calls,
                         "had_tool_error": exec_result.had_tool_error,
                         "context_compactions": exec_result.context_compactions,
                     },
-                    finished_at=finished_at,
+                    channel=channel,
+                    transport_chat_id=transport_chat_id,
                 )
 
                 # 5. 回傳
@@ -1497,35 +1466,31 @@ class AgentLoop:
                     metadata=assistant_metadata,
                 )
             except asyncio.CancelledError:
-                finished_at = time.time()
-                await self._emit_run_event(
+                await self.run_trace.fail_run(
                     session_chat_id,
                     run_id,
-                    "run_failed",
-                    {"status": "cancelled", "error": "cancelled"},
+                    status="cancelled",
+                    event_payload={"status": "cancelled", "error": "cancelled"},
                     channel=channel,
                     transport_chat_id=transport_chat_id,
                 )
-                await self._update_run_status(session_chat_id, run_id, "cancelled", finished_at=finished_at)
                 raise
             except Exception as exc:
                 logger.exception(
                     f"[{session_chat_id}] Agent.process failed: channel={channel}, "
                     f"text_len={len(user_message.text or '')}, images={len(user_message.images or [])}, audios={len(user_message.audios or [])}, videos={len(user_message.videos or [])}"
                 )
-                finished_at = time.time()
-                await self._emit_run_event(
+                await self.run_trace.fail_run(
                     session_chat_id,
                     run_id,
-                    "run_failed",
-                    {
+                    status="failed",
+                    event_payload={
                         "status": "failed",
                         "error": self._format_log_preview(f"{type(exc).__name__}: {exc}", max_chars=240),
                     },
                     channel=channel,
                     transport_chat_id=transport_chat_id,
                 )
-                await self._update_run_status(session_chat_id, run_id, "failed", finished_at=finished_at)
                 raise
 
     async def _maybe_consolidate_memory(self, chat_id: str) -> None:

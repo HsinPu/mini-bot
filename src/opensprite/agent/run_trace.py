@@ -144,3 +144,129 @@ class RunTraceRecorder:
             )
         except Exception as e:
             logger.warning("[{}] run.event.publish.failed | run_id={} type={} error={}", chat_id, run_id, event_type, e)
+
+    async def start_turn_run(
+        self,
+        chat_id: str,
+        run_id: str,
+        *,
+        channel: str | None,
+        transport_chat_id: str | None,
+        sender_id: str | None,
+        sender_name: str | None,
+        text: str | None,
+        images: list[str] | None,
+        audios: list[str] | None,
+        videos: list[str] | None,
+    ) -> None:
+        """Create a run and emit the initial user-turn run_started event."""
+        run_metadata = {
+            "channel": channel,
+            "transport_chat_id": transport_chat_id,
+            "sender_id": sender_id,
+            "sender_name": sender_name,
+        }
+        run_metadata = {key: value for key, value in run_metadata.items() if value is not None}
+        await self.create_run(chat_id, run_id, status="running", metadata=run_metadata)
+        await self.emit_event(
+            chat_id,
+            run_id,
+            "run_started",
+            {
+                "status": "running",
+                "text_len": len(text or ""),
+                "images_count": len(images or []),
+                "audios_count": len(audios or []),
+                "videos_count": len(videos or []),
+            },
+            channel=channel,
+            transport_chat_id=transport_chat_id,
+        )
+
+    async def record_assistant_message_part(
+        self,
+        chat_id: str,
+        run_id: str,
+        response: str,
+        *,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Persist the assistant-visible response as an ordered run part."""
+        await self.add_part(
+            chat_id,
+            run_id,
+            "assistant_message",
+            content=response,
+            metadata=metadata,
+        )
+
+    async def record_context_compaction_parts(
+        self,
+        chat_id: str,
+        run_id: str,
+        compaction_events: list[Any],
+    ) -> None:
+        """Persist context compaction telemetry events as ordered run parts."""
+        for compaction_event in compaction_events:
+            compaction_metadata = vars(compaction_event)
+            await self.add_part(
+                chat_id,
+                run_id,
+                "context_compaction",
+                content=(
+                    f"{compaction_event.trigger}:"
+                    f"{compaction_event.strategy}:"
+                    f"{compaction_event.outcome}"
+                ),
+                metadata=compaction_metadata,
+            )
+
+    async def complete_run(
+        self,
+        chat_id: str,
+        run_id: str,
+        *,
+        event_payload: dict[str, Any],
+        status_metadata: dict[str, Any] | None = None,
+        channel: str | None = None,
+        transport_chat_id: str | None = None,
+    ) -> None:
+        """Emit run_finished and mark the durable run completed."""
+        finished_at = time.time()
+        await self.emit_event(
+            chat_id,
+            run_id,
+            "run_finished",
+            event_payload,
+            channel=channel,
+            transport_chat_id=transport_chat_id,
+        )
+        await self.update_run_status(
+            chat_id,
+            run_id,
+            "completed",
+            metadata=status_metadata,
+            finished_at=finished_at,
+        )
+
+    async def fail_run(
+        self,
+        chat_id: str,
+        run_id: str,
+        *,
+        status: str,
+        event_payload: dict[str, Any],
+        channel: str | None = None,
+        transport_chat_id: str | None = None,
+    ) -> None:
+        """Emit run_failed and mark the durable run with the supplied terminal status."""
+        finished_at = time.time()
+        await self.emit_event(
+            chat_id,
+            run_id,
+            "run_failed",
+            event_payload,
+            channel=channel,
+            transport_chat_id=transport_chat_id,
+        )
+        await self.update_run_status(chat_id, run_id, status, finished_at=finished_at)
