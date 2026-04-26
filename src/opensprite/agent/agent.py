@@ -65,6 +65,7 @@ from .skill_review import SkillReviewService
 from .subagents import SubagentRunService
 from .tool_registration import register_default_tools, register_memory_tool
 from .turn_context import TurnContextService
+from .turn_input import TurnInputPreparer
 
 class AgentLoop:
     """
@@ -476,6 +477,10 @@ class AgentLoop:
             workspace_root_getter=lambda: self.tool_workspace
             or getattr(self._context_builder, "workspace", Path.cwd()),
             app_home_getter=lambda: self.app_home,
+        )
+        self.turn_inputs = TurnInputPreparer(
+            media_service=self.media_service,
+            format_log_preview=self._format_log_preview,
         )
         self.tools = self._setup_tools(tools)
         self.tools.set_permission_request_handler(self._handle_tool_permission_request)
@@ -1245,48 +1250,15 @@ class AgentLoop:
         回傳：
             AssistantMessage: 統一格式的回覆
         """
-        session_chat_id = user_message.session_chat_id or user_message.chat_id or "default"
-        channel = user_message.channel or None
-
-        if ":" not in session_chat_id:
-            logger.warning(
-                "Received non-namespaced chat_id '{}' in Agent.process; this may mix sessions if MessageQueue is bypassed",
-                session_chat_id,
-            )
-        
-        sender = user_message.sender_name or user_message.sender_id or "-"
-        logger.info(
-            f"[{session_chat_id}] inbound | channel={channel or '-'} sender={sender} images={len(user_message.images or [])} "
-            f"text={self._format_log_preview(user_message.text, max_chars=200)}"
-        )
-        image_files = self._persist_inbound_images(session_chat_id, user_message.images)
-        audio_files = self._persist_inbound_audios(session_chat_id, user_message.audios)
-        video_files = self._persist_inbound_videos(session_chat_id, user_message.videos)
-
-        user_metadata = {
-            **dict(user_message.metadata or {}),
-            "channel": channel,
-            "transport_chat_id": user_message.chat_id,
-            "sender_id": user_message.sender_id,
-            "sender_name": user_message.sender_name,
-            "images_count": len(user_message.images or []),
-            "image_files": image_files or None,
-            "images_dir": "images" if image_files else None,
-            "audios_count": len(user_message.audios or []),
-            "audio_files": audio_files or None,
-            "audios_dir": "audios" if audio_files else None,
-            "videos_count": len(user_message.videos or []),
-            "video_files": video_files or None,
-            "videos_dir": "videos" if video_files else None,
-        }
-        user_metadata = {key: value for key, value in user_metadata.items() if value is not None}
-        assistant_metadata = {
-            "channel": channel,
-            "transport_chat_id": user_message.chat_id,
-        }
-        assistant_metadata = {key: value for key, value in assistant_metadata.items() if value is not None}
-
-        transport_chat_id = str(user_message.chat_id) if user_message.chat_id is not None else None
+        turn = self.turn_inputs.prepare(user_message)
+        session_chat_id = turn.session_chat_id
+        channel = turn.channel
+        transport_chat_id = turn.transport_chat_id
+        image_files = turn.image_files
+        audio_files = turn.audio_files
+        video_files = turn.video_files
+        user_metadata = turn.user_metadata
+        assistant_metadata = turn.assistant_metadata
         run_id = f"run_{uuid4().hex}"
         await self.run_trace.start_turn_run(
             session_chat_id,
