@@ -9,6 +9,7 @@ Assembles the system prompt from:
 """
 
 import platform
+import re
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,61 @@ class FileContextBuilder:
 
     BOOTSTRAP_FILES = ["IDENTITY.md", "SOUL.md", "AGENTS.md", "TOOLS.md", "USER.md"]
     _RUNTIME_CONTEXT_TAG = RUNTIME_CONTEXT_TAG
+    _WORKSPACE_TASK_WORD_KEYWORDS = (
+        "agent",
+        "api",
+        "bug",
+        "build",
+        "cli",
+        "code",
+        "commit",
+        "config",
+        "debug",
+        "diff",
+        "error",
+        "exception",
+        "fail",
+        "fix",
+        "function",
+        "git",
+        "lint",
+        "merge",
+        "migration",
+        "module",
+        "package.json",
+        "patch",
+        "pytest",
+        "refactor",
+        "repo",
+        "repository",
+        "stack trace",
+        "test",
+        "traceback",
+        "typescript",
+    )
+    _WORKSPACE_TASK_TEXT_MARKERS = (
+        "package.json",
+        "修復",
+        "偵錯",
+        "報錯",
+        "專案",
+        "建置",
+        "測試",
+        "程式",
+        "程式碼",
+        "編譯",
+        "設定",
+        "錯誤",
+        "重構",
+    )
+    _WORKSPACE_TASK_WORD_PATTERN = re.compile(
+        r"\b(?:" + "|".join(re.escape(keyword) for keyword in _WORKSPACE_TASK_WORD_KEYWORDS) + r")\b",
+        re.IGNORECASE,
+    )
+    _WORKSPACE_PATH_PATTERN = re.compile(
+        r"(?:^|\s)(?:[\w.-]+[\\/])+[\w.-]+|(?:^|\s)[\w.-]+\.(?:py|js|ts|tsx|jsx|vue|json|toml|yaml|yml|md|css|html|java|go|rs|sql)(?:\s|$)",
+        re.IGNORECASE,
+    )
 
     def _build_mcp_tools_summary(self) -> str:
         """Describe currently connected MCP tools for the main agent."""
@@ -160,6 +216,29 @@ Ids and descriptions below are **merged**: this chat's `subagent_prompts/<id>.md
             return ""
         return f"# Workspace AGENTS.md\n\nLoaded from: `{agents_path.expanduser().resolve()}`\n\n{content}"
 
+    @classmethod
+    def _looks_like_workspace_task(cls, current_message: str) -> bool:
+        """Heuristically detect code/project tasks without making every chat coding-first."""
+        text = str(current_message or "").strip()
+        if not text:
+            return False
+        lowered = text.lower()
+        if "```" in text or cls._WORKSPACE_PATH_PATTERN.search(text):
+            return True
+        return bool(cls._WORKSPACE_TASK_WORD_PATTERN.search(text)) or any(
+            marker in lowered for marker in cls._WORKSPACE_TASK_TEXT_MARKERS
+        )
+
+    @classmethod
+    def _build_workspace_task_guidance(cls, current_message: str) -> str:
+        """Return current-turn guidance only when the user appears to ask for workspace work."""
+        if not cls._looks_like_workspace_task(current_message):
+            return ""
+        return """# Workspace Task Guidance
+
+This request appears to be a workspace or project task. Use the active workspace autonomously: inspect relevant files and search results first, edit directly when the path forward is clear, run focused verification when feasible, then summarize the changes, verification result, and any remaining risk.
+"""
+
     def build_system_prompt(self, chat_id: str = "default") -> str:
         """Build the system prompt from bootstrap files, skills, and memory."""
         parts = [self._build_session_context(chat_id)]
@@ -272,12 +351,16 @@ Be conservative only for actions with external side effects or boundaries outsid
         else:
             user_message = {"role": "user", "content": current_message}
 
-        return [
-            {"role": "system", "content": self.build_system_prompt(chat_id)},
-            *history,
+        messages = [{"role": "system", "content": self.build_system_prompt(chat_id)}]
+        workspace_task_guidance = self._build_workspace_task_guidance(current_message)
+        if workspace_task_guidance:
+            messages.append({"role": "system", "content": workspace_task_guidance})
+        messages.extend(history)
+        messages.extend([
             {"role": "user", "content": self._build_runtime_context(channel, chat_id)},
             user_message,
-        ]
+        ])
+        return messages
 
     def add_tool_result(
         self,
