@@ -35,7 +35,7 @@ from ..bus.message import UserMessage, AssistantMessage
 from ..llms import LLMProvider, ChatMessage
 from ..storage import StorageProvider, StoredMessage
 from ..storage.base import get_storage_message_count
-from ..documents.active_task import ActiveTaskConsolidator, _extract_task_field, build_initial_active_task_block, build_task_block_from_text, create_active_task_store, infer_immediate_task_transition, should_replace_active_task
+from ..documents.active_task import ActiveTaskConsolidator, build_initial_active_task_block, create_active_task_store, should_replace_active_task
 from ..context.builder import ContextBuilder
 from ..documents.memory import MemoryStore
 from ..context.paths import get_chat_workspace, get_recent_summary_state_file
@@ -57,6 +57,7 @@ from ..tools.shell_runtime import format_captured_output
 from ..utils import count_messages_tokens, count_text_tokens, json_safe_payload, json_safe_value, sanitize_assistant_visible_text, strip_assistant_internal_scaffolding
 from ..utils.log import logger
 from ..config import AgentConfig, MemoryConfig, ToolsConfig, LogConfig, SearchConfig, UserProfileConfig, ActiveTaskConfig, RecentSummaryConfig, MessagesConfig, Config
+from .active_task_commands import ActiveTaskCommandService
 from .background_tasks import CoalescingTaskScheduler
 from .consolidation import MemoryConsolidationService, RecentSummaryUpdateService, UserProfileUpdateService, ActiveTaskUpdateService
 from .execution import ExecutionEngine, ExecutionResult
@@ -766,6 +767,11 @@ class AgentLoop:
         self.execution_engine = self._setup_execution_engine()
         self.user_profile_update = self._setup_user_profile_update()
         self.active_task_update = self._setup_active_task_update()
+        self.active_task_commands = ActiveTaskCommandService(
+            storage=self.storage,
+            app_home_getter=lambda: self.app_home,
+            workspace_root_getter=lambda: self.tool_workspace,
+        )
         self.recent_summary_update = self._setup_recent_summary_update()
 
     def _trim_history_to_token_budget(
@@ -2215,30 +2221,11 @@ class AgentLoop:
         exec_result: ExecutionResult,
     ) -> None:
         """Apply conservative immediate task-state transitions before background maintenance runs."""
-        store = self._get_active_task_store(chat_id)
-        if store is None:
-            return
-        if store.read_status() not in {"active", "blocked", "waiting_user"}:
-            return
-
-        transition = infer_immediate_task_transition(
+        await self.active_task_commands.apply_immediate_transition(
+            chat_id,
             response_text,
             had_tool_error=exec_result.had_tool_error,
         )
-        if transition is None:
-            return
-
-        status, detail = transition
-        if status == "waiting_user":
-            store.update_fields(status="waiting_user", open_questions=[detail or "need user input"], force=True)
-        elif status == "blocked":
-            store.update_fields(status="blocked", open_questions=[detail or "blocked"], force=True)
-        else:
-            return
-
-        message_count = await get_storage_message_count(self.storage, chat_id)
-        store.set_processed_index(chat_id, message_count)
-        store.append_event("auto_direct_transition", "immediate", details={"status": status, "reason": detail or ""})
 
     async def _maybe_update_recent_summary(self, chat_id: str) -> None:
         """Check whether RECENT_SUMMARY.md should be refreshed."""
@@ -2246,193 +2233,66 @@ class AgentLoop:
 
     def _clear_active_task(self, chat_id: str) -> None:
         """Reset ACTIVE_TASK.md for one chat session."""
-        if self.app_home is None:
-            return
-        create_active_task_store(
-            self.app_home,
-            chat_id,
-            workspace_root=self.tool_workspace,
-        ).clear(chat_id)
+        self.active_task_commands.clear(chat_id)
 
     def _get_active_task_store(self, chat_id: str):
-        if self.app_home is None:
-            return None
-        return create_active_task_store(
-            self.app_home,
-            chat_id,
-            workspace_root=self.tool_workspace,
-        )
+        return self.active_task_commands.get_store(chat_id)
 
     async def show_active_task(self, chat_id: str) -> str | None:
         """Return the current ACTIVE_TASK block for user display, if any."""
-        store = self._get_active_task_store(chat_id)
-        if store is None:
-            return None
-        return store.render_for_user()
+        return await self.active_task_commands.show(chat_id)
 
     async def show_active_task_full(self, chat_id: str) -> str | None:
         """Return the full ACTIVE_TASK block for user display, if any."""
-        store = self._get_active_task_store(chat_id)
-        if store is None:
-            return None
-        return store.render_full_for_user()
+        return await self.active_task_commands.show_full(chat_id)
 
     async def show_active_task_history(self, chat_id: str, *, limit: int = 10) -> str | None:
         """Return recent ACTIVE_TASK events for user display, if any."""
-        store = self._get_active_task_store(chat_id)
-        if store is None:
-            return None
-        return store.render_history(limit=limit)
+        return await self.active_task_commands.show_history(chat_id, limit=limit)
 
     async def set_active_task_from_text(self, chat_id: str, task_text: str) -> str | None:
         """Create or replace the current ACTIVE_TASK from explicit user text."""
-        store = self._get_active_task_store(chat_id)
-        if store is None:
-            return None
-        task_block = build_task_block_from_text(task_text, force=True)
-        if not task_block:
-            return None
-        store.write_managed_block(task_block)
-        message_count = await get_storage_message_count(self.storage, chat_id)
-        store.set_processed_index(chat_id, message_count)
-        store.append_event("set", "user", details={"task": task_text})
-        return store.render_full_for_user()
+        return await self.active_task_commands.set_from_text(chat_id, task_text)
 
     async def activate_active_task(self, chat_id: str) -> str | None:
         """Mark the current ACTIVE_TASK as active again."""
-        store = self._get_active_task_store(chat_id)
-        if store is None or store.read_status() == "inactive":
-            return None
-        rendered = store.update_fields(status="active", open_questions=["none"], force=True)
-        message_count = await get_storage_message_count(self.storage, chat_id)
-        store.set_processed_index(chat_id, message_count)
-        store.append_event("activate", "user")
-        return f"# Active Task\n\n{rendered}"
+        return await self.active_task_commands.activate(chat_id)
 
     async def reopen_active_task(self, chat_id: str) -> str | None:
         """Reopen a terminal ACTIVE_TASK and resume it as active."""
-        store = self._get_active_task_store(chat_id)
-        if store is None:
-            return None
-        if store.read_status() not in {"done", "cancelled"}:
-            return None
-        rendered = store.update_fields(status="active", force=True)
-        message_count = await get_storage_message_count(self.storage, chat_id)
-        store.set_processed_index(chat_id, message_count)
-        store.append_event("reopen", "user")
-        return f"# Active Task\n\n{rendered}"
+        return await self.active_task_commands.reopen(chat_id)
 
     async def block_active_task(self, chat_id: str, reason: str) -> str | None:
         """Mark the current ACTIVE_TASK as blocked with one explicit reason."""
-        store = self._get_active_task_store(chat_id)
-        if store is None or store.read_status() == "inactive":
-            return None
-        rendered = store.update_fields(status="blocked", open_questions=[reason], force=True)
-        message_count = await get_storage_message_count(self.storage, chat_id)
-        store.set_processed_index(chat_id, message_count)
-        store.append_event("block", "user", details={"reason": reason})
-        return f"# Active Task\n\n{rendered}"
+        return await self.active_task_commands.block(chat_id, reason)
 
     async def wait_on_active_task(self, chat_id: str, question: str) -> str | None:
         """Mark the current ACTIVE_TASK as waiting for user input."""
-        store = self._get_active_task_store(chat_id)
-        if store is None or store.read_status() == "inactive":
-            return None
-        rendered = store.update_fields(status="waiting_user", open_questions=[question], force=True)
-        message_count = await get_storage_message_count(self.storage, chat_id)
-        store.set_processed_index(chat_id, message_count)
-        store.append_event("wait", "user", details={"question": question})
-        return f"# Active Task\n\n{rendered}"
+        return await self.active_task_commands.wait_on(chat_id, question)
 
     async def set_active_task_current_step(self, chat_id: str, step_text: str) -> str | None:
         """Replace the current step for the active task."""
-        store = self._get_active_task_store(chat_id)
-        if store is None or store.read_status() == "inactive":
-            return None
-        rendered = store.update_fields(status="active", current_step=step_text, force=True)
-        message_count = await get_storage_message_count(self.storage, chat_id)
-        store.set_processed_index(chat_id, message_count)
-        store.append_event("set_current_step", "user", details={"current_step": step_text})
-        return f"# Active Task\n\n{rendered}"
+        return await self.active_task_commands.set_current_step(chat_id, step_text)
 
     async def set_active_task_next_step(self, chat_id: str, step_text: str) -> str | None:
         """Replace the planned next step for the active task."""
-        store = self._get_active_task_store(chat_id)
-        if store is None or store.read_status() == "inactive":
-            return None
-        rendered = store.update_fields(next_step=step_text, force=True)
-        message_count = await get_storage_message_count(self.storage, chat_id)
-        store.set_processed_index(chat_id, message_count)
-        store.append_event("set_next_step", "user", details={"next_step": step_text})
-        return f"# Active Task\n\n{rendered}"
+        return await self.active_task_commands.set_next_step(chat_id, step_text)
 
     async def advance_active_task(self, chat_id: str) -> str | None:
         """Promote the next step into the current step and mark the previous step complete."""
-        store = self._get_active_task_store(chat_id)
-        if store is None or store.read_status() == "inactive":
-            return None
-        current_block = store.read_managed_block()
-        current_step = _extract_task_field(current_block, "Current step")
-        next_step = _extract_task_field(current_block, "Next step")
-        if next_step == "not set":
-            return None
-        rendered = store.update_fields(
-            status="active",
-            current_step=next_step,
-            next_step="not set",
-            append_completed_step=current_step,
-            force=True,
-        )
-        message_count = await get_storage_message_count(self.storage, chat_id)
-        store.set_processed_index(chat_id, message_count)
-        store.append_event(
-            "advance",
-            "user",
-            details={"completed_step": current_step, "new_current_step": next_step},
-        )
-        return f"# Active Task\n\n{rendered}"
+        return await self.active_task_commands.advance(chat_id)
 
     async def complete_active_task_step(self, chat_id: str, next_step_override: str | None = None) -> str | None:
         """Complete the current step and either advance or finish the task."""
-        store = self._get_active_task_store(chat_id)
-        if store is None or store.read_status() == "inactive":
-            return None
-        current_block = store.read_managed_block()
-        current_step = _extract_task_field(current_block, "Current step")
-        rendered = store.complete_current_step(next_step_override=next_step_override)
-        if rendered is None:
-            return None
-        message_count = await get_storage_message_count(self.storage, chat_id)
-        store.set_processed_index(chat_id, message_count)
-        store.append_event(
-            "complete_step",
-            "user",
-            details={
-                "completed_step": current_step,
-                "next_step_override": next_step_override or "",
-            },
-        )
-        return f"# Active Task\n\n{rendered}"
+        return await self.active_task_commands.complete_step(chat_id, next_step_override=next_step_override)
 
     async def mark_active_task_status(self, chat_id: str, status: str) -> str | None:
         """Set the current ACTIVE_TASK status when one exists."""
-        store = self._get_active_task_store(chat_id)
-        if store is None or store.read_status() == "inactive":
-            return None
-        store.update_fields(status=status, open_questions=["none"] if status in {"active", "done", "cancelled"} else None, force=True)
-        if status in {"done", "cancelled"}:
-            message_count = await get_storage_message_count(self.storage, chat_id)
-            store.set_processed_index(chat_id, message_count)
-        store.append_event(status, "user")
-        return store.render_full_for_user()
+        return await self.active_task_commands.mark_status(chat_id, status)
 
     async def reset_active_task(self, chat_id: str) -> None:
         """Clear the current ACTIVE_TASK state for one session."""
-        store = self._get_active_task_store(chat_id)
-        if store is None:
-            return
-        self._clear_active_task(chat_id)
-        store.append_event("reset", "user")
+        await self.active_task_commands.reset(chat_id)
 
     async def reset_history(self, chat_id: str | None = None) -> None:
         """
