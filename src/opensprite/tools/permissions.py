@@ -32,6 +32,8 @@ DEFAULT_TOOL_RISKS: dict[str, frozenset[str]] = {
     "read_skill": frozenset({"read"}),
     "search_history": frozenset({"read"}),
     "search_knowledge": frozenset({"read"}),
+    "list_run_file_changes": frozenset({"read"}),
+    "preview_run_file_change_revert": frozenset({"read"}),
     "analyze_image": frozenset({"read", "network"}),
     "ocr_image": frozenset({"read", "network"}),
     "transcribe_audio": frozenset({"read", "network"}),

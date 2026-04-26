@@ -7,9 +7,10 @@ import hashlib
 import re
 import shutil
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 from ..skills import SkillsLoader
+from ..utils.log import logger
 from .base import Tool
 from .skill_config import path_touches_read_only_app_skills_dir
 from .validation import NON_EMPTY_STRING_PATTERN
@@ -17,6 +18,7 @@ from .validation import NON_EMPTY_STRING_PATTERN
 
 WorkspaceResolver = Callable[[], Path]
 ConfigPathResolver = Callable[[], Path | None]
+FileChangeRecorder = Callable[[str, list[dict[str, Any]]], Awaitable[None]]
 
 
 _CONFIG_WRITE_GUARD_MSG = (
@@ -30,6 +32,7 @@ _MAX_LINE_LENGTH = 2000
 _SEARCH_RESULT_LIMIT = 100
 _SEARCH_TIMEOUT_SECONDS = 30
 _MAX_DIFF_CHARS = 12_000
+_MAX_SNAPSHOT_CHARS = 200_000
 _MAX_PATCH_CHANGES = 20
 _SHA256_PATTERN = r"^[a-fA-F0-9]{64}$"
 
@@ -166,6 +169,67 @@ def _hash_label(content: str | None) -> str:
     if content is None:
         return "missing"
     return _content_sha256(content)
+
+
+def _change_action(before: str | None, after: str | None) -> str | None:
+    if before == after:
+        return None
+    if before is None:
+        return "add"
+    if after is None:
+        return "delete"
+    return "update"
+
+
+def _content_snapshot(label: str, content: str | None) -> tuple[str | None, dict[str, Any]]:
+    metadata = {
+        f"{label}_exists": content is not None,
+        f"{label}_content_len": len(content or ""),
+        f"{label}_content_available": False,
+    }
+    if content is None:
+        return None, metadata
+    if len(content) > _MAX_SNAPSHOT_CHARS:
+        metadata[f"{label}_content_truncated"] = True
+        return None, metadata
+    metadata[f"{label}_content_available"] = True
+    metadata[f"{label}_content_truncated"] = False
+    return content, metadata
+
+
+def _build_file_change_record(display_path: str, before: str | None, after: str | None) -> dict[str, Any] | None:
+    action = _change_action(before, after)
+    if action is None:
+        return None
+    before_snapshot, before_metadata = _content_snapshot("before", before)
+    after_snapshot, after_metadata = _content_snapshot("after", after)
+    return {
+        "path": display_path,
+        "action": action,
+        "before_sha256": _content_sha256(before) if before is not None else None,
+        "after_sha256": _content_sha256(after) if after is not None else None,
+        "before_content": before_snapshot,
+        "after_content": after_snapshot,
+        "diff": _format_unified_diff(display_path, before, after),
+        "metadata": {
+            **before_metadata,
+            **after_metadata,
+        },
+    }
+
+
+async def _record_file_changes(
+    recorder: FileChangeRecorder | None,
+    tool_name: str,
+    changes: list[dict[str, Any]],
+) -> None:
+    """Best-effort durable change capture; tool success must not depend on telemetry."""
+    if recorder is None or not changes:
+        return
+    try:
+        await recorder(tool_name, changes)
+    except Exception as e:
+        logger.warning("filesystem.file-change-record.failed | tool={} error={}", tool_name, e)
 
 
 def _format_file_metadata(display_path: str, before: str | None, after: str | None) -> str:
@@ -704,9 +768,11 @@ class ApplyPatchTool(Tool):
         *,
         workspace_resolver: WorkspaceResolver | None = None,
         config_path_resolver: ConfigPathResolver | None = None,
+        file_change_recorder: FileChangeRecorder | None = None,
     ):
         self._workspace_resolver = _build_workspace_resolver(workspace, workspace_resolver)
         self._config_path_resolver = config_path_resolver
+        self._file_change_recorder = file_change_recorder
 
     def _get_workspace(self) -> Path:
         return self._workspace_resolver()
@@ -844,6 +910,7 @@ class ApplyPatchTool(Tool):
 
             diffs: list[str] = []
             metadata: list[str] = []
+            file_change_records: list[dict[str, Any]] = []
             changed_paths: list[Path] = []
             for file_path, after in current.items():
                 before = original[file_path]
@@ -852,6 +919,9 @@ class ApplyPatchTool(Tool):
                 changed_paths.append(file_path)
                 metadata.append(_format_file_metadata(display_paths[file_path], before, after))
                 diffs.append(_format_unified_diff(display_paths[file_path], before, after))
+                record = _build_file_change_record(display_paths[file_path], before, after)
+                if record is not None:
+                    file_change_records.append(record)
 
             if not changed_paths:
                 return "No changes to apply."
@@ -863,6 +933,8 @@ class ApplyPatchTool(Tool):
                 else:
                     file_path.parent.mkdir(parents=True, exist_ok=True)
                     file_path.write_text(after, encoding="utf-8")
+
+            await _record_file_changes(self._file_change_recorder, self.name, file_change_records)
 
             return (
                 f"Successfully applied patch ({len(changed_paths)} file(s) changed)\n\n"
@@ -886,9 +958,11 @@ class WriteFileTool(Tool):
         *,
         workspace_resolver: WorkspaceResolver | None = None,
         config_path_resolver: ConfigPathResolver | None = None,
+        file_change_recorder: FileChangeRecorder | None = None,
     ):
         self._workspace_resolver = _build_workspace_resolver(workspace, workspace_resolver)
         self._config_path_resolver = config_path_resolver
+        self._file_change_recorder = file_change_recorder
 
     def _get_workspace(self) -> Path:
         return self._workspace_resolver()
@@ -952,8 +1026,15 @@ class WriteFileTool(Tool):
                     return stale_error
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(content, encoding="utf-8")
-            diff = _format_unified_diff(_display_path(workspace, file_path), before, content)
-            metadata = _format_file_metadata(_display_path(workspace, file_path), before, content)
+            display_path = _display_path(workspace, file_path)
+            diff = _format_unified_diff(display_path, before, content)
+            metadata = _format_file_metadata(display_path, before, content)
+            record = _build_file_change_record(display_path, before, content)
+            await _record_file_changes(
+                self._file_change_recorder,
+                self.name,
+                [record] if record is not None else [],
+            )
             return f"Successfully wrote to {path} ({len(content)} chars)\n\nFile Versions:\n{metadata}\n\nDiff:\n{diff}"
         except Exception as e:
             return f"Error writing file: {str(e)}"
@@ -1026,9 +1107,11 @@ class EditFileTool(Tool):
         *,
         workspace_resolver: WorkspaceResolver | None = None,
         config_path_resolver: ConfigPathResolver | None = None,
+        file_change_recorder: FileChangeRecorder | None = None,
     ):
         self._workspace_resolver = _build_workspace_resolver(workspace, workspace_resolver)
         self._config_path_resolver = config_path_resolver
+        self._file_change_recorder = file_change_recorder
 
     def _get_workspace(self) -> Path:
         return self._workspace_resolver()
@@ -1093,8 +1176,15 @@ class EditFileTool(Tool):
 
             new_content = content.replace(old_text, new_text, 1)
             file_path.write_text(new_content, encoding="utf-8")
-            diff = _format_unified_diff(_display_path(workspace, file_path), content, new_content)
-            metadata = _format_file_metadata(_display_path(workspace, file_path), content, new_content)
+            display_path = _display_path(workspace, file_path)
+            diff = _format_unified_diff(display_path, content, new_content)
+            metadata = _format_file_metadata(display_path, content, new_content)
+            record = _build_file_change_record(display_path, content, new_content)
+            await _record_file_changes(
+                self._file_change_recorder,
+                self.name,
+                [record] if record is not None else [],
+            )
 
             return f"Successfully edited {path}\n\nFile Versions:\n{metadata}\n\nDiff:\n{diff}"
         except Exception as e:

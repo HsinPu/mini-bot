@@ -19,9 +19,9 @@ from ..search.indexing import (
     build_knowledge_documents_from_message,
 )
 from ..utils.log import logger
-from .base import StorageProvider, StoredMessage, StoredRun, StoredRunEvent
+from .base import StorageProvider, StoredMessage, StoredRun, StoredRunEvent, StoredRunFileChange, StoredRunPart
 
-SQLITE_SCHEMA_VERSION = 5
+SQLITE_SCHEMA_VERSION = 8
 
 SCHEMA_SCRIPT = """
 CREATE TABLE IF NOT EXISTS chats (
@@ -79,6 +79,45 @@ CREATE INDEX IF NOT EXISTS idx_run_events_run_created
 
 CREATE INDEX IF NOT EXISTS idx_run_events_chat_created
     ON run_events(chat_id, created_at, id);
+
+CREATE TABLE IF NOT EXISTS run_parts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+    chat_id TEXT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
+    part_type TEXT NOT NULL,
+    content TEXT NOT NULL DEFAULT '',
+    tool_name TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_run_parts_run_created
+    ON run_parts(run_id, created_at, id);
+
+CREATE INDEX IF NOT EXISTS idx_run_parts_chat_created
+    ON run_parts(chat_id, created_at, id);
+
+CREATE TABLE IF NOT EXISTS run_file_changes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+    chat_id TEXT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
+    tool_name TEXT NOT NULL,
+    path TEXT NOT NULL,
+    action TEXT NOT NULL,
+    before_sha256 TEXT,
+    after_sha256 TEXT,
+    before_content TEXT,
+    after_content TEXT,
+    diff TEXT NOT NULL DEFAULT '',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_run_file_changes_run_created
+    ON run_file_changes(run_id, created_at, id);
+
+CREATE INDEX IF NOT EXISTS idx_run_file_changes_chat_path
+    ON run_file_changes(chat_id, path, created_at, id);
 
 CREATE TABLE IF NOT EXISTS knowledge_sources (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -229,6 +268,16 @@ def ensure_schema_upgrades(conn: sqlite3.Connection) -> None:
         if column_name in existing_columns:
             continue
         conn.execute(f"ALTER TABLE knowledge_sources ADD COLUMN {column_name} {column_type}")
+
+    if table_exists(conn, "run_file_changes"):
+        file_change_columns = {
+            str(row[1])
+            for row in conn.execute("PRAGMA table_info(run_file_changes)").fetchall()
+        }
+        for column_name in ("before_content", "after_content"):
+            if column_name in file_change_columns:
+                continue
+            conn.execute(f"ALTER TABLE run_file_changes ADD COLUMN {column_name} TEXT")
 
 
 def ensure_chat_row(
@@ -648,6 +697,45 @@ class SQLiteStorage(StorageProvider):
             for row in rows
         ]
 
+    @staticmethod
+    def _rows_to_run_parts(rows: list[sqlite3.Row]) -> list[StoredRunPart]:
+        """Convert selected run part rows into StoredRunPart objects."""
+        return [
+            StoredRunPart(
+                part_id=int(row["id"]),
+                run_id=str(row["run_id"]),
+                chat_id=str(row["chat_id"]),
+                part_type=str(row["part_type"]),
+                content=str(row["content"] or ""),
+                tool_name=row["tool_name"],
+                metadata=_load_metadata(row["metadata_json"]),
+                created_at=float(row["created_at"] or 0),
+            )
+            for row in rows
+        ]
+
+    @staticmethod
+    def _rows_to_run_file_changes(rows: list[sqlite3.Row]) -> list[StoredRunFileChange]:
+        """Convert selected file-change rows into StoredRunFileChange objects."""
+        return [
+            StoredRunFileChange(
+                change_id=int(row["id"]),
+                run_id=str(row["run_id"]),
+                chat_id=str(row["chat_id"]),
+                tool_name=str(row["tool_name"]),
+                path=str(row["path"]),
+                action=str(row["action"]),
+                before_sha256=row["before_sha256"],
+                after_sha256=row["after_sha256"],
+                before_content=row["before_content"],
+                after_content=row["after_content"],
+                diff=str(row["diff"] or ""),
+                metadata=_load_metadata(row["metadata_json"]),
+                created_at=float(row["created_at"] or 0),
+            )
+            for row in rows
+        ]
+
     async def get_messages(self, chat_id: str, limit: int | None = None) -> list[StoredMessage]:
         """Return the persisted messages for one chat."""
         async with self._lock:
@@ -888,6 +976,19 @@ class SQLiteStorage(StorageProvider):
             finally:
                 conn.close()
 
+    async def get_run(self, chat_id: str, run_id: str) -> StoredRun | None:
+        """Return one persisted run for a chat."""
+        async with self._lock:
+            conn = self._get_conn()
+            try:
+                row = conn.execute(
+                    "SELECT * FROM runs WHERE chat_id = ? AND run_id = ?",
+                    (chat_id, run_id),
+                ).fetchone()
+                return self._row_to_run(row)
+            finally:
+                conn.close()
+
     async def add_run_event(
         self,
         chat_id: str,
@@ -946,6 +1047,182 @@ class SQLiteStorage(StorageProvider):
                     (chat_id, run_id),
                 ).fetchall()
                 return self._rows_to_run_events(rows)
+            finally:
+                conn.close()
+
+    async def add_run_part(
+        self,
+        chat_id: str,
+        run_id: str,
+        part_type: str,
+        *,
+        content: str = "",
+        tool_name: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        created_at: float | None = None,
+    ) -> StoredRunPart | None:
+        """Persist one ordered execution artifact for a run."""
+        async with self._lock:
+            conn = self._get_conn()
+            try:
+                now = float(created_at or time.time())
+                ensure_chat_row(conn, chat_id, created_at=now, updated_at=now)
+                if conn.execute("SELECT 1 FROM runs WHERE run_id = ?", (run_id,)).fetchone() is None:
+                    conn.execute(
+                        """
+                        INSERT INTO runs (run_id, chat_id, status, metadata_json, created_at, updated_at)
+                        VALUES (?, ?, 'running', '{}', ?, ?)
+                        """,
+                        (run_id, chat_id, now, now),
+                    )
+                cursor = conn.execute(
+                    """
+                    INSERT INTO run_parts (run_id, chat_id, part_type, content, tool_name, metadata_json, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        run_id,
+                        chat_id,
+                        part_type,
+                        str(content or ""),
+                        tool_name,
+                        json.dumps(json_safe(metadata or {}), ensure_ascii=False),
+                        now,
+                    ),
+                )
+                conn.commit()
+                row = conn.execute("SELECT * FROM run_parts WHERE id = ?", (cursor.lastrowid,)).fetchone()
+                parts = self._rows_to_run_parts([row]) if row is not None else []
+                return parts[0] if parts else None
+            finally:
+                conn.close()
+
+    async def get_run_parts(self, chat_id: str, run_id: str) -> list[StoredRunPart]:
+        """Return all durable parts persisted for one run."""
+        async with self._lock:
+            conn = self._get_conn()
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT id, run_id, chat_id, part_type, content, tool_name, metadata_json, created_at
+                    FROM run_parts
+                    WHERE chat_id = ? AND run_id = ?
+                    ORDER BY id ASC
+                    """,
+                    (chat_id, run_id),
+                ).fetchall()
+                return self._rows_to_run_parts(rows)
+            finally:
+                conn.close()
+
+    async def add_run_file_change(
+        self,
+        chat_id: str,
+        run_id: str,
+        tool_name: str,
+        path: str,
+        action: str,
+        *,
+        before_sha256: str | None = None,
+        after_sha256: str | None = None,
+        before_content: str | None = None,
+        after_content: str | None = None,
+        diff: str = "",
+        metadata: dict[str, Any] | None = None,
+        created_at: float | None = None,
+    ) -> StoredRunFileChange | None:
+        """Persist one file mutation captured during a run."""
+        async with self._lock:
+            conn = self._get_conn()
+            try:
+                now = float(created_at or time.time())
+                ensure_chat_row(conn, chat_id, created_at=now, updated_at=now)
+                if conn.execute("SELECT 1 FROM runs WHERE run_id = ?", (run_id,)).fetchone() is None:
+                    conn.execute(
+                        """
+                        INSERT INTO runs (run_id, chat_id, status, metadata_json, created_at, updated_at)
+                        VALUES (?, ?, 'running', '{}', ?, ?)
+                        """,
+                        (run_id, chat_id, now, now),
+                    )
+                cursor = conn.execute(
+                    """
+                    INSERT INTO run_file_changes (
+                        run_id,
+                        chat_id,
+                        tool_name,
+                        path,
+                        action,
+                        before_sha256,
+                        after_sha256,
+                        before_content,
+                        after_content,
+                        diff,
+                        metadata_json,
+                        created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        run_id,
+                        chat_id,
+                        tool_name,
+                        path,
+                        action,
+                        before_sha256,
+                        after_sha256,
+                        before_content,
+                        after_content,
+                        str(diff or ""),
+                        json.dumps(json_safe(metadata or {}), ensure_ascii=False),
+                        now,
+                    ),
+                )
+                conn.commit()
+                row = conn.execute("SELECT * FROM run_file_changes WHERE id = ?", (cursor.lastrowid,)).fetchone()
+                changes = self._rows_to_run_file_changes([row]) if row is not None else []
+                return changes[0] if changes else None
+            finally:
+                conn.close()
+
+    async def get_run_file_changes(self, chat_id: str, run_id: str) -> list[StoredRunFileChange]:
+        """Return file mutations captured for one run."""
+        async with self._lock:
+            conn = self._get_conn()
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT id, run_id, chat_id, tool_name, path, action, before_sha256, after_sha256, before_content, after_content, diff, metadata_json, created_at
+                    FROM run_file_changes
+                    WHERE chat_id = ? AND run_id = ?
+                    ORDER BY id ASC
+                    """,
+                    (chat_id, run_id),
+                ).fetchall()
+                return self._rows_to_run_file_changes(rows)
+            finally:
+                conn.close()
+
+    async def get_run_file_change(
+        self,
+        chat_id: str,
+        run_id: str,
+        change_id: int,
+    ) -> StoredRunFileChange | None:
+        """Return one captured file mutation for a run."""
+        async with self._lock:
+            conn = self._get_conn()
+            try:
+                row = conn.execute(
+                    """
+                    SELECT id, run_id, chat_id, tool_name, path, action, before_sha256, after_sha256, before_content, after_content, diff, metadata_json, created_at
+                    FROM run_file_changes
+                    WHERE chat_id = ? AND run_id = ? AND id = ?
+                    """,
+                    (chat_id, run_id, int(change_id)),
+                ).fetchone()
+                changes = self._rows_to_run_file_changes([row]) if row is not None else []
+                return changes[0] if changes else None
             finally:
                 conn.close()
 

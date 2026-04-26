@@ -51,6 +51,49 @@ class StoredRunEvent:
     event_id: int | None = None
 
 
+@dataclass
+class StoredRunPart:
+    """One durable, ordered execution artifact for a run."""
+
+    run_id: str
+    chat_id: str
+    part_type: str
+    content: str = ""
+    tool_name: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    created_at: float = 0.0
+    part_id: int | None = None
+
+
+@dataclass
+class StoredRunFileChange:
+    """One file mutation captured during a run for later inspection."""
+
+    run_id: str
+    chat_id: str
+    tool_name: str
+    path: str
+    action: str
+    before_sha256: str | None = None
+    after_sha256: str | None = None
+    before_content: str | None = None
+    after_content: str | None = None
+    diff: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+    created_at: float = 0.0
+    change_id: int | None = None
+
+
+@dataclass
+class StoredRunTrace:
+    """Complete persisted execution trace for one run."""
+
+    run: StoredRun
+    events: list[StoredRunEvent] = field(default_factory=list)
+    parts: list[StoredRunPart] = field(default_factory=list)
+    file_changes: list[StoredRunFileChange] = field(default_factory=list)
+
+
 class StorageProvider(ABC):
     """
     Storage Provider 的抽象基底類別
@@ -153,6 +196,13 @@ class StorageProvider(ABC):
         """Return persisted runs for one chat from newest to oldest when supported."""
         return []
 
+    async def get_run(self, chat_id: str, run_id: str) -> StoredRun | None:
+        """Return one persisted run for a chat when supported."""
+        for run in await self.get_runs(chat_id):
+            if run.run_id == run_id:
+                return run
+        return None
+
     async def get_latest_run(self, chat_id: str) -> StoredRun | None:
         """Return the newest persisted run for one chat when supported."""
         runs = await self.get_runs(chat_id, limit=1)
@@ -173,6 +223,71 @@ class StorageProvider(ABC):
     async def get_run_events(self, chat_id: str, run_id: str) -> list[StoredRunEvent]:
         """Return persisted events for one run when supported."""
         return []
+
+    async def add_run_part(
+        self,
+        chat_id: str,
+        run_id: str,
+        part_type: str,
+        *,
+        content: str = "",
+        tool_name: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        created_at: float | None = None,
+    ) -> StoredRunPart | None:
+        """Persist one ordered run artifact when supported."""
+        return None
+
+    async def get_run_parts(self, chat_id: str, run_id: str) -> list[StoredRunPart]:
+        """Return ordered run artifacts for one run when supported."""
+        return []
+
+    async def add_run_file_change(
+        self,
+        chat_id: str,
+        run_id: str,
+        tool_name: str,
+        path: str,
+        action: str,
+        *,
+        before_sha256: str | None = None,
+        after_sha256: str | None = None,
+        before_content: str | None = None,
+        after_content: str | None = None,
+        diff: str = "",
+        metadata: dict[str, Any] | None = None,
+        created_at: float | None = None,
+    ) -> StoredRunFileChange | None:
+        """Persist one file mutation captured during a run when supported."""
+        return None
+
+    async def get_run_file_changes(self, chat_id: str, run_id: str) -> list[StoredRunFileChange]:
+        """Return ordered file mutations captured for one run when supported."""
+        return []
+
+    async def get_run_file_change(
+        self,
+        chat_id: str,
+        run_id: str,
+        change_id: int,
+    ) -> StoredRunFileChange | None:
+        """Return one captured file mutation for a run when supported."""
+        for change in await self.get_run_file_changes(chat_id, run_id):
+            if change.change_id == change_id:
+                return change
+        return None
+
+    async def get_run_trace(self, chat_id: str, run_id: str) -> StoredRunTrace | None:
+        """Return a run with its ordered events and durable parts."""
+        run = await self.get_run(chat_id, run_id)
+        if run is None:
+            return None
+        return StoredRunTrace(
+            run=run,
+            events=await self.get_run_events(chat_id, run_id),
+            parts=await self.get_run_parts(chat_id, run_id),
+            file_changes=await self.get_run_file_changes(chat_id, run_id),
+        )
     
     @abstractmethod
     async def get_all_chats(self) -> list[str]:

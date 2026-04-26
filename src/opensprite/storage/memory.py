@@ -7,7 +7,9 @@ opensprite/storage/memory.py - 記憶體 Storage 實作
 
 import time
 from collections import defaultdict
-from .base import StorageProvider, StoredMessage, StoredRun, StoredRunEvent
+from typing import Any
+
+from .base import StorageProvider, StoredMessage, StoredRun, StoredRunEvent, StoredRunFileChange, StoredRunPart
 
 
 class MemoryStorage(StorageProvider):
@@ -24,6 +26,8 @@ class MemoryStorage(StorageProvider):
         self._consolidated_index: dict[str, int] = {}  # Per-chat consolidation tracking
         self._runs: dict[str, StoredRun] = {}
         self._run_events: dict[tuple[str, str], list[StoredRunEvent]] = defaultdict(list)
+        self._run_file_changes: dict[tuple[str, str], list[StoredRunFileChange]] = defaultdict(list)
+        self._run_parts: dict[tuple[str, str], list[StoredRunPart]] = defaultdict(list)
     
     async def get_messages(self, chat_id: str, limit: int | None = None) -> list[StoredMessage]:
         """
@@ -70,6 +74,8 @@ class MemoryStorage(StorageProvider):
             if run.chat_id == chat_id:
                 self._runs.pop(run_id, None)
                 self._run_events.pop((chat_id, run_id), None)
+                self._run_file_changes.pop((chat_id, run_id), None)
+                self._run_parts.pop((chat_id, run_id), None)
     
     async def get_consolidated_index(self, chat_id: str) -> int:
         """取得 consolidation 標記"""
@@ -133,6 +139,12 @@ class MemoryStorage(StorageProvider):
             return runs[:limit]
         return runs
 
+    async def get_run(self, chat_id: str, run_id: str) -> StoredRun | None:
+        run = self._runs.get(run_id)
+        if run is None or run.chat_id != chat_id:
+            return None
+        return run
+
     async def add_run_event(
         self,
         chat_id: str,
@@ -156,3 +168,80 @@ class MemoryStorage(StorageProvider):
 
     async def get_run_events(self, chat_id: str, run_id: str) -> list[StoredRunEvent]:
         return list(self._run_events.get((chat_id, run_id), []))
+
+    async def add_run_part(
+        self,
+        chat_id: str,
+        run_id: str,
+        part_type: str,
+        *,
+        content: str = "",
+        tool_name: str | None = None,
+        metadata: dict | None = None,
+        created_at: float | None = None,
+    ) -> StoredRunPart:
+        key = (chat_id, run_id)
+        part = StoredRunPart(
+            run_id=run_id,
+            chat_id=chat_id,
+            part_type=part_type,
+            content=str(content or ""),
+            tool_name=tool_name,
+            metadata=dict(metadata or {}),
+            created_at=float(created_at or time.time()),
+            part_id=len(self._run_parts[key]) + 1,
+        )
+        self._run_parts[key].append(part)
+        return part
+
+    async def get_run_parts(self, chat_id: str, run_id: str) -> list[StoredRunPart]:
+        return list(self._run_parts.get((chat_id, run_id), []))
+
+    async def add_run_file_change(
+        self,
+        chat_id: str,
+        run_id: str,
+        tool_name: str,
+        path: str,
+        action: str,
+        *,
+        before_sha256: str | None = None,
+        after_sha256: str | None = None,
+        before_content: str | None = None,
+        after_content: str | None = None,
+        diff: str = "",
+        metadata: dict[str, Any] | None = None,
+        created_at: float | None = None,
+    ) -> StoredRunFileChange:
+        key = (chat_id, run_id)
+        change = StoredRunFileChange(
+            run_id=run_id,
+            chat_id=chat_id,
+            tool_name=tool_name,
+            path=path,
+            action=action,
+            before_sha256=before_sha256,
+            after_sha256=after_sha256,
+            before_content=before_content,
+            after_content=after_content,
+            diff=str(diff or ""),
+            metadata=dict(metadata or {}),
+            created_at=float(created_at or time.time()),
+            change_id=len(self._run_file_changes[key]) + 1,
+        )
+        self._run_file_changes[key].append(change)
+        return change
+
+    async def get_run_file_changes(self, chat_id: str, run_id: str) -> list[StoredRunFileChange]:
+        return list(self._run_file_changes.get((chat_id, run_id), []))
+
+    async def get_run_file_change(
+        self,
+        chat_id: str,
+        run_id: str,
+        change_id: int,
+    ) -> StoredRunFileChange | None:
+        for change in self._run_file_changes.get((chat_id, run_id), []):
+            if change.change_id == change_id:
+                return change
+        return None

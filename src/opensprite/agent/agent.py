@@ -25,6 +25,8 @@ import base64
 import binascii
 from contextvars import ContextVar
 from contextlib import AsyncExitStack
+import difflib
+import hashlib
 import json
 import re
 import time
@@ -71,6 +73,8 @@ from .tool_registration import register_default_tools, register_memory_tool
 
 
 LOG_WHITESPACE_RE = re.compile(r"\s+")
+RUN_PART_CONTENT_MAX_CHARS = 20_000
+RUN_FILE_REVERT_DIFF_MAX_CHARS = 12_000
 
 
 class AgentLoop:
@@ -227,6 +231,53 @@ class AgentLoop:
         }
 
     @staticmethod
+    def _truncate_run_part_content(content: str, max_chars: int = RUN_PART_CONTENT_MAX_CHARS) -> tuple[str, dict[str, Any]]:
+        """Bound durable run-part content while preserving useful head/tail context."""
+        text = str(content or "")
+        original_len = len(text)
+        if original_len <= max_chars:
+            return text, {"content_truncated": False, "content_original_len": original_len}
+
+        marker = f"\n... (run part content truncated, original {original_len} chars) ...\n"
+        tail_chars = max(1000, max_chars // 4)
+        head_chars = max(0, max_chars - tail_chars - len(marker))
+        truncated = text[:head_chars].rstrip() + marker + text[-tail_chars:].lstrip()
+        return truncated, {"content_truncated": True, "content_original_len": original_len}
+
+    @staticmethod
+    def _text_sha256(content: str) -> str:
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _format_revert_diff(path: str, before: str | None, after: str | None) -> str:
+        if before == after:
+            return "(no changes)"
+
+        before_text = before or ""
+        after_text = after or ""
+        fromfile = "/dev/null" if before is None else f"a/{path}"
+        tofile = "/dev/null" if after is None else f"b/{path}"
+        diff = "\n".join(
+            difflib.unified_diff(
+                before_text.splitlines(),
+                after_text.splitlines(),
+                fromfile=fromfile,
+                tofile=tofile,
+                lineterm="",
+            )
+        )
+        if not diff:
+            if before is None:
+                diff = f"--- /dev/null\n+++ b/{path}\n@@\n(empty file created)"
+            elif after is None:
+                diff = f"--- a/{path}\n+++ /dev/null\n@@\n(empty file deleted)"
+            else:
+                diff = "(no changes)"
+        if len(diff) > RUN_FILE_REVERT_DIFF_MAX_CHARS:
+            return diff[:RUN_FILE_REVERT_DIFF_MAX_CHARS] + f"\n... (diff truncated, total {len(diff)} chars)"
+        return diff
+
+    @staticmethod
     def _summarize_messages(messages: list[ChatMessage], tail: int = 4) -> str:
         """Build a compact summary of the trailing chat messages for diagnostics."""
         summary = []
@@ -312,13 +363,23 @@ class AgentLoop:
         rid = run_id
 
         async def _hook(tool_name: str, tool_args: dict[str, Any]) -> None:
+            safe_args = self._json_safe_event_payload(tool_args or {})
+            args_preview = self._format_log_preview(json.dumps(safe_args, ensure_ascii=False), max_chars=240)
+            await self._add_run_part(
+                sid,
+                rid,
+                "tool_call",
+                content=json.dumps(safe_args, ensure_ascii=False, sort_keys=True),
+                tool_name=tool_name,
+                metadata={"args": safe_args, "args_preview": args_preview},
+            )
             await self._emit_run_event(
                 sid,
                 rid,
                 "tool_started",
                 {
                     "tool_name": tool_name,
-                    "args_preview": self._format_log_preview(json.dumps(tool_args or {}, ensure_ascii=False), max_chars=240),
+                    "args_preview": args_preview,
                 },
                 channel=ch,
                 transport_chat_id=tid,
@@ -366,15 +427,32 @@ class AgentLoop:
         rid = run_id
 
         async def _hook(tool_name: str, tool_args: dict[str, Any], result: str) -> None:
+            safe_args = self._json_safe_event_payload(tool_args or {})
+            result_text = str(result or "")
+            result_preview = self._format_log_preview(result_text, max_chars=240)
+            ok = not result_text.lstrip().startswith("Error:")
+            await self._add_run_part(
+                session_chat_id,
+                rid,
+                "tool_result",
+                content=result_text,
+                tool_name=tool_name,
+                metadata={
+                    "args": safe_args,
+                    "ok": ok,
+                    "result_len": len(result_text),
+                    "result_preview": result_preview,
+                },
+            )
             await self._emit_run_event(
                 session_chat_id,
                 rid,
                 "tool_result",
                 {
                     "tool_name": tool_name,
-                    "ok": not str(result or "").lstrip().startswith("Error:"),
-                    "result_len": len(result or ""),
-                    "result_preview": self._format_log_preview(result, max_chars=240),
+                    "ok": ok,
+                    "result_len": len(result_text),
+                    "result_preview": result_preview,
                 },
                 channel=channel,
                 transport_chat_id=tid,
@@ -387,8 +465,8 @@ class AgentLoop:
                     {
                         "action": (tool_args or {}).get("action", "auto"),
                         "path": (tool_args or {}).get("path", "."),
-                        "ok": not str(result or "").lstrip().startswith("Error:"),
-                        "result_preview": self._format_log_preview(result, max_chars=240),
+                        "ok": ok,
+                        "result_preview": result_preview,
                     },
                     channel=channel,
                     transport_chat_id=tid,
@@ -471,6 +549,100 @@ class AgentLoop:
             await updater(chat_id, run_id, status, metadata=metadata, finished_at=finished_at)
         except Exception as e:
             logger.warning("[{}] run.update.failed | run_id={} status={} error={}", chat_id, run_id, status, e)
+
+    async def _add_run_part(
+        self,
+        chat_id: str,
+        run_id: str,
+        part_type: str,
+        *,
+        content: str = "",
+        tool_name: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Persist one ordered run artifact when the storage supports it."""
+        add_part = getattr(self.storage, "add_run_part", None)
+        if not callable(add_part):
+            return
+        try:
+            stored_content, content_metadata = self._truncate_run_part_content(str(content or ""))
+            safe_metadata = self._json_safe_event_payload(metadata)
+            safe_metadata.update(content_metadata)
+            await add_part(
+                chat_id,
+                run_id,
+                part_type,
+                content=stored_content,
+                tool_name=tool_name,
+                metadata=safe_metadata,
+            )
+        except Exception as e:
+            logger.warning("[{}] run.part.persist.failed | run_id={} type={} error={}", chat_id, run_id, part_type, e)
+
+    async def _record_file_changes(self, tool_name: str, changes: list[dict[str, Any]]) -> None:
+        """Persist file mutations for the active run when available."""
+        chat_id = self._current_chat_id.get()
+        run_id = self._current_run_id.get()
+        if not chat_id or not run_id or not changes:
+            return
+
+        add_change = getattr(self.storage, "add_run_file_change", None)
+        if not callable(add_change):
+            return
+
+        channel = self._current_channel.get()
+        transport_chat_id = self._current_transport_chat_id.get()
+        for raw_change in changes:
+            path = str(raw_change.get("path") or "").strip()
+            action = str(raw_change.get("action") or "").strip()
+            if not path or not action:
+                continue
+
+            diff = str(raw_change.get("diff") or "")
+            raw_metadata = raw_change.get("metadata")
+            metadata = self._json_safe_event_payload(raw_metadata if isinstance(raw_metadata, dict) else {})
+            metadata.setdefault("diff_len", len(diff))
+            try:
+                await add_change(
+                    chat_id,
+                    run_id,
+                    tool_name,
+                    path,
+                    action,
+                    before_sha256=raw_change.get("before_sha256"),
+                    after_sha256=raw_change.get("after_sha256"),
+                    before_content=raw_change.get("before_content"),
+                    after_content=raw_change.get("after_content"),
+                    diff=diff,
+                    metadata=metadata,
+                )
+            except Exception as e:
+                logger.warning(
+                    "[{}] run.file-change.persist.failed | run_id={} tool={} path={} error={}",
+                    chat_id,
+                    run_id,
+                    tool_name,
+                    path,
+                    e,
+                )
+                continue
+
+            await self._emit_run_event(
+                chat_id,
+                run_id,
+                "file_changed",
+                {
+                    "tool_name": tool_name,
+                    "path": path,
+                    "action": action,
+                    "before_sha256": raw_change.get("before_sha256"),
+                    "after_sha256": raw_change.get("after_sha256"),
+                    "diff_len": len(diff),
+                    "diff_preview": self._format_log_preview(diff, max_chars=240),
+                },
+                channel=channel,
+                transport_chat_id=transport_chat_id,
+            )
 
     async def _emit_run_event(
         self,
@@ -1260,6 +1432,269 @@ class AgentLoop:
         chat_id = self._get_current_chat_id() or "default"
         return get_chat_workspace(chat_id, workspace_root=workspace_root)
 
+    def _get_workspace_for_chat(self, chat_id: str) -> Path:
+        """Resolve the isolated workspace for a specific chat id."""
+        workspace_root = self.tool_workspace or getattr(self._context_builder, "workspace", Path.cwd())
+        return get_chat_workspace(chat_id, workspace_root=workspace_root)
+
+    def _resolve_run_file_change_path(self, chat_id: str, path: str) -> tuple[Path | None, str | None]:
+        """Resolve a stored run file-change path and keep it inside the chat workspace."""
+        raw_path = str(path or "").strip()
+        if not raw_path:
+            return None, "stored file-change path is empty"
+
+        workspace = self._get_workspace_for_chat(chat_id).resolve(strict=False)
+        candidate = Path(raw_path).expanduser()
+        if not candidate.is_absolute():
+            candidate = workspace / candidate
+        candidate = candidate.resolve(strict=False)
+        try:
+            candidate.relative_to(workspace)
+        except ValueError:
+            return None, f"stored file-change path escapes workspace: {raw_path}"
+        return candidate, None
+
+    def _read_revert_current_content(self, file_path: Path) -> tuple[str | None, str | None, str | None]:
+        """Read current text content for revert checks; return content, sha, error."""
+        if not file_path.exists():
+            return None, None, None
+        if not file_path.is_file():
+            return None, None, "path exists but is not a file"
+        try:
+            content = file_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            return None, None, "current file is not valid UTF-8 text"
+        except OSError as e:
+            return None, None, f"failed to read current file: {e}"
+        return content, self._text_sha256(content), None
+
+    async def _prepare_run_file_change_revert(
+        self,
+        chat_id: str,
+        run_id: str,
+        change_id: int,
+    ) -> tuple[dict[str, Any], Any | None, Path | None, str | None]:
+        getter = getattr(self.storage, "get_run_file_change", None)
+        if not callable(getter):
+            preview = {
+                "status": "unavailable",
+                "ok": False,
+                "chat_id": chat_id,
+                "run_id": run_id,
+                "change_id": change_id,
+                "reason": "storage does not support run file-change lookup",
+            }
+            return preview, None, None, None
+
+        try:
+            normalized_change_id = int(change_id)
+        except (TypeError, ValueError):
+            preview = {
+                "status": "not_found",
+                "ok": False,
+                "chat_id": chat_id,
+                "run_id": run_id,
+                "change_id": change_id,
+                "reason": "change_id must be an integer",
+            }
+            return preview, None, None, None
+
+        change = await getter(chat_id, run_id, normalized_change_id)
+        if change is None:
+            preview = {
+                "status": "not_found",
+                "ok": False,
+                "chat_id": chat_id,
+                "run_id": run_id,
+                "change_id": normalized_change_id,
+                "reason": "file change was not found for this run",
+            }
+            return preview, None, None, None
+
+        file_path, path_error = self._resolve_run_file_change_path(chat_id, change.path)
+        base_preview = {
+            "chat_id": chat_id,
+            "run_id": run_id,
+            "change_id": normalized_change_id,
+            "path": change.path,
+            "tool_name": change.tool_name,
+            "original_action": change.action,
+            "before_sha256": change.before_sha256,
+            "after_sha256": change.after_sha256,
+            "expected_current_sha256": change.after_sha256,
+            "target_sha256": change.before_sha256,
+            "current_exists": False,
+            "target_exists": change.before_sha256 is not None,
+            "current_sha256": None,
+            "revert_action": "delete" if change.before_sha256 is None else "write",
+            "diff": "",
+        }
+        if path_error or file_path is None:
+            preview = {
+                **base_preview,
+                "status": "invalid_path",
+                "ok": False,
+                "reason": path_error or "invalid stored file-change path",
+            }
+            return preview, change, file_path, None
+
+        current_content, current_sha, current_error = self._read_revert_current_content(file_path)
+        target_content = change.before_content
+        preview = {
+            **base_preview,
+            "absolute_path": str(file_path),
+            "current_exists": current_content is not None,
+            "current_sha256": current_sha,
+        }
+
+        if current_error:
+            preview.update({"status": "conflict", "ok": False, "reason": current_error})
+            return preview, change, file_path, target_content
+
+        if change.before_sha256 is not None:
+            if target_content is None:
+                preview.update(
+                    {
+                        "status": "unavailable",
+                        "ok": False,
+                        "reason": "stored before_content snapshot is unavailable; cannot safely reconstruct the file",
+                    }
+                )
+                return preview, change, file_path, target_content
+            target_sha = self._text_sha256(target_content)
+            if target_sha != change.before_sha256:
+                preview.update(
+                    {
+                        "status": "unavailable",
+                        "ok": False,
+                        "reason": "stored before_content snapshot hash does not match before_sha256",
+                    }
+                )
+                return preview, change, file_path, target_content
+
+        if change.after_sha256 is None:
+            if current_content is not None:
+                preview.update(
+                    {
+                        "status": "conflict",
+                        "ok": False,
+                        "reason": "current file exists but the recorded post-change state expected it to be missing",
+                        "diff": self._format_revert_diff(change.path, current_content, target_content),
+                    }
+                )
+                return preview, change, file_path, target_content
+        elif current_content is None:
+            preview.update(
+                {
+                    "status": "conflict",
+                    "ok": False,
+                    "reason": "current file is missing but the recorded post-change state expected file content",
+                }
+            )
+            return preview, change, file_path, target_content
+        elif current_sha != change.after_sha256:
+            preview.update(
+                {
+                    "status": "conflict",
+                    "ok": False,
+                    "reason": "current file hash does not match the recorded post-change hash",
+                    "diff": self._format_revert_diff(change.path, current_content, target_content),
+                }
+            )
+            return preview, change, file_path, target_content
+
+        preview.update(
+            {
+                "status": "ready",
+                "ok": True,
+                "reason": "ready to revert",
+                "diff": self._format_revert_diff(change.path, current_content, target_content),
+            }
+        )
+        return preview, change, file_path, target_content
+
+    async def preview_run_file_change_revert(
+        self,
+        chat_id: str,
+        run_id: str,
+        change_id: int,
+    ) -> dict[str, Any]:
+        """Inspect whether one captured file change can be safely reverted."""
+        preview, _change, _file_path, _target_content = await self._prepare_run_file_change_revert(
+            chat_id,
+            run_id,
+            change_id,
+        )
+        return preview
+
+    async def revert_run_file_change(
+        self,
+        chat_id: str,
+        run_id: str,
+        change_id: int,
+        *,
+        dry_run: bool = True,
+    ) -> dict[str, Any]:
+        """Safely revert one captured file change; defaults to dry-run inspection."""
+        preview, _change, file_path, target_content = await self._prepare_run_file_change_revert(
+            chat_id,
+            run_id,
+            change_id,
+        )
+        result = {**preview, "dry_run": bool(dry_run), "applied": False}
+        if dry_run or preview.get("status") != "ready" or file_path is None:
+            return result
+
+        current_content, current_sha, current_error = self._read_revert_current_content(file_path)
+        if current_error:
+            result.update({"status": "conflict", "ok": False, "reason": current_error})
+            return result
+        expected_current_sha = preview.get("expected_current_sha256")
+        if expected_current_sha is None:
+            if current_content is not None:
+                result.update(
+                    {
+                        "status": "conflict",
+                        "ok": False,
+                        "reason": "current file changed before revert apply",
+                    }
+                )
+                return result
+        elif current_sha != expected_current_sha:
+            result.update(
+                {
+                    "status": "conflict",
+                    "ok": False,
+                    "reason": "current file changed before revert apply",
+                    "current_sha256": current_sha,
+                }
+            )
+            return result
+
+        try:
+            if target_content is None:
+                if file_path.exists():
+                    file_path.unlink()
+                post_sha = None
+            else:
+                file_path.parent.mkdir(parents=True, exist_ok=True)
+                file_path.write_text(target_content, encoding="utf-8")
+                post_sha = self._text_sha256(target_content)
+        except OSError as e:
+            result.update({"status": "failed", "ok": False, "reason": f"failed to apply revert: {e}"})
+            return result
+
+        result.update(
+            {
+                "status": "applied",
+                "ok": True,
+                "applied": True,
+                "post_sha256": post_sha,
+                "reason": "file change reverted",
+            }
+        )
+        return result
+
     @staticmethod
     def _decode_media_data_url(payload: str, media_prefix: str) -> tuple[str, bytes] | None:
         """Decode a media data URL into a MIME type and bytes."""
@@ -1408,6 +1843,9 @@ class AgentLoop:
             background_notification_factory=self._make_background_session_exit_notifier,
             active_task_store_factory=self._get_active_task_store,
             get_message_count=lambda chat_id: get_storage_message_count(self.storage, chat_id),
+            file_change_recorder=self._record_file_changes,
+            storage=self.storage,
+            preview_run_file_change_revert=self.preview_run_file_change_revert,
         )
         
         logger.info(f"agent.init | tools={', '.join(self.tools.tool_names)}")
@@ -2078,6 +2516,13 @@ class AgentLoop:
             logger.info(
                 f"[{session_chat_id}] outbound | media_only=true text={self._format_log_preview(response, max_chars=200)}"
             )
+            await self._add_run_part(
+                session_chat_id,
+                run_id,
+                "assistant_message",
+                content=response,
+                metadata={"reason": "media_only", "response_len": len(response or "")},
+            )
             await self._save_message(session_chat_id, "assistant", response, metadata=assistant_metadata)
             finished_at = time.time()
             await self._emit_run_event(
@@ -2116,6 +2561,13 @@ class AgentLoop:
                 response = self.messages.agent.llm_not_configured
                 logger.info(
                     f"[{session_chat_id}] outbound | text={self._format_log_preview(response, max_chars=200)}"
+                )
+                await self._add_run_part(
+                    session_chat_id,
+                    run_id,
+                    "assistant_message",
+                    content=response,
+                    metadata={"reason": "llm_not_configured", "response_len": len(response or "")},
                 )
                 await self._save_message(session_chat_id, "assistant", response, metadata=assistant_metadata)
                 finished_at = time.time()
@@ -2164,6 +2616,33 @@ class AgentLoop:
             )
             response = exec_result.content
             outbound_media = self._get_queued_outbound_media()
+
+            for compaction_event in exec_result.context_compaction_events:
+                compaction_metadata = vars(compaction_event)
+                await self._add_run_part(
+                    session_chat_id,
+                    run_id,
+                    "context_compaction",
+                    content=(
+                        f"{compaction_event.trigger}:"
+                        f"{compaction_event.strategy}:"
+                        f"{compaction_event.outcome}"
+                    ),
+                    metadata=compaction_metadata,
+                )
+
+            await self._add_run_part(
+                session_chat_id,
+                run_id,
+                "assistant_message",
+                content=response,
+                metadata={
+                    "response_len": len(response or ""),
+                    "executed_tool_calls": exec_result.executed_tool_calls,
+                    "had_tool_error": exec_result.had_tool_error,
+                    "context_compactions": exec_result.context_compactions,
+                },
+            )
 
             logger.info(
                 f"[{session_chat_id}] outbound | text={self._format_log_preview(response, max_chars=200)}"

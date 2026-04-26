@@ -30,6 +30,7 @@ from .subagent_config import ConfigureSubagentTool
 from .cron import CronTool
 from .image import AnalyzeImageTool, OCRImageTool
 from .outbound_media import SendMediaTool
+from .run_trace import ListRunFileChangesTool, PreviewRunFileChangeRevertTool
 
 __all__ = [
     "Tool",
@@ -64,4 +65,6 @@ __all__ = [
     "AnalyzeImageTool",
     "OCRImageTool",
     "SendMediaTool",
+    "ListRunFileChangesTool",
+    "PreviewRunFileChangeRevertTool",
 ]

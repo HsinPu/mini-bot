@@ -39,6 +39,8 @@ from ..tools import (
     ConfigureSkillTool,
     ConfigureMCPTool,
     ConfigureSubagentTool,
+    ListRunFileChangesTool,
+    PreviewRunFileChangeRevertTool,
 )
 from ..tools.delegate import DelegateTool
 from ..tools.permissions import ToolPermissionPolicy
@@ -96,12 +98,30 @@ def register_task_tools(
     )
 
 
+def register_run_trace_tools(
+    registry: ToolRegistry,
+    *,
+    storage: Any,
+    get_chat_id: Callable[[], str | None],
+    preview_run_file_change_revert: Callable[[str, str, int], Awaitable[dict[str, Any]]],
+) -> None:
+    """Register read-only run trace inspection tools."""
+    registry.register(ListRunFileChangesTool(storage=storage, get_chat_id=get_chat_id))
+    registry.register(
+        PreviewRunFileChangeRevertTool(
+            get_chat_id=get_chat_id,
+            preview_revert=preview_run_file_change_revert,
+        )
+    )
+
+
 def register_filesystem_tools(
     registry: ToolRegistry,
     *,
     workspace_resolver: Callable[[], Path],
     skills_loader: Any = None,
     config_path_resolver: Callable[[], Path | None] | None = None,
+    file_change_recorder: Callable[[str, list[dict[str, Any]]], Awaitable[None]] | None = None,
 ) -> None:
     """Register filesystem-oriented tools."""
     registry.register(ReadFileTool(workspace_resolver=workspace_resolver, skills_loader=skills_loader))
@@ -111,18 +131,21 @@ def register_filesystem_tools(
         ApplyPatchTool(
             workspace_resolver=workspace_resolver,
             config_path_resolver=config_path_resolver,
+            file_change_recorder=file_change_recorder,
         )
     )
     registry.register(
         WriteFileTool(
             workspace_resolver=workspace_resolver,
             config_path_resolver=config_path_resolver,
+            file_change_recorder=file_change_recorder,
         )
     )
     registry.register(
         EditFileTool(
             workspace_resolver=workspace_resolver,
             config_path_resolver=config_path_resolver,
+            file_change_recorder=file_change_recorder,
         )
     )
     registry.register(ListDirTool(workspace_resolver=workspace_resolver))
@@ -364,6 +387,9 @@ def register_default_tools(
     background_notification_factory: Callable[[], Any | None] | None = None,
     active_task_store_factory: Callable[[str], Any | None] | None = None,
     get_message_count: Callable[[str], Awaitable[int]] | None = None,
+    file_change_recorder: Callable[[str, list[dict[str, Any]]], Awaitable[None]] | None = None,
+    storage: Any = None,
+    preview_run_file_change_revert: Callable[[str, str, int], Awaitable[dict[str, Any]]] | None = None,
 ) -> None:
     """Register the built-in tools used by AgentLoop."""
     current_tools_config = tools_config or ToolsConfig()
@@ -373,6 +399,7 @@ def register_default_tools(
         workspace_resolver=workspace_resolver,
         skills_loader=skills_loader,
         config_path_resolver=config_path_resolver,
+        file_change_recorder=file_change_recorder,
     )
     register_skill_tools(
         registry,
@@ -385,6 +412,13 @@ def register_default_tools(
         active_task_store_factory=active_task_store_factory,
         get_message_count=get_message_count,
     )
+    if storage is not None and preview_run_file_change_revert is not None:
+        register_run_trace_tools(
+            registry,
+            storage=storage,
+            get_chat_id=get_chat_id,
+            preview_run_file_change_revert=preview_run_file_change_revert,
+        )
     register_config_tools(
         registry,
         config_path_resolver=config_path_resolver,

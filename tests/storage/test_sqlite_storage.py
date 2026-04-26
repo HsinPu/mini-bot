@@ -103,7 +103,18 @@ def test_sqlite_storage_migrates_legacy_sessions_and_drops_table(tmp_path):
     conn.close()
 
     assert "sessions" not in table_names
-    assert {"chats", "chat_state", "messages", "knowledge_sources", "search_chunks", "search_chunks_fts"}.issubset(table_names)
+    assert {
+        "chats",
+        "chat_state",
+        "messages",
+        "runs",
+        "run_events",
+        "run_parts",
+        "run_file_changes",
+        "knowledge_sources",
+        "search_chunks",
+        "search_chunks_fts",
+    }.issubset(table_names)
     assert knowledge_count == 2
     assert chunk_count >= 5
     assert knowledge_rows[0] == (
@@ -168,6 +179,29 @@ def test_sqlite_storage_persists_runs_and_events(tmp_path):
             payload={"status": "running"},
             created_at=11.0,
         )
+        part = await storage.add_run_part(
+            "chat-1",
+            "run-1",
+            "tool_call",
+            content='{"action": "auto"}',
+            tool_name="verify",
+            metadata={"args": {"action": "auto"}},
+            created_at=11.5,
+        )
+        file_change = await storage.add_run_file_change(
+            "chat-1",
+            "run-1",
+            "write_file",
+            "notes.txt",
+            "add",
+            before_sha256=None,
+            after_sha256="abc123",
+            before_content=None,
+            after_content="hello\n",
+            diff="--- /dev/null\n+++ b/notes.txt\n@@\n+hello",
+            metadata={"diff_len": 42},
+            created_at=11.75,
+        )
         updated = await storage.update_run_status(
             "chat-1",
             "run-1",
@@ -176,11 +210,16 @@ def test_sqlite_storage_persists_runs_and_events(tmp_path):
             finished_at=12.0,
         )
         latest = await storage.get_latest_run("chat-1")
+        single_run = await storage.get_run("chat-1", "run-1")
         events = await storage.get_run_events("chat-1", "run-1")
+        parts = await storage.get_run_parts("chat-1", "run-1")
+        file_changes = await storage.get_run_file_changes("chat-1", "run-1")
+        single_change = await storage.get_run_file_change("chat-1", "run-1", file_change.change_id)
+        trace = await storage.get_run_trace("chat-1", "run-1")
         chats = await storage.get_all_chats()
-        return created, event, updated, latest, events, chats
+        return created, event, part, file_change, updated, latest, single_run, events, parts, file_changes, single_change, trace, chats
 
-    created, event, updated, latest, events, chats = asyncio.run(scenario())
+    created, event, part, file_change, updated, latest, single_run, events, parts, file_changes, single_change, trace, chats = asyncio.run(scenario())
 
     assert created is not None
     assert created.status == "running"
@@ -188,6 +227,18 @@ def test_sqlite_storage_persists_runs_and_events(tmp_path):
     assert event is not None
     assert event.event_type == "run_started"
     assert event.payload == {"status": "running"}
+    assert part is not None
+    assert part.part_type == "tool_call"
+    assert part.tool_name == "verify"
+    assert part.metadata == {"args": {"action": "auto"}}
+    assert file_change is not None
+    assert file_change.tool_name == "write_file"
+    assert file_change.path == "notes.txt"
+    assert file_change.action == "add"
+    assert file_change.before_sha256 is None
+    assert file_change.after_sha256 == "abc123"
+    assert file_change.before_content is None
+    assert file_change.after_content == "hello\n"
     assert updated is not None
     assert updated.status == "completed"
     assert updated.finished_at == 12.0
@@ -195,5 +246,20 @@ def test_sqlite_storage_persists_runs_and_events(tmp_path):
     assert latest is not None
     assert latest.run_id == "run-1"
     assert latest.status == "completed"
+    assert single_run is not None
+    assert single_run.run_id == "run-1"
     assert [entry.event_type for entry in events] == ["run_started"]
+    assert [entry.part_type for entry in parts] == ["tool_call"]
+    assert parts[0].content == '{"action": "auto"}'
+    assert [entry.path for entry in file_changes] == ["notes.txt"]
+    assert file_changes[0].diff.startswith("--- /dev/null")
+    assert file_changes[0].metadata == {"diff_len": 42}
+    assert file_changes[0].after_content == "hello\n"
+    assert single_change is not None
+    assert single_change.path == "notes.txt"
+    assert trace is not None
+    assert trace.run.run_id == "run-1"
+    assert [entry.event_type for entry in trace.events] == ["run_started"]
+    assert [entry.part_type for entry in trace.parts] == ["tool_call"]
+    assert [entry.path for entry in trace.file_changes] == ["notes.txt"]
     assert chats == ["chat-1"]

@@ -3,6 +3,7 @@ from pathlib import Path
 from opensprite.agent.tool_registration import register_default_tools
 from opensprite.config.schema import SearchConfig, ToolsConfig
 from opensprite.skills import SkillsLoader
+from opensprite.storage import MemoryStorage
 from opensprite.tools.cron import CronTool
 from opensprite.tools.active_task import TaskUpdateTool
 from opensprite.tools.batch import BatchTool
@@ -17,6 +18,7 @@ from opensprite.tools.web_fetch import WebFetchTool
 from opensprite.tools.web_search import WebSearchTool
 from opensprite.tools.outbound_media import SendMediaTool
 from opensprite.tools.registry import ToolRegistry
+from opensprite.tools.run_trace import ListRunFileChangesTool, PreviewRunFileChangeRevertTool
 
 
 async def _fake_run_subagent(task: str, prompt_type: str | None, task_id: str | None) -> str:
@@ -180,6 +182,28 @@ def test_register_default_tools_applies_typed_tools_config_values():
     assert web_fetch_tool.fetcher.timeout == 9
     assert web_fetch_tool.fetcher.prefer_trafilatura is False
     assert web_fetch_tool.fetcher.firecrawl_api_key == "firecrawl-key"
+
+
+async def _fake_preview_run_file_change_revert(chat_id: str, run_id: str, change_id: int):
+    return {"chat_id": chat_id, "run_id": run_id, "change_id": change_id, "status": "ready"}
+
+
+def test_register_default_tools_includes_run_trace_tools_when_storage_is_available():
+    registry = ToolRegistry()
+
+    register_default_tools(
+        registry,
+        workspace_resolver=lambda: Path.cwd(),
+        get_chat_id=lambda: "chat-1",
+        run_subagent=_fake_run_subagent,
+        config_path_resolver=lambda: Path.cwd() / "opensprite.json",
+        reload_mcp=_fake_reload_mcp,
+        storage=MemoryStorage(),
+        preview_run_file_change_revert=_fake_preview_run_file_change_revert,
+    )
+
+    assert isinstance(registry.get("list_run_file_changes"), ListRunFileChangesTool)
+    assert isinstance(registry.get("preview_run_file_change_revert"), PreviewRunFileChangeRevertTool)
 
 
 def test_register_default_tools_applies_permission_policy():

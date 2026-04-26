@@ -233,3 +233,55 @@ def test_apply_patch_rejects_stale_expected_sha256_before_writing_anything(tmp_p
     assert "Error: Change 2: Stale-read guard failed for existing.txt" in result
     assert not (tmp_path / "created.txt").exists()
     assert existing.read_text(encoding="utf-8") == "newer\n"
+
+
+def test_mutating_filesystem_tools_emit_file_change_records(tmp_path):
+    recorded = []
+
+    async def recorder(tool_name, changes):
+        recorded.append((tool_name, changes))
+
+    write_tool = WriteFileTool(workspace=tmp_path, file_change_recorder=recorder)
+    edit_tool = EditFileTool(workspace=tmp_path, file_change_recorder=recorder)
+    patch_tool = ApplyPatchTool(workspace=tmp_path, file_change_recorder=recorder)
+
+    write_result = asyncio.run(write_tool.execute(path="notes.txt", content="hello\n"))
+    edit_result = asyncio.run(
+        edit_tool.execute(
+            path="notes.txt",
+            old_text="hello",
+            new_text="hi",
+            expected_sha256=_sha256("hello\n"),
+        )
+    )
+    patch_result = asyncio.run(
+        patch_tool.execute(
+            changes=[
+                {
+                    "action": "delete",
+                    "path": "notes.txt",
+                    "expected_sha256": _sha256("hi\n"),
+                }
+            ]
+        )
+    )
+
+    assert "Successfully wrote" in write_result
+    assert "Successfully edited" in edit_result
+    assert "Successfully applied patch" in patch_result
+    assert [entry[0] for entry in recorded] == ["write_file", "edit_file", "apply_patch"]
+    assert [entry[1][0]["action"] for entry in recorded] == ["add", "update", "delete"]
+    assert recorded[0][1][0]["path"] == "notes.txt"
+    assert recorded[0][1][0]["before_sha256"] is None
+    assert recorded[0][1][0]["after_sha256"] == _sha256("hello\n")
+    assert recorded[0][1][0]["before_content"] is None
+    assert recorded[0][1][0]["after_content"] == "hello\n"
+    assert recorded[1][1][0]["before_sha256"] == _sha256("hello\n")
+    assert recorded[1][1][0]["after_sha256"] == _sha256("hi\n")
+    assert recorded[1][1][0]["before_content"] == "hello\n"
+    assert recorded[1][1][0]["after_content"] == "hi\n"
+    assert recorded[2][1][0]["before_sha256"] == _sha256("hi\n")
+    assert recorded[2][1][0]["after_sha256"] is None
+    assert recorded[2][1][0]["before_content"] == "hi\n"
+    assert recorded[2][1][0]["after_content"] is None
+    assert "+++ /dev/null" in recorded[2][1][0]["diff"]
