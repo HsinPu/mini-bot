@@ -51,6 +51,7 @@ from .consolidation import MemoryConsolidationService, RecentSummaryUpdateServic
 from .execution import ExecutionEngine, ExecutionResult
 from .file_changes import RunFileChangeService
 from .history_reset import HistoryResetService
+from .llm_call import LlmCallService
 from .maintenance import PostResponseMaintenanceService
 from .media import AgentMediaService
 from .message_history import MessageHistoryService
@@ -550,6 +551,28 @@ class AgentLoop:
             workspace_root_getter=lambda: self.tool_workspace,
         )
         self.recent_summary_update = self._setup_recent_summary_update()
+        self.llm_calls = LlmCallService(
+            config=self.config,
+            maybe_seed_active_task=lambda chat_id, message: self._maybe_seed_active_task(chat_id, message),
+            load_history=lambda chat_id: self._load_history(chat_id),
+            get_current_audios=self._get_current_audios,
+            get_current_videos=self._get_current_videos,
+            augment_message_for_media=lambda *args, **kwargs: self._augment_message_for_media(*args, **kwargs),
+            estimate_tool_schema_tokens=lambda *args, **kwargs: self._estimate_tool_schema_tokens(*args, **kwargs),
+            trim_history_to_token_budget=lambda *args, **kwargs: self._trim_history_to_token_budget(*args, **kwargs),
+            effective_context_token_budget=self._effective_context_token_budget,
+            llm_context_window_tokens=lambda: self.llm_context_window_tokens,
+            llm_chat_max_tokens=lambda: self.llm_chat_max_tokens,
+            sync_runtime_mcp_tools_context=self._sync_runtime_mcp_tools_context,
+            build_messages=lambda **kwargs: self._context_builder.build_messages(**kwargs),
+            build_system_prompt=lambda chat_id: self._context_builder.build_system_prompt(chat_id),
+            log_prepared_messages=self._log_prepared_messages,
+            get_current_run_id=lambda: self._current_run_id.get(),
+            make_tool_progress_hook=lambda *args, **kwargs: self._make_tool_progress_hook(*args, **kwargs),
+            make_tool_result_hook=lambda *args, **kwargs: self._make_tool_result_hook(*args, **kwargs),
+            make_llm_status_hook=lambda *args, **kwargs: self._make_llm_status_hook(*args, **kwargs),
+            execute_messages=lambda *args, **kwargs: self._execute_messages(*args, **kwargs),
+        )
 
     def _trim_history_to_token_budget(
         self,
@@ -1080,124 +1103,18 @@ class AgentLoop:
             RuntimeError: 如果工具執行失敗或超過最大迭代次數。
                           If tool execution fails or exceeds max iterations.
         """
-        await self._maybe_seed_active_task(chat_id, current_message)
-
-        # 從 storage 載入歷史
-        logger.info(f"[{chat_id}] history.load | requested=true")
-        history_messages = await self._load_history(chat_id)
-
-        # 過濾掉 tool 訊息（tool results 只能在同一輪對話中使用）
-        filtered = []
-        for m in history_messages:
-            role = m.get("role", "?") if isinstance(m, dict) else getattr(m, "role", "?")
-            if role != "tool":
-                filtered.append(m)
-        history_messages = filtered
-
-        # The current user message is already passed explicitly to the context builder.
-        # Drop the newest persisted user message for this turn to avoid duplicate/blank user entries.
-        if history_messages:
-            latest = history_messages[-1]
-            latest_role = latest.get("role", "?") if isinstance(latest, dict) else getattr(latest, "role", "?")
-            latest_content = latest.get("content", "") if isinstance(latest, dict) else getattr(latest, "content", "")
-            if latest_role == "user" and latest_content == current_message:
-                history_messages = history_messages[:-1]
-
-        # 轉換成 dict 格式（給 context builder 用）
-        history_dicts = []
-        for m in history_messages:
-            if isinstance(m, dict):
-                msg = {"role": m.get("role", "?"), "content": m.get("content", "")}
-                if m.get("tool_call_id"):
-                    msg["tool_call_id"] = m["tool_call_id"]
-            else:
-                msg = {"role": m.role, "content": m.content}
-                if getattr(m, "tool_call_id", None):
-                    msg["tool_call_id"] = m.tool_call_id
-            history_dicts.append(msg)
-
-        # 用 context builder 組 messages
-        logger.info(
-            f"[{chat_id}] prompt.build | history={len(history_dicts)} channel={channel or '-'} images={len(user_images or [])}"
-        )
-        current_audios = self._get_current_audios()
-        current_videos = self._get_current_videos()
-        prompt_message = self._augment_message_for_media(
+        return await self.llm_calls.call_llm(
+            chat_id,
             current_message,
-            user_images,
-            current_audios,
-            current_videos,
+            channel=channel,
+            allow_tools=allow_tools,
+            user_images=user_images,
             user_image_files=user_image_files,
             user_audio_files=user_audio_files,
             user_video_files=user_video_files,
-        )
-        tool_schema_tokens = self._estimate_tool_schema_tokens(allow_tools=allow_tools)
-        history_dicts, base_tokens, history_tokens, final_tokens = self._trim_history_to_token_budget(
-            history=history_dicts,
-            current_message=prompt_message,
-            channel=channel,
-            chat_id=chat_id,
-            tool_schema_tokens=tool_schema_tokens,
-        )
-        effective_context_budget = self._effective_context_token_budget()
-        logger.info(
-            f"[{chat_id}] prompt.tokens | budget={effective_context_budget} "
-            f"history_budget={self.config.history_token_budget} model_window={self.llm_context_window_tokens or '-'} "
-            f"output_reserve={self.llm_chat_max_tokens} base={base_tokens} tools={tool_schema_tokens} "
-            f"history={history_tokens} final_estimated={final_tokens}"
-        )
-        self._sync_runtime_mcp_tools_context()
-        full_messages = self._context_builder.build_messages(
-            history=history_dicts,
-            current_message=prompt_message,
-            current_images=None,
-            channel=channel,
-            chat_id=chat_id,
-        )
-
-        # 轉換成 ChatMessage 格式
-        chat_messages = []
-        for m in full_messages:
-            msg = ChatMessage(role=m["role"], content=m.get("content", ""))
-            if m.get("tool_call_id"):
-                msg.tool_call_id = m["tool_call_id"]
-            if m.get("tool_calls"):
-                msg.tool_calls = m["tool_calls"]
-            chat_messages.append(msg)
-
-        self._log_prepared_messages(chat_id, full_messages)
-        run_id = self._current_run_id.get()
-        on_tool_before_execute = self._make_tool_progress_hook(
-            channel=channel,
             transport_chat_id=transport_chat_id,
-            session_chat_id=chat_id,
-            run_id=run_id,
-            enabled=emit_tool_progress,
+            emit_tool_progress=emit_tool_progress,
         )
-        on_tool_after_execute = self._make_tool_result_hook(
-            channel=channel,
-            transport_chat_id=transport_chat_id,
-            session_chat_id=chat_id,
-            run_id=run_id,
-            enabled=emit_tool_progress,
-        )
-        on_llm_status = self._make_llm_status_hook(
-            channel=channel,
-            transport_chat_id=transport_chat_id,
-            session_chat_id=chat_id,
-            run_id=run_id,
-            enabled=emit_tool_progress,
-        )
-        execute_kwargs = {
-            "allow_tools": allow_tools,
-            "tool_result_chat_id": chat_id if allow_tools else None,
-            "on_tool_before_execute": on_tool_before_execute,
-            "on_llm_status": on_llm_status,
-            "refresh_system_prompt": lambda: self._context_builder.build_system_prompt(chat_id),
-        }
-        if on_tool_after_execute is not None:
-            execute_kwargs["on_tool_after_execute"] = on_tool_after_execute
-        return await self._execute_messages(chat_id, chat_messages, **execute_kwargs)
 
     def _skill_review_tool_registry(self) -> ToolRegistry | None:
         """Tools allowed during background skill review (subset of main registry)."""
