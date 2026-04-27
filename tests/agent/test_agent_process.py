@@ -302,12 +302,14 @@ def test_agent_process_emits_run_lifecycle_events(tmp_path):
         "task_intent.detected",
         "llm_status",
         "completion_gate.evaluated",
+        "work_progress.updated",
         "run_finished",
     ]
     assert events[0].payload["status"] == "running"
     assert events[1].payload["kind"] == "conversation"
     assert events[1].payload["objective"] == "hello"
     assert events[3].payload["status"] == "complete"
+    assert events[4].payload["next_action"] == "finalize"
     assert events[-1].payload["status"] == "completed"
     assert [part.part_type for part in parts] == ["context_compaction", "assistant_message"]
     assert parts[0].content == "proactive:deterministic:compacted"
@@ -704,7 +706,7 @@ def test_agent_process_seeds_active_task_from_detected_intent(tmp_path):
     assert events[-1]["details"]["intent_kind"] == "refactor"
 
 
-def test_agent_process_emits_completion_gate_needs_verification(tmp_path):
+def test_agent_process_emits_completion_gate_needs_verification_after_code_changes(tmp_path):
     async def scenario():
         storage = MemoryStorage()
         agent = AgentLoop(
@@ -723,7 +725,12 @@ def test_agent_process_emits_completion_gate_needs_verification(tmp_path):
         )
 
         async def fake_call_llm(*args, **kwargs):
-            return ExecutionResult(content="Completed the refactor.", executed_tool_calls=0)
+            return ExecutionResult(
+                content="Completed the refactor.",
+                executed_tool_calls=0,
+                file_change_count=1,
+                touched_paths=("src/agent.py",),
+            )
 
         agent.call_llm = fake_call_llm
         agent._schedule_post_response_maintenance = lambda chat_id: None
@@ -748,7 +755,7 @@ def test_agent_process_emits_completion_gate_needs_verification(tmp_path):
     assert completion_event.payload["reason"] == "required verification was not recorded"
 
 
-def test_agent_process_auto_continues_once_for_missing_verification(tmp_path):
+def test_agent_process_auto_continues_once_when_code_changes_are_missing(tmp_path):
     async def scenario():
         storage = MemoryStorage()
         agent = AgentLoop(
@@ -774,6 +781,8 @@ def test_agent_process_auto_continues_once_for_missing_verification(tmp_path):
             return ExecutionResult(
                 content="Verification passed and the refactor is complete.",
                 executed_tool_calls=1,
+                file_change_count=1,
+                touched_paths=("src/opensprite/agent.py",),
                 verification_attempted=True,
                 verification_passed=True,
             )
@@ -799,25 +808,32 @@ def test_agent_process_auto_continues_once_for_missing_verification(tmp_path):
 
     assert response.text == "Verification passed and the refactor is complete."
     assert len(calls) == 2
-    assert "Completion gate reason: required verification was not recorded" in calls[1]
+    assert "Completion gate reason: expected code changes were not recorded" in calls[1]
     assert [event.event_type for event in events] == [
         "run_started",
         "task_intent.detected",
+        "work_plan.created",
         "llm_status",
         "completion_gate.evaluated",
+        "work_progress.updated",
         "auto_continue.scheduled",
         "completion_gate.evaluated",
+        "work_progress.updated",
         "auto_continue.completed",
         "run_finished",
     ]
-    assert events[3].payload["status"] == "needs_verification"
-    assert events[5].payload["status"] == "complete"
-    assert events[6].payload["completion_status"] == "complete"
+    assert events[4].payload["status"] == "incomplete"
+    assert events[4].payload["reason"] == "expected code changes were not recorded"
+    assert events[5].payload["next_action"] == "continue_work"
+    assert events[7].payload["status"] == "complete"
+    assert events[8].payload["next_action"] == "finalize"
+    assert events[9].payload["completion_status"] == "complete"
     assert parts[-1].metadata["auto_continue_attempts"] == 1
     assert parts[-1].metadata["verification_passed"] is True
+    assert parts[-1].metadata["work_progress"]["file_change_count"] == 1
 
 
-def test_agent_process_stops_auto_continue_at_attempt_limit(tmp_path):
+def test_agent_process_stops_auto_continue_when_continuation_has_no_progress(tmp_path):
     async def scenario():
         storage = MemoryStorage()
         agent = AgentLoop(
@@ -860,8 +876,8 @@ def test_agent_process_stops_auto_continue_at_attempt_limit(tmp_path):
     assert len(calls) == 2
     assert [event.event_type for event in events].count("auto_continue.scheduled") == 1
     skipped = next(event for event in events if event.event_type == "auto_continue.skipped")
-    assert skipped.payload["reason"] == "max_auto_continues_reached"
-    assert skipped.payload["completion_status"] == "needs_verification"
+    assert skipped.payload["reason"] == "no_progress_during_continuation"
+    assert skipped.payload["completion_status"] == "incomplete"
 
 
 def test_agent_process_marks_active_task_done_when_completion_gate_completes(tmp_path):
@@ -908,7 +924,12 @@ def test_agent_process_marks_active_task_done_when_completion_gate_completes(tmp
         )
 
         async def fake_call_llm(*args, **kwargs):
-            return ExecutionResult(content="Implemented the final cleanup successfully.", executed_tool_calls=0)
+            return ExecutionResult(
+                content="Implemented the final cleanup successfully.",
+                executed_tool_calls=0,
+                file_change_count=1,
+                touched_paths=("src/cleanup.py",),
+            )
 
         agent.call_llm = fake_call_llm
         await agent.process(
@@ -926,6 +947,80 @@ def test_agent_process_marks_active_task_done_when_completion_gate_completes(tmp
     assert "- Status: done" in task_block
     assert events[-1]["event_type"] == "completion_gate"
     assert events[-1]["details"]["status"] == "complete"
+
+
+def test_agent_process_updates_active_task_with_verification_step_when_work_remains(tmp_path):
+    async def scenario():
+        registry = ToolRegistry()
+        registry.register(DummyTool())
+        storage = FakeStorage()
+        context_builder = FakeContextBuilder(tmp_path)
+        context_builder.app_home = tmp_path / "home"
+        context_builder.tool_workspace = tmp_path / "workspace"
+
+        agent = AgentLoop(
+            config=Config.load_agent_template_config(),
+            provider=FakeProvider(),
+            storage=storage,
+            context_builder=context_builder,
+            tools=registry,
+            memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
+            tools_config=ToolsConfig(),
+            log_config=LogConfig(),
+            search_config=SearchConfig(),
+            user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+            **Config.packaged_agent_llm_chat_kwargs(),
+        )
+        store = create_active_task_store(agent.app_home, "telegram:room-1", workspace_root=agent.tool_workspace)
+        store.write_managed_block(
+            "- Status: active\n"
+            "- Goal: Finish refactor\n"
+            "- Deliverable: merged refactor\n"
+            "- Definition of done:\n"
+            "  - tests pass\n"
+            "- Constraints:\n"
+            "  - none\n"
+            "- Assumptions:\n"
+            "  - none\n"
+            "- Plan:\n"
+            "  1. inspect\n"
+            "  2. change\n"
+            "  3. verify\n"
+            "- Current step: 2. change\n"
+            "- Next step: 3. verify\n"
+            "- Completed steps:\n"
+            "  - inspect\n"
+            "- Open questions:\n"
+            "  - none"
+        )
+
+        async def fake_call_llm(*args, **kwargs):
+            return ExecutionResult(
+                content="Completed the refactor.",
+                executed_tool_calls=1,
+                file_change_count=1,
+                touched_paths=("src/agent.py",),
+            )
+
+        agent.call_llm = fake_call_llm
+        agent._schedule_post_response_maintenance = lambda chat_id: None
+        agent._maybe_schedule_skill_review = lambda chat_id, result: None
+        await agent.process(
+            UserMessage(
+                text="Please refactor the agent and run tests.",
+                channel="telegram",
+                chat_id="room-1",
+                session_chat_id="telegram:room-1",
+            )
+        )
+        return store.read_managed_block(), store.read_events()
+
+    task_block, events = asyncio.run(scenario())
+
+    assert "- Status: active" in task_block
+    assert "- Current step: 3. verify the result" in task_block
+    assert events[-1]["event_type"] == "work_progress"
+    assert events[-1]["details"]["next_action"] == "stop_budget_exhausted"
 
 
 def test_agent_process_returns_queued_outbound_media(tmp_path):

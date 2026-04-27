@@ -11,6 +11,8 @@ def test_task_intent_classifier_marks_refactor_as_verifiable_long_task():
     assert intent.should_seed_active_task is True
     assert "relevant tests or checks pass, or the verification gap is stated" in intent.done_criteria
     assert intent.verification_hint == "Run the requested verification and report pass or fail."
+    assert intent.expects_code_change is True
+    assert intent.expects_verification is True
     assert intent.constraints == ("Keep the public API stable.",)
 
 
@@ -21,6 +23,8 @@ def test_task_intent_classifier_keeps_question_out_of_active_task_seed():
     assert intent.long_running is False
     assert intent.should_seed_active_task is False
     assert intent.done_criteria == ("the answer is clear and directly addresses the question",)
+    assert intent.expects_code_change is False
+    assert intent.expects_verification is False
 
 
 def test_task_intent_classifier_records_media_upload_without_text():
@@ -29,3 +33,11 @@ def test_task_intent_classifier_records_media_upload_without_text():
     assert intent.kind == "media_upload"
     assert intent.objective == "Save attached media for later use"
     assert intent.should_seed_active_task is False
+
+
+def test_task_intent_debug_diagnosis_does_not_require_code_change():
+    intent = TaskIntentService().classify("Please investigate why the build is failing.")
+
+    assert intent.kind == "debug"
+    assert intent.expects_code_change is False
+    assert intent.expects_verification is False

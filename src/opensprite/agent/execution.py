@@ -40,6 +40,8 @@ class ExecutionResult:
 
     content: str
     executed_tool_calls: int = 0
+    file_change_count: int = 0
+    touched_paths: tuple[str, ...] = ()
     used_configure_skill: bool = False
     had_tool_error: bool = False
     verification_attempted: bool = False

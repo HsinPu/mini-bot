@@ -17,6 +17,7 @@ from .run_trace import RunTraceRecorder
 from .task_intent import TaskIntent, TaskIntentService
 from .turn_context import TurnContextService
 from .turn_input import PreparedTurnInput
+from .work_progress import WorkProgressService, WorkProgressUpdate
 
 
 class AgentTurnRunner:
@@ -31,6 +32,7 @@ class AgentTurnRunner:
         task_intents: TaskIntentService,
         completion_gate: CompletionGateService,
         auto_continue: AutoContinueService,
+        work_progress: WorkProgressService,
         connect_mcp: Callable[[], Awaitable[None]],
         save_message: Callable[..., Awaitable[None]],
         emit_run_event: Callable[..., Awaitable[None]],
@@ -40,6 +42,7 @@ class AgentTurnRunner:
         llm_not_configured_message: Callable[[], str],
         format_log_preview: Callable[..., str],
         apply_completion_gate_result: Callable[[str, CompletionGateResult], Awaitable[None]],
+        apply_work_progress: Callable[[str, WorkProgressUpdate], Awaitable[None]],
         schedule_post_response_maintenance: Callable[[str], None],
         maybe_schedule_skill_review: Callable[[str, ExecutionResult], None],
     ):
@@ -49,6 +52,7 @@ class AgentTurnRunner:
         self.task_intents = task_intents
         self.completion_gate = completion_gate
         self.auto_continue = auto_continue
+        self.work_progress = work_progress
         self._connect_mcp = connect_mcp
         self._save_message = save_message
         self._emit_run_event = emit_run_event
@@ -58,6 +62,7 @@ class AgentTurnRunner:
         self._llm_not_configured_message = llm_not_configured_message
         self._format_log_preview = format_log_preview
         self._apply_completion_gate_result = apply_completion_gate_result
+        self._apply_work_progress = apply_work_progress
         self._schedule_post_response_maintenance = schedule_post_response_maintenance
         self._maybe_schedule_skill_review = maybe_schedule_skill_review
 
@@ -107,6 +112,16 @@ class AgentTurnRunner:
             channel=turn.channel,
             transport_chat_id=turn.transport_chat_id,
         )
+        work_plan = self.work_progress.create_plan(task_intent)
+        if work_plan is not None:
+            await self._emit_run_event(
+                turn.session_chat_id,
+                run_id,
+                "work_plan.created",
+                work_plan.to_metadata(),
+                channel=turn.channel,
+                transport_chat_id=turn.transport_chat_id,
+            )
 
         if self.is_media_only_message(user_message):
             return await self.run_media_only_turn(
@@ -255,6 +270,7 @@ class AgentTurnRunner:
         current_message = user_message.text
 
         while True:
+            self.turn_context.reset_work_progress()
             exec_result = await self._call_llm(
                 turn.session_chat_id,
                 current_message=current_message,
@@ -267,6 +283,7 @@ class AgentTurnRunner:
                 emit_tool_progress=True,
                 task_intent=task_intent,
             )
+            exec_result = self._apply_runtime_progress(exec_result, self.turn_context.snapshot_work_progress())
             response = exec_result.content
             execution_results.append(exec_result)
 
@@ -291,6 +308,21 @@ class AgentTurnRunner:
                 channel=turn.channel,
                 transport_chat_id=turn.transport_chat_id,
             )
+            work_progress = self.work_progress.evaluate(
+                task_intent=task_intent,
+                completion_result=completion_result,
+                execution_result=aggregate_result,
+                auto_continue_attempts=auto_continue_attempts,
+                pass_index=len(execution_results),
+            )
+            await self._emit_run_event(
+                turn.session_chat_id,
+                run_id,
+                "work_progress.updated",
+                work_progress.to_metadata(),
+                channel=turn.channel,
+                transport_chat_id=turn.transport_chat_id,
+            )
             if auto_continue_attempts > 0:
                 await self._emit_run_event(
                     turn.session_chat_id,
@@ -311,6 +343,7 @@ class AgentTurnRunner:
                 execution_result=aggregate_result,
                 attempts_used=auto_continue_attempts,
                 previous_response=response,
+                work_progress=work_progress,
             )
             if decision.should_continue and decision.prompt:
                 await self._emit_run_event(
@@ -354,6 +387,7 @@ class AgentTurnRunner:
             "verification_passed": aggregate_result.verification_passed,
             "context_compactions": aggregate_result.context_compactions,
             "auto_continue_attempts": auto_continue_attempts,
+            "work_progress": work_progress.to_metadata(),
         }
         status_metadata = {
             "executed_tool_calls": aggregate_result.executed_tool_calls,
@@ -369,6 +403,7 @@ class AgentTurnRunner:
         status_metadata["completion_status"] = completion_result.status
 
         async def after_response_saved() -> None:
+            await self._apply_work_progress(turn.session_chat_id, work_progress)
             await self._apply_completion_gate_result(turn.session_chat_id, completion_result)
             self._schedule_post_response_maintenance(turn.session_chat_id)
             self._maybe_schedule_skill_review(turn.session_chat_id, aggregate_result)
@@ -397,6 +432,14 @@ class AgentTurnRunner:
         return ExecutionResult(
             content=content,
             executed_tool_calls=sum(result.executed_tool_calls for result in results),
+            file_change_count=sum(result.file_change_count for result in results),
+            touched_paths=tuple(
+                dict.fromkeys(
+                    path
+                    for result in results
+                    for path in result.touched_paths
+                )
+            ),
             used_configure_skill=any(result.used_configure_skill for result in results),
             had_tool_error=any(result.had_tool_error for result in results),
             verification_attempted=any(result.verification_attempted for result in results),
@@ -408,3 +451,22 @@ class AgentTurnRunner:
                 for event in result.context_compaction_events
             ],
         )
+
+    @staticmethod
+    def _apply_runtime_progress(exec_result: ExecutionResult, work_progress: dict[str, object]) -> ExecutionResult:
+        exec_result.file_change_count = max(
+            int(getattr(exec_result, "file_change_count", 0) or 0),
+            int(work_progress.get("file_change_count", 0) or 0),
+        )
+        touched_paths = tuple(
+            dict.fromkeys(
+                str(path)
+                for path in (
+                    *getattr(exec_result, "touched_paths", ()),
+                    *(work_progress.get("touched_paths", ()) or ()),
+                )
+                if str(path).strip()
+            )
+        )
+        exec_result.touched_paths = touched_paths
+        return exec_result

@@ -8,6 +8,7 @@ from typing import Any
 from .completion_gate import CompletionGateResult
 from .execution import ExecutionResult
 from .task_intent import TaskIntent
+from .work_progress import WorkProgressUpdate
 
 
 _CONTINUABLE_STATUSES = {"incomplete", "needs_verification"}
@@ -53,37 +54,55 @@ class AutoContinueService:
         execution_result: ExecutionResult,
         attempts_used: int,
         previous_response: str,
+        work_progress: WorkProgressUpdate | None = None,
     ) -> AutoContinueDecision:
         """Return whether another bounded pass should run."""
         next_attempt = attempts_used + 1
+        max_attempts = work_progress.continuation_budget if work_progress is not None else self.max_auto_continues
         if completion_result.status in _TERMINAL_STATUSES:
             return self._skip(
                 "completion_gate_terminal_status",
                 attempt=next_attempt,
+                max_attempts=max_attempts,
                 emit_event=False,
             )
         if completion_result.status not in _CONTINUABLE_STATUSES:
             return self._skip(
                 "completion_gate_status_not_continuable",
                 attempt=next_attempt,
+                max_attempts=max_attempts,
                 emit_event=False,
             )
-        if attempts_used >= self.max_auto_continues:
+        if attempts_used >= max_attempts:
             return self._skip(
                 "max_auto_continues_reached",
                 attempt=attempts_used,
+                max_attempts=max_attempts,
+                emit_event=True,
+            )
+        if attempts_used > 0 and work_progress is not None and not work_progress.has_progress:
+            return self._skip(
+                "no_progress_during_continuation",
+                attempt=next_attempt,
+                max_attempts=max_attempts,
                 emit_event=True,
             )
         if execution_result.had_tool_error:
             return self._skip(
                 "tool_error_requires_blocker_or_user_handoff",
                 attempt=next_attempt,
+                max_attempts=max_attempts,
                 emit_event=True,
             )
-        if completion_result.status == "incomplete" and execution_result.executed_tool_calls == 0:
+        if (
+            completion_result.status == "incomplete"
+            and execution_result.executed_tool_calls == 0
+            and not task_intent.expects_code_change
+        ):
             return self._skip(
                 "no_tool_progress_after_incomplete_response",
                 attempt=next_attempt,
+                max_attempts=max_attempts,
                 emit_event=True,
             )
 
@@ -91,7 +110,7 @@ class AutoContinueService:
             should_continue=True,
             reason=f"completion_gate_{completion_result.status}",
             attempt=next_attempt,
-            max_attempts=self.max_auto_continues,
+            max_attempts=max_attempts,
             prompt=self.build_prompt(
                 task_intent=task_intent,
                 completion_result=completion_result,
@@ -127,12 +146,19 @@ class AutoContinueService:
             f"{previous}"
         )
 
-    def _skip(self, reason: str, *, attempt: int, emit_event: bool) -> AutoContinueDecision:
+    def _skip(
+        self,
+        reason: str,
+        *,
+        attempt: int,
+        emit_event: bool,
+        max_attempts: int | None = None,
+    ) -> AutoContinueDecision:
         return AutoContinueDecision(
             should_continue=False,
             reason=reason,
             attempt=attempt,
-            max_attempts=self.max_auto_continues,
+            max_attempts=self.max_auto_continues if max_attempts is None else max_attempts,
             emit_skipped_event=emit_event,
         )
 

@@ -17,6 +17,7 @@ RUN_FILE_REVERT_DIFF_MAX_CHARS = 12_000
 WorkspaceForChat = Callable[[str], Path]
 EventEmitter = Callable[..., Awaitable[None]]
 PreviewFormatter = Callable[[str | list[dict[str, Any]] | None, int], str]
+FileChangeRecorder = Callable[[str], None]
 
 
 @dataclass(frozen=True)
@@ -39,11 +40,13 @@ class RunFileChangeService:
         workspace_for_chat: WorkspaceForChat,
         emit_run_event: EventEmitter,
         format_log_preview: PreviewFormatter,
+        note_file_change: FileChangeRecorder | None = None,
     ):
         self.storage = storage
         self._workspace_for_chat = workspace_for_chat
         self._emit_run_event = emit_run_event
         self._format_log_preview = format_log_preview
+        self._note_file_change = note_file_change
 
     async def record_changes(
         self,
@@ -114,6 +117,11 @@ class RunFileChangeService:
                 channel=channel,
                 transport_chat_id=transport_chat_id,
             )
+            if self._note_file_change is not None:
+                try:
+                    self._note_file_change(path)
+                except Exception:
+                    logger.exception("[{}] run.file-change.progress-hook.failed | run_id={} path={}", chat_id, run_id, path)
 
     def _resolve_change_path(self, chat_id: str, path: str) -> tuple[Path | None, str | None]:
         """Resolve a stored run file-change path and keep it inside the chat workspace."""

@@ -20,6 +20,7 @@ from ..storage.base import get_storage_message_count
 from ..utils.log import logger
 from .completion_gate import CompletionGateResult
 from .task_intent import TaskIntent
+from .work_progress import WorkProgressUpdate
 
 
 class ActiveTaskCommandService:
@@ -118,6 +119,43 @@ class ActiveTaskCommandService:
             "completion_gate",
             "immediate",
             details={"status": result.status, "reason": result.reason},
+        )
+
+    async def apply_work_progress(self, chat_id: str, progress: WorkProgressUpdate) -> None:
+        """Keep ACTIVE_TASK aligned with the final structured work progress state."""
+        store = self.get_store(chat_id)
+        if store is None:
+            return
+        if store.read_status() not in {"active", "blocked", "waiting_user"}:
+            return
+
+        current_step = None
+        next_step = None
+        if progress.next_action == "continue_verification" or progress.status == "verifying":
+            current_step = "3. verify the result"
+            next_step = "not set"
+        elif progress.next_action == "continue_work":
+            current_step = "2. execute the highest-value next step toward the goal"
+            next_step = "3. verify the result" if progress.verification_required else "not set"
+        else:
+            return
+
+        store.update_fields(
+            status="active",
+            current_step=current_step,
+            next_step=next_step,
+            force=True,
+        )
+        store.append_event(
+            "work_progress",
+            "immediate",
+            details={
+                "status": progress.status,
+                "next_action": progress.next_action,
+                "file_change_count": progress.file_change_count,
+                "verification_required": progress.verification_required,
+                "verification_passed": progress.verification_passed,
+            },
         )
 
     async def maybe_seed(

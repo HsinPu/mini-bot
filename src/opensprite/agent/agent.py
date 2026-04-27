@@ -70,6 +70,7 @@ from .tool_registration import register_default_tools, register_memory_tool
 from .turn_context import TurnContextService
 from .turn_input import TurnInputPreparer
 from .turn_runner import AgentTurnRunner
+from .work_progress import WorkProgressService, WorkProgressUpdate
 
 class AgentLoop:
     """
@@ -390,6 +391,10 @@ class AgentLoop:
             default=None,
         )
         self._current_run_id: ContextVar[str | None] = ContextVar("current_run_id", default=None)
+        self._current_work_progress: ContextVar[dict[str, Any] | None] = ContextVar(
+            "current_work_progress",
+            default=None,
+        )
         self.turn_context = TurnContextService(
             current_chat_id=self._current_chat_id,
             current_channel=self._current_channel,
@@ -399,6 +404,7 @@ class AgentLoop:
             current_videos=self._current_videos,
             current_outbound_media=self._current_outbound_media,
             current_run_id=self._current_run_id,
+            current_work_progress=self._current_work_progress,
         )
         self.app_home: Path | None = None
         self.tool_workspace: Path | None = None
@@ -452,6 +458,7 @@ class AgentLoop:
         self.task_intents = TaskIntentService()
         self.completion_gate = CompletionGateService()
         self.auto_continue = AutoContinueService(max_auto_continues=1)
+        self.work_progress = WorkProgressService()
         self.turn_runner = AgentTurnRunner(
             run_trace=self.run_trace,
             response_finalizer=self.response_finalizer,
@@ -459,6 +466,7 @@ class AgentLoop:
             task_intents=self.task_intents,
             completion_gate=self.completion_gate,
             auto_continue=self.auto_continue,
+            work_progress=self.work_progress,
             connect_mcp=lambda: self.connect_mcp(),
             save_message=lambda *args, **kwargs: self._save_message(*args, **kwargs),
             emit_run_event=lambda *args, **kwargs: self._emit_run_event(*args, **kwargs),
@@ -471,6 +479,7 @@ class AgentLoop:
                 chat_id,
                 result,
             ),
+            apply_work_progress=lambda chat_id, progress: self._maybe_apply_work_progress(chat_id, progress),
             schedule_post_response_maintenance=lambda chat_id: self._schedule_post_response_maintenance(chat_id),
             maybe_schedule_skill_review=lambda chat_id, result: self._maybe_schedule_skill_review(chat_id, result),
         )
@@ -501,6 +510,7 @@ class AgentLoop:
             workspace_for_chat=self._get_workspace_for_chat,
             emit_run_event=self._emit_run_event,
             format_log_preview=self._format_log_preview,
+            note_file_change=self.turn_context.note_file_change,
         )
         self.media_service = AgentMediaService(
             workspace_root_getter=lambda: self.tool_workspace
@@ -1236,6 +1246,10 @@ class AgentLoop:
     ) -> None:
         """Apply completion-gate task-state updates when safe."""
         await self.active_task_commands.apply_completion_gate_result(chat_id, result)
+
+    async def _maybe_apply_work_progress(self, chat_id: str, progress: WorkProgressUpdate) -> None:
+        """Apply final structured work progress hints to ACTIVE_TASK when useful."""
+        await self.active_task_commands.apply_work_progress(chat_id, progress)
 
     async def _maybe_update_recent_summary(self, chat_id: str) -> None:
         """Check whether RECENT_SUMMARY.md should be refreshed."""

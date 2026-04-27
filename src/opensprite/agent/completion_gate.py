@@ -11,19 +11,6 @@ from .execution import ExecutionResult
 from .task_intent import TaskIntent
 
 
-_VERIFICATION_REQUIRED_MARKERS = (
-    "test",
-    "tests",
-    "pytest",
-    "verify",
-    "verification",
-    "build",
-    "compile",
-    "測試",
-    "驗證",
-    "建置",
-    "編譯",
-)
 _COMPLETE_MARKERS = (
     "all set",
     "complete",
@@ -104,6 +91,7 @@ class CompletionGateService:
     ) -> CompletionGateResult:
         """Return the safest completion verdict for the current turn."""
         verification_required = _requires_verification(task_intent)
+        expects_code_change = task_intent.expects_code_change
         verification_attempted = execution_result.verification_attempted
         verification_passed = execution_result.verification_passed
 
@@ -134,6 +122,15 @@ class CompletionGateService:
                 verification_passed=verification_passed,
             )
 
+        if expects_code_change and execution_result.file_change_count <= 0:
+            return CompletionGateResult(
+                status="incomplete",
+                reason="expected code changes were not recorded",
+                verification_required=verification_required,
+                verification_attempted=verification_attempted,
+                verification_passed=verification_passed,
+            )
+
         if verification_required and not verification_passed:
             reason = (
                 "required verification did not pass"
@@ -152,6 +149,28 @@ class CompletionGateService:
             return CompletionGateResult(
                 status="complete" if response_text.strip() else "incomplete",
                 reason="one-turn intent received a response" if response_text.strip() else "assistant response was empty",
+                verification_required=verification_required,
+                verification_attempted=verification_attempted,
+                verification_passed=verification_passed,
+            )
+
+        if task_intent.kind in {"analysis", "review"} and response_text.strip() and not _looks_incomplete(response_text):
+            return CompletionGateResult(
+                status="complete",
+                reason="analysis-style task returned a substantive response",
+                active_task_status="done",
+                should_update_active_task=task_intent.should_seed_active_task,
+                verification_required=verification_required,
+                verification_attempted=verification_attempted,
+                verification_passed=verification_passed,
+            )
+
+        if task_intent.kind == "debug" and not expects_code_change and response_text.strip() and not _looks_incomplete(response_text):
+            return CompletionGateResult(
+                status="complete",
+                reason="debug diagnosis was provided without requiring code changes",
+                active_task_status="done",
+                should_update_active_task=task_intent.should_seed_active_task,
                 verification_required=verification_required,
                 verification_attempted=verification_attempted,
                 verification_passed=verification_passed,
@@ -178,14 +197,18 @@ class CompletionGateService:
 
 
 def _requires_verification(task_intent: TaskIntent) -> bool:
-    haystack = task_intent.objective.lower()
-    return any(marker in haystack for marker in _VERIFICATION_REQUIRED_MARKERS)
+    return task_intent.expects_verification
 
 
 def _looks_complete(response_text: str) -> bool:
     lowered = re.sub(r"\s+", " ", (response_text or "").strip().lower())
     if not lowered:
         return False
-    if any(marker in lowered for marker in _INCOMPLETE_MARKERS):
+    if _looks_incomplete(response_text):
         return False
     return any(marker in lowered for marker in _COMPLETE_MARKERS)
+
+
+def _looks_incomplete(response_text: str) -> bool:
+    lowered = re.sub(r"\s+", " ", (response_text or "").strip().lower())
+    return any(marker in lowered for marker in _INCOMPLETE_MARKERS)

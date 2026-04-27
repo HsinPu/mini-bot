@@ -97,6 +97,36 @@ _LONG_RUNNING_MARKERS = (
     "除錯",
     "調查",
 )
+_DEBUG_FIX_MARKERS = (
+    "fix",
+    "repair",
+    "resolve",
+    "patch",
+    "change",
+    "modify",
+    "update",
+    "修正",
+    "修復",
+    "修改",
+    "更新",
+    "補上",
+)
+_DEBUG_DIAGNOSIS_MARKERS = (
+    "analyze",
+    "analyse",
+    "investigate",
+    "inspect",
+    "check",
+    "look into",
+    "why",
+    "root cause",
+    "explain",
+    "分析",
+    "調查",
+    "檢查",
+    "原因",
+    "看一下",
+)
 _CONSTRAINT_MARKERS = (
     "do not",
     "don't",
@@ -133,6 +163,8 @@ class TaskIntent:
     needs_clarification: bool = False
     verification_hint: str | None = None
     long_running: bool = False
+    expects_code_change: bool = False
+    expects_verification: bool = False
 
     @property
     def should_seed_active_task(self) -> bool:
@@ -149,6 +181,8 @@ class TaskIntent:
             "done_criteria": list(self.done_criteria),
             "needs_clarification": self.needs_clarification,
             "long_running": self.long_running,
+            "expects_code_change": self.expects_code_change,
+            "expects_verification": self.expects_verification,
         }
         if self.verification_hint:
             payload["verification_hint"] = self.verification_hint
@@ -208,6 +242,8 @@ class TaskIntentService:
         constraints = _extract_constraints(compact)
         done_criteria = _done_criteria(kind, long_running=long_running, has_media=media_count > 0)
         verification_hint = _verification_hint(kind, compact)
+        expects_code_change = _expects_code_change(kind, compact)
+        expects_verification = _expects_verification(kind, compact)
 
         return TaskIntent(
             kind=kind,
@@ -217,6 +253,8 @@ class TaskIntentService:
             needs_clarification=needs_clarification,
             verification_hint=verification_hint,
             long_running=long_running,
+            expects_code_change=expects_code_change,
+            expects_verification=expects_verification,
         )
 
 
@@ -249,6 +287,10 @@ def _classify_kind(text: str, *, media_count: int) -> str:
             matched_kind = kind
             break
 
+    if matched_kind == "analysis" and any(
+        marker in lowered for marker in ("bug", "error", "exception", "failed", "failure", "failing", "fix", "錯誤", "失敗")
+    ):
+        return "debug"
     if matched_kind != "conversation":
         return matched_kind
     if media_count and (_looks_like_question(text) or has_request_marker):
@@ -322,11 +364,34 @@ def _done_criteria(kind: str, *, long_running: bool, has_media: bool) -> tuple[s
 
 
 def _verification_hint(kind: str, text: str) -> str | None:
-    lowered = text.lower()
-    if any(marker in lowered for marker in ("test", "verify", "build", "測試", "驗證")):
+    if _expects_verification(kind, text):
         return "Run the requested verification and report pass or fail."
     if kind in {"debug", "implementation", "refactor"}:
         return "Run relevant tests or checks before marking the task complete."
     if kind in {"analysis", "review"}:
         return "Validate findings against the referenced files, data, or conversation evidence."
     return None
+
+
+def _expects_code_change(kind: str, text: str) -> bool:
+    lowered = text.lower()
+    if kind in {"implementation", "refactor"}:
+        return True
+    if kind != "debug":
+        return False
+    if any(marker in lowered for marker in _DEBUG_FIX_MARKERS):
+        return True
+    if any(marker in lowered for marker in _DEBUG_DIAGNOSIS_MARKERS):
+        return False
+    return False
+
+
+def _expects_verification(kind: str, text: str) -> bool:
+    lowered = text.lower()
+    if any(marker in lowered for marker in ("pytest", "verify", "verification", "測試", "驗證", "建置", "編譯")):
+        return True
+    if any(marker in lowered for marker in ("run tests", "run the tests", "run build", "run the build", "run compile")):
+        return True
+    if kind in {"implementation", "refactor"} and any(marker in lowered for marker in ("test", "tests", "build", "compile")):
+        return True
+    return False

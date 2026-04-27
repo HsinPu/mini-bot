@@ -9,7 +9,11 @@ def test_completion_gate_requires_requested_verification_before_completion():
     result = CompletionGateService().evaluate(
         task_intent=intent,
         response_text="Completed the refactor.",
-        execution_result=ExecutionResult(content="Completed the refactor."),
+        execution_result=ExecutionResult(
+            content="Completed the refactor.",
+            file_change_count=1,
+            touched_paths=("src/agent.py",),
+        ),
     )
 
     assert result.status == "needs_verification"
@@ -55,9 +59,52 @@ def test_completion_gate_marks_explicit_task_completion_done():
     result = CompletionGateService().evaluate(
         task_intent=intent,
         response_text="Implemented the final cleanup successfully.",
-        execution_result=ExecutionResult(content="Implemented the final cleanup successfully."),
+        execution_result=ExecutionResult(
+            content="Implemented the final cleanup successfully.",
+            file_change_count=1,
+            touched_paths=("src/cleanup.py",),
+        ),
     )
 
     assert result.status == "complete"
     assert result.active_task_status == "done"
     assert result.should_update_active_task is True
+
+
+def test_completion_gate_requires_recorded_code_changes_for_implementation():
+    intent = TaskIntentService().classify("Please implement the final cleanup.")
+
+    result = CompletionGateService().evaluate(
+        task_intent=intent,
+        response_text="Implemented the final cleanup successfully.",
+        execution_result=ExecutionResult(content="Implemented the final cleanup successfully."),
+    )
+
+    assert result.status == "incomplete"
+    assert result.reason == "expected code changes were not recorded"
+
+
+def test_completion_gate_allows_review_without_code_changes():
+    intent = TaskIntentService().classify("Please review the recent changes for regressions.")
+
+    result = CompletionGateService().evaluate(
+        task_intent=intent,
+        response_text="Found two regressions tied to src/app.py and tests/test_app.py.",
+        execution_result=ExecutionResult(content="Found two regressions tied to src/app.py and tests/test_app.py."),
+    )
+
+    assert result.status == "complete"
+    assert result.reason == "analysis-style task returned a substantive response"
+
+
+def test_completion_gate_allows_debug_diagnosis_without_code_changes():
+    intent = TaskIntentService().classify("Please investigate why the build is failing.")
+
+    result = CompletionGateService().evaluate(
+        task_intent=intent,
+        response_text="The build fails because the generated config file is missing at startup.",
+        execution_result=ExecutionResult(content="The build fails because the generated config file is missing at startup."),
+    )
+
+    assert result.status == "complete"
+    assert result.reason == "debug diagnosis was provided without requiring code changes"
