@@ -279,6 +279,74 @@ class WebAdapter(MessageAdapter):
     def _get_storage(self) -> Any | None:
         return getattr(getattr(self.mq, "agent", None), "storage", None)
 
+    def _serialize_run(self, run: Any) -> dict[str, Any]:
+        return {
+            "run_id": run.run_id,
+            "chat_id": run.chat_id,
+            "status": run.status,
+            "created_at": run.created_at,
+            "updated_at": run.updated_at,
+            "finished_at": run.finished_at,
+            "metadata": self._json_safe(dict(run.metadata or {})),
+        }
+
+    def _serialize_run_event(self, event: Any) -> dict[str, Any]:
+        return {
+            "event_id": event.event_id,
+            "run_id": event.run_id,
+            "chat_id": event.chat_id,
+            "event_type": event.event_type,
+            "payload": self._json_safe(dict(event.payload or {})),
+            "created_at": event.created_at,
+        }
+
+    def _serialize_run_part(self, part: Any) -> dict[str, Any]:
+        return {
+            "part_id": part.part_id,
+            "run_id": part.run_id,
+            "chat_id": part.chat_id,
+            "part_type": part.part_type,
+            "content": part.content,
+            "tool_name": part.tool_name,
+            "metadata": self._json_safe(dict(part.metadata or {})),
+            "created_at": part.created_at,
+        }
+
+    def _serialize_file_change(self, change: Any) -> dict[str, Any]:
+        return {
+            "change_id": change.change_id,
+            "run_id": change.run_id,
+            "chat_id": change.chat_id,
+            "tool_name": change.tool_name,
+            "path": change.path,
+            "action": change.action,
+            "before_sha256": change.before_sha256,
+            "after_sha256": change.after_sha256,
+            "before_content": change.before_content,
+            "after_content": change.after_content,
+            "diff": change.diff,
+            "metadata": self._json_safe(dict(change.metadata or {})),
+            "created_at": change.created_at,
+        }
+
+    def _require_storage(self) -> Any:
+        storage = self._get_storage()
+        if storage is None:
+            raise web.HTTPServiceUnavailable(text="Run trace storage is not available")
+        return storage
+
+    @staticmethod
+    def _coerce_limit(value: str | None, *, default: int = 20, maximum: int = 100) -> int:
+        if value is None or not value.strip():
+            return default
+        try:
+            limit = int(value)
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text="limit must be an integer") from exc
+        if limit < 1:
+            raise web.HTTPBadRequest(text="limit must be greater than zero")
+        return min(limit, maximum)
+
     @staticmethod
     def _coerce_media_list(value: Any) -> list[str] | None:
         if not isinstance(value, list):
@@ -371,9 +439,7 @@ class WebAdapter(MessageAdapter):
         return web.json_response({"ok": True, "channel": "web"})
 
     async def _handle_run_events(self, request: web.Request) -> web.Response:
-        storage = self._get_storage()
-        if storage is None:
-            raise web.HTTPServiceUnavailable(text="Run event storage is not available")
+        storage = self._require_storage()
 
         run_id = self._coerce_optional_text(request.match_info.get("run_id"))
         chat_id = self._coerce_optional_text(request.query.get("chat_id"))
@@ -389,17 +455,41 @@ class WebAdapter(MessageAdapter):
             {
                 "run_id": run_id,
                 "chat_id": chat_id,
-                "events": [
-                    {
-                        "event_id": event.event_id,
-                        "run_id": event.run_id,
-                        "chat_id": event.chat_id,
-                        "event_type": event.event_type,
-                        "payload": self._json_safe(dict(event.payload or {})),
-                        "created_at": event.created_at,
-                    }
-                    for event in events
-                ],
+                "events": [self._serialize_run_event(event) for event in events],
+            }
+        )
+
+    async def _handle_runs(self, request: web.Request) -> web.Response:
+        storage = self._require_storage()
+        chat_id = self._coerce_optional_text(request.query.get("chat_id"))
+        if chat_id is None:
+            raise web.HTTPBadRequest(text="chat_id is required")
+
+        runs = await storage.get_runs(chat_id, limit=self._coerce_limit(request.query.get("limit")))
+        return web.json_response(
+            {
+                "chat_id": chat_id,
+                "runs": [self._serialize_run(run) for run in runs],
+            }
+        )
+
+    async def _handle_run_trace(self, request: web.Request) -> web.Response:
+        storage = self._require_storage()
+        run_id = self._coerce_optional_text(request.match_info.get("run_id"))
+        chat_id = self._coerce_optional_text(request.query.get("chat_id"))
+        if run_id is None or chat_id is None:
+            raise web.HTTPBadRequest(text="Both run_id and chat_id are required")
+
+        trace = await storage.get_run_trace(chat_id, run_id)
+        if trace is None:
+            raise web.HTTPNotFound(text="Run not found")
+
+        return web.json_response(
+            {
+                "run": self._serialize_run(trace.run),
+                "events": [self._serialize_run_event(event) for event in trace.events],
+                "parts": [self._serialize_run_part(part) for part in trace.parts],
+                "file_changes": [self._serialize_file_change(change) for change in trace.file_changes],
             }
         )
 
@@ -496,6 +586,8 @@ class WebAdapter(MessageAdapter):
         self.app = web.Application()
         self.app.router.add_get(ws_path, self._handle_websocket)
         self.app.router.add_get(health_path, self._handle_health)
+        self.app.router.add_get("/api/runs", self._handle_runs)
+        self.app.router.add_get("/api/runs/{run_id}", self._handle_run_trace)
         self.app.router.add_get("/api/runs/{run_id}/events", self._handle_run_events)
         self.app.router.add_get("/", self._handle_frontend_index)
         self.app.router.add_get("/index.html", self._handle_frontend_index)

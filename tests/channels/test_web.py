@@ -273,7 +273,13 @@ def test_web_adapter_root_explains_missing_frontend(tmp_path):
 
 async def _run_web_run_events_api():
     storage = MemoryStorage()
-    await storage.create_run("web:browser-1", "run-1", created_at=100.0)
+    await storage.create_run(
+        "web:browser-1",
+        "run-1",
+        status="completed",
+        metadata={"objective": Path("notes.txt")},
+        created_at=100.0,
+    )
     await storage.add_run_event(
         "web:browser-1",
         "run-1",
@@ -288,6 +294,30 @@ async def _run_web_run_events_api():
         payload={"status": "complete"},
         created_at=102.0,
     )
+    await storage.add_run_part(
+        "web:browser-1",
+        "run-1",
+        "tool_call",
+        content="apply patch",
+        tool_name="apply_patch",
+        metadata={"path": Path("notes.txt")},
+        created_at=103.0,
+    )
+    await storage.add_run_file_change(
+        "web:browser-1",
+        "run-1",
+        "apply_patch",
+        "notes.txt",
+        "modify",
+        before_sha256="before",
+        after_sha256="after",
+        before_content="old\n",
+        after_content="new\n",
+        diff="--- a/notes.txt\n+++ b/notes.txt\n",
+        metadata={"verified": True},
+        created_at=104.0,
+    )
+    await storage.create_run("web:browser-1", "run-2", created_at=200.0)
 
     agent = EchoAgent()
     agent.storage = storage
@@ -330,11 +360,66 @@ async def _run_web_run_events_api():
             }
             assert payload["events"][1]["created_at"] == 102.0
 
+            async with session.get(
+                f"http://127.0.0.1:{port}/api/runs",
+                params={"chat_id": "web:browser-1", "limit": "1"},
+            ) as resp:
+                assert resp.status == 200
+                runs_payload = await resp.json()
+
+            assert runs_payload["chat_id"] == "web:browser-1"
+            assert [run["run_id"] for run in runs_payload["runs"]] == ["run-2"]
+
+            async with session.get(
+                f"http://127.0.0.1:{port}/api/runs/run-1",
+                params={"chat_id": "web:browser-1"},
+            ) as resp:
+                assert resp.status == 200
+                trace_payload = await resp.json()
+
+            assert trace_payload["run"]["run_id"] == "run-1"
+            assert trace_payload["run"]["metadata"] == {"objective": "notes.txt"}
+            assert [event["event_type"] for event in trace_payload["events"]] == [
+                "task_intent.detected",
+                "completion_gate.evaluated",
+            ]
+            assert trace_payload["parts"] == [
+                {
+                    "part_id": 1,
+                    "run_id": "run-1",
+                    "chat_id": "web:browser-1",
+                    "part_type": "tool_call",
+                    "content": "apply patch",
+                    "tool_name": "apply_patch",
+                    "metadata": {"path": "notes.txt"},
+                    "created_at": 103.0,
+                }
+            ]
+            assert trace_payload["file_changes"][0]["change_id"] == 1
+            assert trace_payload["file_changes"][0]["path"] == "notes.txt"
+            assert trace_payload["file_changes"][0]["before_content"] == "old\n"
+            assert trace_payload["file_changes"][0]["after_content"] == "new\n"
+
             async with session.get(f"http://127.0.0.1:{port}/api/runs/run-1/events") as resp:
+                assert resp.status == 400
+
+            async with session.get(f"http://127.0.0.1:{port}/api/runs") as resp:
+                assert resp.status == 400
+
+            async with session.get(
+                f"http://127.0.0.1:{port}/api/runs",
+                params={"chat_id": "web:browser-1", "limit": "not-a-number"},
+            ) as resp:
                 assert resp.status == 400
 
             async with session.get(
                 f"http://127.0.0.1:{port}/api/runs/missing-run/events",
+                params={"chat_id": "web:browser-1"},
+            ) as resp:
+                assert resp.status == 404
+
+            async with session.get(
+                f"http://127.0.0.1:{port}/api/runs/missing-run",
                 params={"chat_id": "web:browser-1"},
             ) as resp:
                 assert resp.status == 404
