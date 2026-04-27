@@ -12,6 +12,7 @@ from ..search.base import SearchStore
 from ..tools import ToolRegistry
 from ..utils import count_messages_tokens, count_text_tokens
 from ..utils.log import logger
+from .run_state import RunCancelledError
 
 
 @dataclass
@@ -340,6 +341,12 @@ Output exactly these sections when applicable:
         """Return whether an LLM exception appears to be caused by context size."""
         text = f"{type(exc).__name__}: {str(exc)}".lower()
         return any(marker in text for marker in cls.CONTEXT_OVERFLOW_MARKERS)
+
+    @staticmethod
+    def _raise_if_cancel_requested(should_cancel: Callable[[], bool] | None) -> None:
+        """Raise a cooperative cancellation error when the current run was cancelled."""
+        if should_cancel is not None and should_cancel():
+            raise RunCancelledError("run cancellation requested")
 
     def _get_token_model(self) -> str | None:
         """Best-effort model name lookup for local token estimates."""
@@ -737,6 +744,7 @@ Output exactly these sections when applicable:
         on_llm_status: Callable[[str], Awaitable[None]] | None = None,
         refresh_system_prompt: Callable[[], str] | None = None,
         max_tool_iterations: int | None = None,
+        should_cancel: Callable[[], bool] | None = None,
         work_state_summary: str = "",
     ) -> ExecutionResult:
         """Execute the prepared messages, including tool calls when enabled."""
@@ -766,6 +774,7 @@ Output exactly these sections when applicable:
         )
 
         for iteration in range(iteration_limit):
+            self._raise_if_cancel_requested(should_cancel)
             if proactive_context_compactions < self.PROACTIVE_CONTEXT_COMPACTION_LIMIT:
                 proactive_compaction = await self._build_proactive_compaction(
                     log_id,
@@ -817,6 +826,7 @@ Output exactly these sections when applicable:
                 f"tools={'on' if tools else 'off'} tail={self.summarize_messages(chat_messages)}"
             )
             while True:
+                self._raise_if_cancel_requested(should_cancel)
                 try:
                     if self.pass_decoding_params:
                         dec_temp = self.chat_temperature
@@ -978,6 +988,7 @@ Output exactly these sections when applicable:
                 ))
 
                 for tc in response.tool_calls:
+                    self._raise_if_cancel_requested(should_cancel)
                     tool_name = tc.name
                     tool_args = tc.arguments if isinstance(tc.arguments, dict) else {}
                     args_preview = self.format_log_preview(json.dumps(tool_args, ensure_ascii=False), max_chars=200)
@@ -1001,6 +1012,7 @@ Output exactly these sections when applicable:
                         tool_args,
                         on_before_execute=_notify_tool_before_execute,
                     )
+                    self._raise_if_cancel_requested(should_cancel)
                     executed_tool_calls += 1
                     if self._tool_result_looks_like_failure(result):
                         had_tool_error = True

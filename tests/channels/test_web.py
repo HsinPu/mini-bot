@@ -433,3 +433,84 @@ async def _run_web_run_events_api():
 
 def test_web_adapter_exposes_run_events_api():
     asyncio.run(_run_web_run_events_api())
+
+
+async def _run_web_run_cancel_api():
+    storage = MemoryStorage()
+    await storage.create_run("web:browser-1", "run-1", status="running", created_at=100.0)
+    await storage.create_run("web:browser-1", "run-2", status="completed", created_at=101.0)
+    cancel_calls = []
+
+    class CancelAgent(EchoAgent):
+        def __init__(self):
+            super().__init__()
+            self.storage = storage
+
+        async def request_run_cancel(self, chat_id, run_id, *, channel=None, transport_chat_id=None):
+            cancel_calls.append((chat_id, run_id, channel, transport_chat_id))
+            return run_id == "run-1"
+
+    agent = CancelAgent()
+    queue = MessageQueue(agent)
+    cancelled_sessions = []
+
+    async def fake_cancel_chat(chat_id, channel=None):
+        cancelled_sessions.append((chat_id, channel))
+        return 1
+
+    queue.cancel_chat = fake_cancel_chat
+    adapter = WebAdapter(
+        mq=queue,
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "path": "/ws",
+            "health_path": "/healthz",
+            "frontend_auto_build": False,
+        },
+    )
+    adapter_task = asyncio.create_task(adapter.run())
+
+    try:
+        await adapter.wait_until_started()
+        port = adapter.bound_port
+        assert port is not None
+
+        async with ClientSession() as session:
+            async with session.post(
+                f"http://127.0.0.1:{port}/api/runs/run-1/cancel",
+                params={"chat_id": "web:browser-1"},
+            ) as resp:
+                assert resp.status == 200
+                payload = await resp.json()
+
+            assert payload == {
+                "ok": True,
+                "chat_id": "web:browser-1",
+                "run_id": "run-1",
+                "status": "cancelling",
+            }
+            assert cancel_calls[0] == ("web:browser-1", "run-1", "web", "browser-1")
+            assert cancelled_sessions == [("web:browser-1", None)]
+
+            async with session.post(
+                f"http://127.0.0.1:{port}/api/runs/run-2/cancel",
+                params={"chat_id": "web:browser-1"},
+            ) as resp:
+                assert resp.status == 409
+
+            async with session.post(
+                f"http://127.0.0.1:{port}/api/runs/missing-run/cancel",
+                params={"chat_id": "web:browser-1"},
+            ) as resp:
+                assert resp.status == 404
+    finally:
+        adapter_task.cancel()
+        try:
+            await adapter_task
+        except asyncio.CancelledError:
+            pass
+
+
+def test_web_adapter_exposes_run_cancel_api():
+    asyncio.run(_run_web_run_cancel_api())

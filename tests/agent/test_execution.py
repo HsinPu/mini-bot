@@ -231,6 +231,25 @@ def test_execution_engine_returns_max_iteration_message_when_tool_loop_never_fin
     assert "demo_tool: tool:abc" in result.content
 
 
+def test_execution_engine_stops_when_cancel_checker_requests_stop():
+    provider = FakeProvider([LLMResponse(content="done", model="fake-model")])
+    engine = _make_engine(provider, ToolRegistry(), [])
+
+    try:
+        asyncio.run(
+            engine.execute_messages(
+                "chat-1",
+                [ChatMessage(role="user", content="hi")],
+                allow_tools=False,
+                should_cancel=lambda: True,
+            )
+        )
+    except asyncio.CancelledError:
+        pass
+    else:
+        raise AssertionError("CancelledError was not raised")
+
+
 def test_execution_engine_stops_after_repeated_missing_required_tool_errors():
     class MissingArgsTool(Tool):
         @property

@@ -279,6 +279,9 @@ class WebAdapter(MessageAdapter):
     def _get_storage(self) -> Any | None:
         return getattr(getattr(self.mq, "agent", None), "storage", None)
 
+    def _get_agent(self) -> Any | None:
+        return getattr(self.mq, "agent", None)
+
     def _serialize_run(self, run: Any) -> dict[str, Any]:
         return {
             "run_id": run.run_id,
@@ -346,6 +349,14 @@ class WebAdapter(MessageAdapter):
         if limit < 1:
             raise web.HTTPBadRequest(text="limit must be greater than zero")
         return min(limit, maximum)
+
+    @staticmethod
+    def _transport_chat_id_from_session(chat_id: str) -> str | None:
+        parts = str(chat_id or "").split(":", 1)
+        if len(parts) == 2 and parts[1].strip():
+            return parts[1].strip()
+        compact = str(chat_id or "").strip()
+        return compact or None
 
     @staticmethod
     def _coerce_media_list(value: Any) -> list[str] | None:
@@ -493,6 +504,36 @@ class WebAdapter(MessageAdapter):
             }
         )
 
+    async def _handle_run_cancel(self, request: web.Request) -> web.Response:
+        storage = self._require_storage()
+        agent = self._get_agent()
+        if agent is None or not hasattr(agent, "request_run_cancel"):
+            raise web.HTTPServiceUnavailable(text="Run cancellation is not available")
+
+        run_id = self._coerce_optional_text(request.match_info.get("run_id"))
+        chat_id = self._coerce_optional_text(request.query.get("chat_id"))
+        if run_id is None or chat_id is None:
+            raise web.HTTPBadRequest(text="Both run_id and chat_id are required")
+
+        run = await storage.get_run(chat_id, run_id)
+        if run is None:
+            raise web.HTTPNotFound(text="Run not found")
+
+        accepted = await agent.request_run_cancel(
+            chat_id,
+            run_id,
+            channel="web",
+            transport_chat_id=self._transport_chat_id_from_session(chat_id),
+        )
+        if not accepted:
+            raise web.HTTPConflict(text="Run is not active")
+
+        cancel_chat = getattr(self.mq, "cancel_chat", None)
+        if callable(cancel_chat):
+            await cancel_chat(chat_id)
+
+        return web.json_response({"ok": True, "chat_id": chat_id, "run_id": run_id, "status": "cancelling"})
+
     async def _handle_frontend_index(self, request: web.Request) -> web.FileResponse:
         if self._frontend_dir is None:
             raise web.HTTPServiceUnavailable(
@@ -589,6 +630,7 @@ class WebAdapter(MessageAdapter):
         self.app.router.add_get("/api/runs", self._handle_runs)
         self.app.router.add_get("/api/runs/{run_id}", self._handle_run_trace)
         self.app.router.add_get("/api/runs/{run_id}/events", self._handle_run_events)
+        self.app.router.add_post("/api/runs/{run_id}/cancel", self._handle_run_cancel)
         self.app.router.add_get("/", self._handle_frontend_index)
         self.app.router.add_get("/index.html", self._handle_frontend_index)
         if self._frontend_dir is not None:

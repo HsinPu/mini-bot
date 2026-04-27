@@ -13,6 +13,7 @@ from .completion_gate import CompletionGateResult, CompletionGateService
 from .execution import ExecutionResult
 from .media import AgentMediaService
 from .response_finalizer import AgentResponseFinalizer
+from .run_state import AgentRunStateService
 from .run_trace import RunTraceRecorder
 from ..storage import StoredWorkState
 from .task_intent import TaskIntent, TaskIntentService
@@ -30,6 +31,7 @@ class AgentTurnRunner:
         run_trace: RunTraceRecorder,
         response_finalizer: AgentResponseFinalizer,
         turn_context: TurnContextService,
+        run_state: AgentRunStateService,
         task_intents: TaskIntentService,
         completion_gate: CompletionGateService,
         auto_continue: AutoContinueService,
@@ -52,6 +54,7 @@ class AgentTurnRunner:
         self.run_trace = run_trace
         self.response_finalizer = response_finalizer
         self.turn_context = turn_context
+        self.run_state = run_state
         self.task_intents = task_intents
         self.completion_gate = completion_gate
         self.auto_continue = auto_continue
@@ -90,6 +93,7 @@ class AgentTurnRunner:
     ) -> AssistantMessage:
         """Start run telemetry and dispatch one prepared user turn."""
         run_id = f"run_{uuid4().hex}"
+        self.run_state.start(turn.session_chat_id, run_id)
         await self.run_trace.start_turn_run(
             turn.session_chat_id,
             run_id,
@@ -137,65 +141,68 @@ class AgentTurnRunner:
                 transport_chat_id=turn.transport_chat_id,
             )
 
-        if self.is_media_only_message(user_message):
-            return await self.run_media_only_turn(
-                user_message=user_message,
-                turn=turn,
-                run_id=run_id,
-            )
-
-        with self.turn_context.activate(
-            chat_id=turn.session_chat_id,
-            channel=turn.channel,
-            transport_chat_id=turn.transport_chat_id,
-            images=user_message.images,
-            audios=user_message.audios,
-            videos=user_message.videos,
-            run_id=run_id,
-        ):
-            try:
-                if not llm_configured:
-                    return await self.run_llm_not_configured_turn(
-                        user_message=user_message,
-                        turn=turn,
-                        run_id=run_id,
-                    )
-
-                return await self.run_normal_turn(
+        try:
+            if self.is_media_only_message(user_message):
+                return await self.run_media_only_turn(
                     user_message=user_message,
                     turn=turn,
                     run_id=run_id,
-                    task_intent=task_intent,
-                    work_plan=work_plan,
-                    current_work_state=current_work_state,
                 )
-            except asyncio.CancelledError:
-                await self.run_trace.fail_run(
-                    turn.session_chat_id,
-                    run_id,
-                    status="cancelled",
-                    event_payload={"status": "cancelled", "error": "cancelled"},
-                    channel=turn.channel,
-                    transport_chat_id=turn.transport_chat_id,
-                )
-                raise
-            except Exception as exc:
-                logger.exception(
-                    f"[{turn.session_chat_id}] Agent.process failed: channel={turn.channel}, "
-                    f"text_len={len(user_message.text or '')}, images={len(user_message.images or [])}, audios={len(user_message.audios or [])}, videos={len(user_message.videos or [])}"
-                )
-                await self.run_trace.fail_run(
-                    turn.session_chat_id,
-                    run_id,
-                    status="failed",
-                    event_payload={
-                        "status": "failed",
-                        "error": self._format_log_preview(f"{type(exc).__name__}: {exc}", max_chars=240),
-                    },
-                    channel=turn.channel,
-                    transport_chat_id=turn.transport_chat_id,
-                )
-                raise
+
+            with self.turn_context.activate(
+                chat_id=turn.session_chat_id,
+                channel=turn.channel,
+                transport_chat_id=turn.transport_chat_id,
+                images=user_message.images,
+                audios=user_message.audios,
+                videos=user_message.videos,
+                run_id=run_id,
+            ):
+                try:
+                    if not llm_configured:
+                        return await self.run_llm_not_configured_turn(
+                            user_message=user_message,
+                            turn=turn,
+                            run_id=run_id,
+                        )
+
+                    return await self.run_normal_turn(
+                        user_message=user_message,
+                        turn=turn,
+                        run_id=run_id,
+                        task_intent=task_intent,
+                        work_plan=work_plan,
+                        current_work_state=current_work_state,
+                    )
+                except asyncio.CancelledError:
+                    await self.run_trace.fail_run(
+                        turn.session_chat_id,
+                        run_id,
+                        status="cancelled",
+                        event_payload={"status": "cancelled", "error": "cancelled"},
+                        channel=turn.channel,
+                        transport_chat_id=turn.transport_chat_id,
+                    )
+                    raise
+                except Exception as exc:
+                    logger.exception(
+                        f"[{turn.session_chat_id}] Agent.process failed: channel={turn.channel}, "
+                        f"text_len={len(user_message.text or '')}, images={len(user_message.images or [])}, audios={len(user_message.audios or [])}, videos={len(user_message.videos or [])}"
+                    )
+                    await self.run_trace.fail_run(
+                        turn.session_chat_id,
+                        run_id,
+                        status="failed",
+                        event_payload={
+                            "status": "failed",
+                            "error": self._format_log_preview(f"{type(exc).__name__}: {exc}", max_chars=240),
+                        },
+                        channel=turn.channel,
+                        transport_chat_id=turn.transport_chat_id,
+                    )
+                    raise
+        finally:
+            self.run_state.finish(turn.session_chat_id, run_id)
 
     async def run_media_only_turn(
         self,

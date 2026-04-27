@@ -62,6 +62,7 @@ from .permission_flow import AgentPermissionService
 from .prompt_budget import PromptBudgetService
 from .prompt_logging import PromptLoggingService
 from .response_finalizer import AgentResponseFinalizer
+from .run_state import AgentRunStateService
 from .run_trace import RunTraceRecorder
 from .run_hooks import RunHookService
 from .skill_review import SkillReviewService
@@ -460,10 +461,12 @@ class AgentLoop:
         self.completion_gate = CompletionGateService()
         self.auto_continue = AutoContinueService(max_auto_continues=1)
         self.work_progress = WorkProgressService()
+        self.run_state = AgentRunStateService()
         self.turn_runner = AgentTurnRunner(
             run_trace=self.run_trace,
             response_finalizer=self.response_finalizer,
             turn_context=self.turn_context,
+            run_state=self.run_state,
             task_intents=self.task_intents,
             completion_gate=self.completion_gate,
             auto_continue=self.auto_continue,
@@ -595,6 +598,7 @@ class AgentLoop:
             log_prepared_messages=self._log_prepared_messages,
             get_work_state_summary=lambda chat_id: self._get_work_state_summary(chat_id),
             get_current_run_id=self.turn_context.current_run_id,
+            should_cancel_run=lambda chat_id, run_id: self._is_run_cancel_requested(chat_id, run_id),
             make_tool_progress_hook=lambda *args, **kwargs: self._make_tool_progress_hook(*args, **kwargs),
             make_tool_result_hook=lambda *args, **kwargs: self._make_tool_result_hook(*args, **kwargs),
             make_llm_status_hook=lambda *args, **kwargs: self._make_llm_status_hook(*args, **kwargs),
@@ -1040,6 +1044,8 @@ class AgentLoop:
         on_llm_status: Callable[[str], Awaitable[None]] | None = None,
         refresh_system_prompt: Callable[[], str] | None = None,
         max_tool_iterations: int | None = None,
+        should_cancel: Callable[[], bool] | None = None,
+        work_state_summary: str = "",
     ) -> ExecutionResult:
         """Run the shared LLM execution loop for main and delegated agents."""
         return await self.execution_engine.execute_messages(
@@ -1053,6 +1059,8 @@ class AgentLoop:
             on_llm_status=on_llm_status,
             refresh_system_prompt=refresh_system_prompt,
             max_tool_iterations=max_tool_iterations,
+            should_cancel=should_cancel,
+            work_state_summary=work_state_summary,
         )
 
     def _build_subagent_tools(self, prompt_type: str, *, workspace: Path | None = None) -> ToolRegistry:
@@ -1273,6 +1281,38 @@ class AgentLoop:
         """Render the current persisted work state into a compact summary string."""
         state = await self._get_work_state(chat_id)
         return self.work_progress.render_state_summary(state)
+
+    def _is_run_cancel_requested(self, chat_id: str, run_id: str | None) -> bool:
+        """Return whether cooperative cancellation was requested for the current run."""
+        if run_id is None:
+            return False
+        return self.run_state.is_cancel_requested(chat_id, run_id)
+
+    def get_active_run(self, chat_id: str):
+        """Return the active run state for one session, if any."""
+        return self.run_state.get_active(chat_id)
+
+    async def request_run_cancel(
+        self,
+        chat_id: str,
+        run_id: str,
+        *,
+        channel: str | None = None,
+        transport_chat_id: str | None = None,
+    ) -> bool:
+        """Request cooperative cancellation for one active run."""
+        active = self.run_state.request_cancel(chat_id, run_id)
+        if active is None:
+            return False
+        await self._emit_run_event(
+            chat_id,
+            run_id,
+            "run_cancel_requested",
+            {"status": "cancelling"},
+            channel=channel,
+            transport_chat_id=transport_chat_id,
+        )
+        return True
 
     async def _maybe_update_recent_summary(self, chat_id: str) -> None:
         """Check whether RECENT_SUMMARY.md should be refreshed."""

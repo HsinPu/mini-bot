@@ -5,6 +5,7 @@ from pathlib import Path
 
 from opensprite.agent.agent import AgentLoop
 from opensprite.agent.execution import ContextCompactionEvent, ExecutionResult
+from opensprite.agent.run_state import RunBusyError
 from opensprite.bus import MessageBus
 from opensprite.bus.events import OutboundMessage
 from opensprite.config.schema import AgentConfig, Config, LogConfig, MemoryConfig, MessagesConfig, RecentSummaryConfig, SearchConfig, ToolsConfig, UserProfileConfig
@@ -1083,6 +1084,138 @@ def test_agent_process_persists_work_state_with_delegate_task(tmp_path):
     assert work_state.objective == "Finish the refactor"
     assert work_state.active_delegate_task_id == "task_abc12345"
     assert work_state.active_delegate_prompt_type == "implementer"
+
+
+def test_agent_process_rejects_overlapping_runs_for_same_session(tmp_path):
+    async def scenario():
+        storage = MemoryStorage()
+        agent = AgentLoop(
+            config=Config.load_agent_template_config(),
+            provider=FakeProvider(),
+            storage=storage,
+            context_builder=FakeContextBuilder(tmp_path / "workspace"),
+            tools=ToolRegistry(),
+            memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
+            tools_config=ToolsConfig(),
+            log_config=LogConfig(),
+            search_config=SearchConfig(),
+            user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+            recent_summary_config=RecentSummaryConfig(**{**Config.load_template_data()["recent_summary"], "enabled": False}),
+            **Config.packaged_agent_llm_chat_kwargs(),
+        )
+        blocker = asyncio.Event()
+
+        async def fake_execute_messages(*args, **kwargs):
+            await blocker.wait()
+            return ExecutionResult(content="done", executed_tool_calls=0)
+
+        agent._execute_messages = fake_execute_messages
+        first = asyncio.create_task(
+            agent.process(
+                UserMessage(
+                    text="Please implement the change.",
+                    channel="web",
+                    chat_id="browser-1",
+                    session_chat_id="web:browser-1",
+                )
+            )
+        )
+        for _ in range(100):
+            if agent.get_active_run("web:browser-1") is not None:
+                break
+            await asyncio.sleep(0.001)
+        else:
+            raise AssertionError("active run was not registered")
+
+        try:
+            await agent.process(
+                UserMessage(
+                    text="Please implement another change.",
+                    channel="web",
+                    chat_id="browser-1",
+                    session_chat_id="web:browser-1",
+                )
+            )
+        except RunBusyError:
+            pass
+        else:
+            raise AssertionError("RunBusyError was not raised")
+        blocker.set()
+        await first
+
+    asyncio.run(scenario())
+
+
+def test_agent_process_cancel_request_marks_run_cancelled_and_clears_active_run(tmp_path):
+    async def scenario():
+        storage = MemoryStorage()
+        agent = AgentLoop(
+            config=Config.load_agent_template_config(),
+            provider=FakeProvider(),
+            storage=storage,
+            context_builder=FakeContextBuilder(tmp_path / "workspace"),
+            tools=ToolRegistry(),
+            memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
+            tools_config=ToolsConfig(),
+            log_config=LogConfig(),
+            search_config=SearchConfig(),
+            user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+            recent_summary_config=RecentSummaryConfig(**{**Config.load_template_data()["recent_summary"], "enabled": False}),
+            **Config.packaged_agent_llm_chat_kwargs(),
+        )
+
+        async def fake_execute_messages(*args, **kwargs):
+            should_cancel = kwargs.get("should_cancel")
+            for _ in range(200):
+                if callable(should_cancel) and should_cancel():
+                    raise asyncio.CancelledError()
+                await asyncio.sleep(0.001)
+            return ExecutionResult(content="done", executed_tool_calls=0)
+
+        agent._execute_messages = fake_execute_messages
+        task = asyncio.create_task(
+            agent.process(
+                UserMessage(
+                    text="Please implement the change.",
+                    channel="web",
+                    chat_id="browser-1",
+                    session_chat_id="web:browser-1",
+                )
+            )
+        )
+        for _ in range(100):
+            active = agent.get_active_run("web:browser-1")
+            if active is not None:
+                break
+            await asyncio.sleep(0.001)
+        else:
+            raise AssertionError("active run was not registered")
+
+        accepted = await agent.request_run_cancel(
+            "web:browser-1",
+            active.run_id,
+            channel="web",
+            transport_chat_id="browser-1",
+        )
+        assert accepted is True
+
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        else:
+            raise AssertionError("process task was not cancelled")
+
+        run = await storage.get_run("web:browser-1", active.run_id)
+        events = await storage.get_run_events("web:browser-1", active.run_id)
+        return run, events, agent.get_active_run("web:browser-1")
+
+    run, events, active = asyncio.run(scenario())
+
+    assert run is not None
+    assert run.status == "cancelled"
+    assert [event.event_type for event in events][-2:] == ["run_cancel_requested", "run_cancelled"]
+    assert active is None
 
 
 def test_agent_process_returns_queued_outbound_media(tmp_path):

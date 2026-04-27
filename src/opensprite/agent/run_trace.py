@@ -259,12 +259,13 @@ class RunTraceRecorder:
         channel: str | None = None,
         transport_chat_id: str | None = None,
     ) -> None:
-        """Emit run_failed and mark the durable run with the supplied terminal status."""
+        """Emit a terminal run event and mark the durable run with the supplied status."""
         finished_at = time.time()
+        event_type = "run_cancelled" if status == "cancelled" else "run_failed"
         await self.emit_event(
             chat_id,
             run_id,
-            "run_failed",
+            event_type,
             event_payload,
             channel=channel,
             transport_chat_id=transport_chat_id,

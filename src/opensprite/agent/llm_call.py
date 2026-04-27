@@ -34,6 +34,7 @@ class LlmCallService:
         log_prepared_messages: Callable[[str, list[dict[str, Any]]], None],
         get_work_state_summary: Callable[[str], Awaitable[str]],
         get_current_run_id: Callable[[], str | None],
+        should_cancel_run: Callable[[str, str | None], bool],
         make_tool_progress_hook: Callable[..., Callable[[str, dict[str, Any]], Awaitable[None]] | None],
         make_tool_result_hook: Callable[..., Callable[[str, dict[str, Any], str], Awaitable[None]] | None],
         make_llm_status_hook: Callable[..., Callable[[str], Awaitable[None]] | None],
@@ -56,6 +57,7 @@ class LlmCallService:
         self._log_prepared_messages = log_prepared_messages
         self._get_work_state_summary = get_work_state_summary
         self._get_current_run_id = get_current_run_id
+        self._should_cancel_run = should_cancel_run
         self._make_tool_progress_hook = make_tool_progress_hook
         self._make_tool_result_hook = make_tool_result_hook
         self._make_llm_status_hook = make_llm_status_hook
@@ -198,6 +200,7 @@ class LlmCallService:
             "on_tool_before_execute": on_tool_before_execute,
             "on_llm_status": on_llm_status,
             "refresh_system_prompt": lambda: self._build_system_prompt(chat_id),
+            "should_cancel": lambda: self._should_cancel_run(chat_id, run_id),
             "work_state_summary": work_state_summary,
         }
         if on_tool_after_execute is not None:
@@ -205,7 +208,8 @@ class LlmCallService:
         try:
             return await self._execute_messages(chat_id, chat_messages, **execute_kwargs)
         except TypeError as exc:
-            if "work_state_summary" not in str(exc):
+            if "work_state_summary" not in str(exc) and "should_cancel" not in str(exc):
                 raise
             execute_kwargs.pop("work_state_summary", None)
+            execute_kwargs.pop("should_cancel", None)
             return await self._execute_messages(chat_id, chat_messages, **execute_kwargs)
