@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from ..bus.message import AssistantMessage, UserMessage
 from ..utils.log import logger
+from .auto_continue import AutoContinueService
 from .completion_gate import CompletionGateResult, CompletionGateService
 from .execution import ExecutionResult
 from .media import AgentMediaService
@@ -29,6 +30,7 @@ class AgentTurnRunner:
         turn_context: TurnContextService,
         task_intents: TaskIntentService,
         completion_gate: CompletionGateService,
+        auto_continue: AutoContinueService,
         connect_mcp: Callable[[], Awaitable[None]],
         save_message: Callable[..., Awaitable[None]],
         emit_run_event: Callable[..., Awaitable[None]],
@@ -46,6 +48,7 @@ class AgentTurnRunner:
         self.turn_context = turn_context
         self.task_intents = task_intents
         self.completion_gate = completion_gate
+        self.auto_continue = auto_continue
         self._connect_mcp = connect_mcp
         self._save_message = save_message
         self._emit_run_event = emit_run_event
@@ -247,63 +250,128 @@ class AgentTurnRunner:
             channel=turn.channel,
             transport_chat_id=turn.transport_chat_id,
         )
-        exec_result = await self._call_llm(
-            turn.session_chat_id,
-            current_message=user_message.text,
-            channel=turn.channel,
-            user_images=user_message.images,
-            user_image_files=turn.image_files,
-            user_audio_files=turn.audio_files,
-            user_video_files=turn.video_files,
-            transport_chat_id=turn.transport_chat_id,
-            emit_tool_progress=True,
-            task_intent=task_intent,
-        )
-        response = exec_result.content
-        outbound_media = self._get_queued_outbound_media()
+        execution_results: list[ExecutionResult] = []
+        auto_continue_attempts = 0
+        current_message = user_message.text
 
-        await self.run_trace.record_context_compaction_parts(
-            turn.session_chat_id,
-            run_id,
-            exec_result.context_compaction_events,
-        )
+        while True:
+            exec_result = await self._call_llm(
+                turn.session_chat_id,
+                current_message=current_message,
+                channel=turn.channel,
+                user_images=user_message.images,
+                user_image_files=turn.image_files,
+                user_audio_files=turn.audio_files,
+                user_video_files=turn.video_files,
+                transport_chat_id=turn.transport_chat_id,
+                emit_tool_progress=True,
+                task_intent=task_intent,
+            )
+            response = exec_result.content
+            execution_results.append(exec_result)
+
+            await self.run_trace.record_context_compaction_parts(
+                turn.session_chat_id,
+                run_id,
+                exec_result.context_compaction_events,
+            )
+            aggregate_result = self._aggregate_execution_results(execution_results, content=response)
+            completion_result = self.completion_gate.evaluate(
+                task_intent=task_intent,
+                response_text=response,
+                execution_result=aggregate_result,
+            )
+            completion_metadata = completion_result.to_metadata()
+            completion_metadata["auto_continue_attempts"] = auto_continue_attempts
+            await self._emit_run_event(
+                turn.session_chat_id,
+                run_id,
+                "completion_gate.evaluated",
+                completion_metadata,
+                channel=turn.channel,
+                transport_chat_id=turn.transport_chat_id,
+            )
+            if auto_continue_attempts > 0:
+                await self._emit_run_event(
+                    turn.session_chat_id,
+                    run_id,
+                    "auto_continue.completed",
+                    {
+                        "attempt": auto_continue_attempts,
+                        "completion_status": completion_result.status,
+                        "completion_reason": completion_result.reason,
+                    },
+                    channel=turn.channel,
+                    transport_chat_id=turn.transport_chat_id,
+                )
+
+            decision = self.auto_continue.decide(
+                task_intent=task_intent,
+                completion_result=completion_result,
+                execution_result=aggregate_result,
+                attempts_used=auto_continue_attempts,
+                previous_response=response,
+            )
+            if decision.should_continue and decision.prompt:
+                await self._emit_run_event(
+                    turn.session_chat_id,
+                    run_id,
+                    "auto_continue.scheduled",
+                    {
+                        **decision.to_metadata(),
+                        "completion_status": completion_result.status,
+                        "completion_reason": completion_result.reason,
+                    },
+                    channel=turn.channel,
+                    transport_chat_id=turn.transport_chat_id,
+                )
+                auto_continue_attempts += 1
+                current_message = decision.prompt
+                continue
+
+            if decision.emit_skipped_event:
+                await self._emit_run_event(
+                    turn.session_chat_id,
+                    run_id,
+                    "auto_continue.skipped",
+                    {
+                        **decision.to_metadata(),
+                        "completion_status": completion_result.status,
+                        "completion_reason": completion_result.reason,
+                    },
+                    channel=turn.channel,
+                    transport_chat_id=turn.transport_chat_id,
+                )
+            break
+
+        outbound_media = self._get_queued_outbound_media()
 
         response_metadata = {
             "response_len": len(response or ""),
-            "executed_tool_calls": exec_result.executed_tool_calls,
-            "had_tool_error": exec_result.had_tool_error,
-            "verification_attempted": exec_result.verification_attempted,
-            "verification_passed": exec_result.verification_passed,
-            "context_compactions": exec_result.context_compactions,
+            "executed_tool_calls": aggregate_result.executed_tool_calls,
+            "had_tool_error": aggregate_result.had_tool_error,
+            "verification_attempted": aggregate_result.verification_attempted,
+            "verification_passed": aggregate_result.verification_passed,
+            "context_compactions": aggregate_result.context_compactions,
+            "auto_continue_attempts": auto_continue_attempts,
         }
         status_metadata = {
-            "executed_tool_calls": exec_result.executed_tool_calls,
-            "had_tool_error": exec_result.had_tool_error,
-            "verification_attempted": exec_result.verification_attempted,
-            "verification_passed": exec_result.verification_passed,
-            "context_compactions": exec_result.context_compactions,
+            "executed_tool_calls": aggregate_result.executed_tool_calls,
+            "had_tool_error": aggregate_result.had_tool_error,
+            "verification_attempted": aggregate_result.verification_attempted,
+            "verification_passed": aggregate_result.verification_passed,
+            "context_compactions": aggregate_result.context_compactions,
+            "auto_continue_attempts": auto_continue_attempts,
         }
-        completion_result = self.completion_gate.evaluate(
-            task_intent=task_intent,
-            response_text=response,
-            execution_result=exec_result,
-        )
         completion_metadata = completion_result.to_metadata()
+        completion_metadata["auto_continue_attempts"] = auto_continue_attempts
         response_metadata["completion_gate"] = completion_metadata
         status_metadata["completion_status"] = completion_result.status
-        await self._emit_run_event(
-            turn.session_chat_id,
-            run_id,
-            "completion_gate.evaluated",
-            completion_metadata,
-            channel=turn.channel,
-            transport_chat_id=turn.transport_chat_id,
-        )
 
         async def after_response_saved() -> None:
             await self._apply_completion_gate_result(turn.session_chat_id, completion_result)
             self._schedule_post_response_maintenance(turn.session_chat_id)
-            self._maybe_schedule_skill_review(turn.session_chat_id, exec_result)
+            self._maybe_schedule_skill_review(turn.session_chat_id, aggregate_result)
 
         return await self.response_finalizer.finalize(
             session_chat_id=turn.session_chat_id,
@@ -321,4 +389,22 @@ class AgentTurnRunner:
             audios=outbound_media["audios"] or None,
             videos=outbound_media["videos"] or None,
             after_save=after_response_saved,
+        )
+
+    @staticmethod
+    def _aggregate_execution_results(results: list[ExecutionResult], *, content: str) -> ExecutionResult:
+        """Aggregate multi-pass execution telemetry while keeping the final response."""
+        return ExecutionResult(
+            content=content,
+            executed_tool_calls=sum(result.executed_tool_calls for result in results),
+            used_configure_skill=any(result.used_configure_skill for result in results),
+            had_tool_error=any(result.had_tool_error for result in results),
+            verification_attempted=any(result.verification_attempted for result in results),
+            verification_passed=any(result.verification_passed for result in results),
+            context_compactions=sum(result.context_compactions for result in results),
+            context_compaction_events=[
+                event
+                for result in results
+                for event in result.context_compaction_events
+            ],
         )

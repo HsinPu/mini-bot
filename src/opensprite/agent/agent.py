@@ -43,6 +43,7 @@ from ..tools.process_runtime import BackgroundSession
 from ..utils.log import logger
 from ..config import AgentConfig, MemoryConfig, ToolsConfig, LogConfig, SearchConfig, UserProfileConfig, ActiveTaskConfig, RecentSummaryConfig, MessagesConfig, Config
 from .active_task_commands import ActiveTaskCommandService
+from .auto_continue import AutoContinueService
 from .background_notifications import BackgroundSessionNotificationService
 from .background_tasks import CoalescingTaskScheduler
 from .completion_gate import CompletionGateResult, CompletionGateService
@@ -450,12 +451,14 @@ class AgentLoop:
         )
         self.task_intents = TaskIntentService()
         self.completion_gate = CompletionGateService()
+        self.auto_continue = AutoContinueService(max_auto_continues=1)
         self.turn_runner = AgentTurnRunner(
             run_trace=self.run_trace,
             response_finalizer=self.response_finalizer,
             turn_context=self.turn_context,
             task_intents=self.task_intents,
             completion_gate=self.completion_gate,
+            auto_continue=self.auto_continue,
             connect_mcp=lambda: self.connect_mcp(),
             save_message=lambda *args, **kwargs: self._save_message(*args, **kwargs),
             emit_run_event=lambda *args, **kwargs: self._emit_run_event(*args, **kwargs),

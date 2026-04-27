@@ -748,6 +748,122 @@ def test_agent_process_emits_completion_gate_needs_verification(tmp_path):
     assert completion_event.payload["reason"] == "required verification was not recorded"
 
 
+def test_agent_process_auto_continues_once_for_missing_verification(tmp_path):
+    async def scenario():
+        storage = MemoryStorage()
+        agent = AgentLoop(
+            config=Config.load_agent_template_config(),
+            provider=FakeProvider(),
+            storage=storage,
+            context_builder=FakeContextBuilder(tmp_path / "workspace"),
+            tools=ToolRegistry(),
+            memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
+            tools_config=ToolsConfig(),
+            log_config=LogConfig(),
+            search_config=SearchConfig(),
+            user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+            recent_summary_config=RecentSummaryConfig(**{**Config.load_template_data()["recent_summary"], "enabled": False}),
+            **Config.packaged_agent_llm_chat_kwargs(),
+        )
+        calls = []
+
+        async def fake_call_llm(chat_id, current_message, **kwargs):
+            calls.append(current_message)
+            if len(calls) == 1:
+                return ExecutionResult(content="Completed the refactor.", executed_tool_calls=0)
+            return ExecutionResult(
+                content="Verification passed and the refactor is complete.",
+                executed_tool_calls=1,
+                verification_attempted=True,
+                verification_passed=True,
+            )
+
+        agent.call_llm = fake_call_llm
+        agent._schedule_post_response_maintenance = lambda chat_id: None
+        agent._maybe_schedule_skill_review = lambda chat_id, result: None
+
+        response = await agent.process(
+            UserMessage(
+                text="Please refactor the agent and run tests.",
+                channel="web",
+                chat_id="browser-1",
+                session_chat_id="web:browser-1",
+            )
+        )
+        run = next(iter(storage._runs.values()))
+        events = await storage.get_run_events("web:browser-1", run.run_id)
+        parts = await storage.get_run_parts("web:browser-1", run.run_id)
+        return response, calls, events, parts
+
+    response, calls, events, parts = asyncio.run(scenario())
+
+    assert response.text == "Verification passed and the refactor is complete."
+    assert len(calls) == 2
+    assert "Completion gate reason: required verification was not recorded" in calls[1]
+    assert [event.event_type for event in events] == [
+        "run_started",
+        "task_intent.detected",
+        "llm_status",
+        "completion_gate.evaluated",
+        "auto_continue.scheduled",
+        "completion_gate.evaluated",
+        "auto_continue.completed",
+        "run_finished",
+    ]
+    assert events[3].payload["status"] == "needs_verification"
+    assert events[5].payload["status"] == "complete"
+    assert events[6].payload["completion_status"] == "complete"
+    assert parts[-1].metadata["auto_continue_attempts"] == 1
+    assert parts[-1].metadata["verification_passed"] is True
+
+
+def test_agent_process_stops_auto_continue_at_attempt_limit(tmp_path):
+    async def scenario():
+        storage = MemoryStorage()
+        agent = AgentLoop(
+            config=Config.load_agent_template_config(),
+            provider=FakeProvider(),
+            storage=storage,
+            context_builder=FakeContextBuilder(tmp_path / "workspace"),
+            tools=ToolRegistry(),
+            memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
+            tools_config=ToolsConfig(),
+            log_config=LogConfig(),
+            search_config=SearchConfig(),
+            user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+            recent_summary_config=RecentSummaryConfig(**{**Config.load_template_data()["recent_summary"], "enabled": False}),
+            **Config.packaged_agent_llm_chat_kwargs(),
+        )
+        calls = []
+
+        async def fake_call_llm(chat_id, current_message, **kwargs):
+            calls.append(current_message)
+            return ExecutionResult(content="Completed the refactor.", executed_tool_calls=0)
+
+        agent.call_llm = fake_call_llm
+        agent._schedule_post_response_maintenance = lambda chat_id: None
+        agent._maybe_schedule_skill_review = lambda chat_id, result: None
+
+        await agent.process(
+            UserMessage(
+                text="Please refactor the agent and run tests.",
+                channel="web",
+                chat_id="browser-1",
+                session_chat_id="web:browser-1",
+            )
+        )
+        run = next(iter(storage._runs.values()))
+        return calls, await storage.get_run_events("web:browser-1", run.run_id)
+
+    calls, events = asyncio.run(scenario())
+
+    assert len(calls) == 2
+    assert [event.event_type for event in events].count("auto_continue.scheduled") == 1
+    skipped = next(event for event in events if event.event_type == "auto_continue.skipped")
+    assert skipped.payload["reason"] == "max_auto_continues_reached"
+    assert skipped.payload["completion_status"] == "needs_verification"
+
+
 def test_agent_process_marks_active_task_done_when_completion_gate_completes(tmp_path):
     async def scenario():
         registry = ToolRegistry()
