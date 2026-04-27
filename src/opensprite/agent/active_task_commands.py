@@ -16,6 +16,7 @@ from ..documents.active_task import (
     should_replace_active_task,
 )
 from ..storage import StorageProvider
+from ..storage.base import StoredWorkState
 from ..storage.base import get_storage_message_count
 from ..utils.log import logger
 from .completion_gate import CompletionGateResult
@@ -121,7 +122,12 @@ class ActiveTaskCommandService:
             details={"status": result.status, "reason": result.reason},
         )
 
-    async def apply_work_progress(self, chat_id: str, progress: WorkProgressUpdate) -> None:
+    async def apply_work_progress(
+        self,
+        chat_id: str,
+        progress: WorkProgressUpdate,
+        state: StoredWorkState | None = None,
+    ) -> None:
         """Keep ACTIVE_TASK aligned with the final structured work progress state."""
         store = self.get_store(chat_id)
         if store is None:
@@ -129,19 +135,22 @@ class ActiveTaskCommandService:
         if store.read_status() not in {"active", "blocked", "waiting_user"}:
             return
 
-        current_step = None
-        next_step = None
-        if progress.next_action == "continue_verification" or progress.status == "verifying":
-            current_step = "3. verify the result"
-            next_step = "not set"
-        elif progress.next_action == "continue_work":
-            current_step = "2. execute the highest-value next step toward the goal"
-            next_step = "3. verify the result" if progress.verification_required else "not set"
-        else:
+        current_step = state.current_step if state is not None else None
+        next_step = state.next_step if state is not None else None
+        if not current_step and not next_step:
+            if progress.next_action == "continue_verification" or progress.status == "verifying":
+                current_step = "3. verify the result"
+                next_step = "not set"
+            elif progress.next_action == "continue_work":
+                current_step = "2. execute the highest-value next step toward the goal"
+                next_step = "3. verify the result" if progress.verification_required else "not set"
+            else:
+                return
+        if current_step is None or next_step is None:
             return
 
         store.update_fields(
-            status="active",
+            status=state.status if state is not None and state.status in {"active", "blocked", "waiting_user", "done"} else "active",
             current_step=current_step,
             next_step=next_step,
             force=True,

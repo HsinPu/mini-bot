@@ -2,7 +2,7 @@ import asyncio
 import json
 import sqlite3
 
-from opensprite.storage.base import StoredMessage
+from opensprite.storage.base import StoredMessage, StoredWorkState
 from opensprite.storage.sqlite import SQLiteStorage
 
 
@@ -111,6 +111,7 @@ def test_sqlite_storage_migrates_legacy_sessions_and_drops_table(tmp_path):
         "run_events",
         "run_parts",
         "run_file_changes",
+        "work_states",
         "knowledge_sources",
         "search_chunks",
         "search_chunks_fts",
@@ -216,10 +217,41 @@ def test_sqlite_storage_persists_runs_and_events(tmp_path):
         file_changes = await storage.get_run_file_changes("chat-1", "run-1")
         single_change = await storage.get_run_file_change("chat-1", "run-1", file_change.change_id)
         trace = await storage.get_run_trace("chat-1", "run-1")
+        work_state = await storage.upsert_work_state(
+            StoredWorkState(
+                chat_id="chat-1",
+                objective="Finish the refactor",
+                kind="refactor",
+                status="active",
+                steps=("1. inspect", "2. change", "3. verify"),
+                constraints=("Keep the API stable",),
+                done_criteria=("tests pass",),
+                long_running=True,
+                coding_task=True,
+                expects_code_change=True,
+                expects_verification=True,
+                current_step="2. change",
+                next_step="3. verify",
+                completed_steps=("1. inspect",),
+                file_change_count=1,
+                touched_paths=("src/app.py",),
+                verification_attempted=False,
+                verification_passed=False,
+                last_next_action="continue_verification",
+                active_delegate_task_id="task_abc12345",
+                active_delegate_prompt_type="implementer",
+                metadata={"source": "test"},
+                created_at=9.0,
+                updated_at=13.0,
+            )
+        )
+        loaded_work_state = await storage.get_work_state("chat-1")
+        await storage.clear_work_state("chat-1")
+        cleared_work_state = await storage.get_work_state("chat-1")
         chats = await storage.get_all_chats()
-        return created, event, part, file_change, updated, latest, single_run, events, parts, file_changes, single_change, trace, chats
+        return created, event, part, file_change, updated, latest, single_run, events, parts, file_changes, single_change, trace, work_state, loaded_work_state, cleared_work_state, chats
 
-    created, event, part, file_change, updated, latest, single_run, events, parts, file_changes, single_change, trace, chats = asyncio.run(scenario())
+    created, event, part, file_change, updated, latest, single_run, events, parts, file_changes, single_change, trace, work_state, loaded_work_state, cleared_work_state, chats = asyncio.run(scenario())
 
     assert created is not None
     assert created.status == "running"
@@ -262,4 +294,12 @@ def test_sqlite_storage_persists_runs_and_events(tmp_path):
     assert [entry.event_type for entry in trace.events] == ["run_started"]
     assert [entry.part_type for entry in trace.parts] == ["tool_call"]
     assert [entry.path for entry in trace.file_changes] == ["notes.txt"]
+    assert work_state is not None
+    assert work_state.objective == "Finish the refactor"
+    assert work_state.active_delegate_task_id == "task_abc12345"
+    assert loaded_work_state is not None
+    assert loaded_work_state.constraints == ("Keep the API stable",)
+    assert loaded_work_state.touched_paths == ("src/app.py",)
+    assert loaded_work_state.active_delegate_prompt_type == "implementer"
+    assert cleared_work_state is None
     assert chats == ["chat-1"]

@@ -42,6 +42,7 @@ from ..tools.permissions import PermissionApprovalResult, PermissionDecision
 from ..tools.process_runtime import BackgroundSession
 from ..utils.log import logger
 from ..config import AgentConfig, MemoryConfig, ToolsConfig, LogConfig, SearchConfig, UserProfileConfig, ActiveTaskConfig, RecentSummaryConfig, MessagesConfig, Config
+from ..storage.base import clear_storage_work_state, get_storage_work_state, upsert_storage_work_state
 from .active_task_commands import ActiveTaskCommandService
 from .auto_continue import AutoContinueService
 from .background_notifications import BackgroundSessionNotificationService
@@ -475,11 +476,13 @@ class AgentLoop:
             media_saved_ack=lambda: self.messages.agent.media_saved_ack,
             llm_not_configured_message=lambda: self.messages.agent.llm_not_configured,
             format_log_preview=self._format_log_preview,
+            get_work_state=lambda chat_id: self._get_work_state(chat_id),
+            save_work_state=lambda state: self._save_work_state(state),
             apply_completion_gate_result=lambda chat_id, result: self._maybe_apply_completion_gate_result(
                 chat_id,
                 result,
             ),
-            apply_work_progress=lambda chat_id, progress: self._maybe_apply_work_progress(chat_id, progress),
+            apply_work_progress=lambda chat_id, progress, state: self._maybe_apply_work_progress(chat_id, progress, state),
             schedule_post_response_maintenance=lambda chat_id: self._schedule_post_response_maintenance(chat_id),
             maybe_schedule_skill_review=lambda chat_id, result: self._maybe_schedule_skill_review(chat_id, result),
         )
@@ -590,6 +593,7 @@ class AgentLoop:
             build_messages=lambda **kwargs: self._context_builder.build_messages(**kwargs),
             build_system_prompt=lambda chat_id: self._context_builder.build_system_prompt(chat_id),
             log_prepared_messages=self._log_prepared_messages,
+            get_work_state_summary=lambda chat_id: self._get_work_state_summary(chat_id),
             get_current_run_id=self.turn_context.current_run_id,
             make_tool_progress_hook=lambda *args, **kwargs: self._make_tool_progress_hook(*args, **kwargs),
             make_tool_result_hook=lambda *args, **kwargs: self._make_tool_result_hook(*args, **kwargs),
@@ -1247,9 +1251,28 @@ class AgentLoop:
         """Apply completion-gate task-state updates when safe."""
         await self.active_task_commands.apply_completion_gate_result(chat_id, result)
 
-    async def _maybe_apply_work_progress(self, chat_id: str, progress: WorkProgressUpdate) -> None:
+    async def _maybe_apply_work_progress(self, chat_id: str, progress: WorkProgressUpdate, state) -> None:
         """Apply final structured work progress hints to ACTIVE_TASK when useful."""
-        await self.active_task_commands.apply_work_progress(chat_id, progress)
+        await self.active_task_commands.apply_work_progress(chat_id, progress, state)
+
+    async def _get_work_state(self, chat_id: str):
+        """Return persisted structured work state when supported by storage."""
+        return await get_storage_work_state(self.storage, chat_id)
+
+    async def _save_work_state(self, state) -> None:
+        """Persist structured work state when supported by storage."""
+        if state is None:
+            return
+        await upsert_storage_work_state(self.storage, state)
+
+    async def _clear_work_state(self, chat_id: str) -> None:
+        """Remove persisted structured work state when supported by storage."""
+        await clear_storage_work_state(self.storage, chat_id)
+
+    async def _get_work_state_summary(self, chat_id: str) -> str:
+        """Render the current persisted work state into a compact summary string."""
+        state = await self._get_work_state(chat_id)
+        return self.work_progress.render_state_summary(state)
 
     async def _maybe_update_recent_summary(self, chat_id: str) -> None:
         """Check whether RECENT_SUMMARY.md should be refreshed."""
@@ -1317,6 +1340,7 @@ class AgentLoop:
     async def reset_active_task(self, chat_id: str) -> None:
         """Clear the current ACTIVE_TASK state for one session."""
         await self.active_task_commands.reset(chat_id)
+        await self._clear_work_state(chat_id)
 
     async def reset_history(self, chat_id: str | None = None) -> None:
         """

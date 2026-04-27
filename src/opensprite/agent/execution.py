@@ -42,6 +42,8 @@ class ExecutionResult:
     executed_tool_calls: int = 0
     file_change_count: int = 0
     touched_paths: tuple[str, ...] = ()
+    active_delegate_task_id: str | None = None
+    active_delegate_prompt_type: str | None = None
     used_configure_skill: bool = False
     had_tool_error: bool = False
     verification_attempted: bool = False
@@ -254,6 +256,18 @@ Output exactly these sections when applicable:
             or lowered.startswith("(mcp tool call timed out")
         )
 
+    @staticmethod
+    def _extract_delegate_task_info(result: str) -> tuple[str | None, str | None]:
+        """Parse the delegate tool's stable task id and prompt type from its result text."""
+        task_id = None
+        prompt_type = None
+        for line in str(result or "").splitlines():
+            if line.startswith("Task ID: "):
+                task_id = line.split(": ", 1)[1].strip() or None
+            elif line.startswith("Subagent: "):
+                prompt_type = line.split(": ", 1)[1].strip() or None
+        return task_id, prompt_type
+
     @classmethod
     def _summarize_tool_result_for_context(cls, tool_name: str, result: str) -> str:
         """Shrink verbose tool output before feeding it back into the LLM loop."""
@@ -364,6 +378,7 @@ Output exactly these sections when applicable:
         *,
         tools: list[dict[str, Any]] | None,
         tool_results_history: list[str],
+        work_state_summary: str = "",
     ) -> _ProactiveCompactionResult | None:
         """Return compacted messages when the next request is nearing the configured budget."""
         if not self.context_compaction_enabled:
@@ -385,6 +400,7 @@ Output exactly these sections when applicable:
                 log_id,
                 chat_messages,
                 tool_results_history=tool_results_history,
+                work_state_summary=work_state_summary,
             )
             compacted_messages = llm_attempt.messages
             if compacted_messages is not None:
@@ -411,6 +427,7 @@ Output exactly these sections when applicable:
         compacted_messages = self._compact_messages_for_continuation(
             chat_messages,
             tool_results_history=tool_results_history,
+            work_state_summary=work_state_summary,
             reason=(
                 "The in-turn context was compacted automatically before the LLM request because "
                 "it was approaching the configured context budget."
@@ -464,6 +481,7 @@ Output exactly these sections when applicable:
         chat_messages: list[ChatMessage],
         *,
         tool_results_history: list[str],
+        work_state_summary: str = "",
     ) -> list[ChatMessage] | None:
         _, body = self._split_leading_system_messages(chat_messages)
         if not body:
@@ -481,6 +499,8 @@ Output exactly these sections when applicable:
         ]
         if latest_user_text:
             sections.extend(["", "## Latest User Instruction", latest_user_text])
+        if work_state_summary.strip():
+            sections.extend(["", work_state_summary.strip()])
         sections.extend(["", "## Transcript", transcript or "(no transcript details)"])
         if tool_results_history:
             sections.extend([
@@ -499,6 +519,7 @@ Output exactly these sections when applicable:
         chat_messages: list[ChatMessage],
         *,
         tool_results_history: list[str],
+        work_state_summary: str = "",
     ) -> _LlmCompactionAttempt:
         compaction_llm = self.context_compaction_llm
         if compaction_llm is None:
@@ -511,6 +532,7 @@ Output exactly these sections when applicable:
         compaction_messages = self._build_llm_compaction_prompt(
             chat_messages,
             tool_results_history=tool_results_history,
+            work_state_summary=work_state_summary,
         )
         if compaction_messages is None:
             return _LlmCompactionAttempt(fallback_reason="no_prompt")
@@ -646,6 +668,7 @@ Output exactly these sections when applicable:
         chat_messages: list[ChatMessage],
         *,
         tool_results_history: list[str],
+        work_state_summary: str = "",
         reason: str | None = None,
     ) -> list[ChatMessage] | None:
         """Create a smaller message list that can retry the same turn after overflow."""
@@ -684,6 +707,8 @@ Output exactly these sections when applicable:
         ]
         if latest_user_text:
             summary_sections.extend(["", "## Latest User Instruction", latest_user_text])
+        if work_state_summary.strip():
+            summary_sections.extend(["", work_state_summary.strip()])
         summary_sections.extend(["", "## Compacted Transcript", transcript or "(no transcript details)"])
         if tool_results_history:
             summary_sections.extend([
@@ -707,11 +732,12 @@ Output exactly these sections when applicable:
         allow_tools: bool,
         tool_result_chat_id: str | None = None,
         tool_registry: ToolRegistry | None = None,
-        on_tool_before_execute: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
-        on_tool_after_execute: Callable[[str, dict[str, Any], str], Awaitable[None]] | None = None,
+        on_tool_before_execute: Callable[..., Awaitable[None]] | None = None,
+        on_tool_after_execute: Callable[..., Awaitable[None]] | None = None,
         on_llm_status: Callable[[str], Awaitable[None]] | None = None,
         refresh_system_prompt: Callable[[], str] | None = None,
         max_tool_iterations: int | None = None,
+        work_state_summary: str = "",
     ) -> ExecutionResult:
         """Execute the prepared messages, including tool calls when enabled."""
         active_tools = tool_registry or self.tools
@@ -727,6 +753,8 @@ Output exactly these sections when applicable:
         executed_tool_calls = 0
         used_configure_skill = False
         had_tool_error = False
+        active_delegate_task_id: str | None = None
+        active_delegate_prompt_type: str | None = None
         verification_attempted = False
         verification_passed = False
         context_compactions = 0
@@ -744,6 +772,7 @@ Output exactly these sections when applicable:
                     chat_messages,
                     tools=tools,
                     tool_results_history=tool_results_history,
+                    work_state_summary=work_state_summary,
                 )
                 if proactive_compaction is not None:
                     proactive_context_compactions += 1
@@ -816,6 +845,7 @@ Output exactly these sections when applicable:
                         compacted_messages = self._compact_messages_for_continuation(
                             chat_messages,
                             tool_results_history=tool_results_history,
+                            work_state_summary=work_state_summary,
                         )
                         if compacted_messages is not None:
                             overflow_context_compactions += 1
@@ -904,6 +934,8 @@ Output exactly these sections when applicable:
                             executed_tool_calls=executed_tool_calls,
                             used_configure_skill=used_configure_skill,
                             had_tool_error=had_tool_error,
+                            active_delegate_task_id=active_delegate_task_id,
+                            active_delegate_prompt_type=active_delegate_prompt_type,
                             verification_attempted=verification_attempted,
                             verification_passed=verification_passed,
                             context_compactions=context_compactions,
@@ -915,6 +947,8 @@ Output exactly these sections when applicable:
                         executed_tool_calls=executed_tool_calls,
                         used_configure_skill=used_configure_skill,
                         had_tool_error=had_tool_error,
+                        active_delegate_task_id=active_delegate_task_id,
+                        active_delegate_prompt_type=active_delegate_prompt_type,
                         verification_attempted=verification_attempted,
                         verification_passed=verification_passed,
                         context_compactions=context_compactions,
@@ -953,7 +987,10 @@ Output exactly these sections when applicable:
                         if on_tool_before_execute is None:
                             return
                         try:
-                            await on_tool_before_execute(name, args)
+                            try:
+                                await on_tool_before_execute(name, args, tc.id, iteration + 1)
+                            except TypeError:
+                                await on_tool_before_execute(name, args)
                         except Exception:
                             logger.exception(
                                 f"[{log_id}] tool.progress-hook.error | name={name}"
@@ -971,6 +1008,12 @@ Output exactly these sections when applicable:
                         verification_attempted = True
                         if str(result).startswith("Verification passed:"):
                             verification_passed = True
+                    if tool_name == "delegate":
+                        delegate_task_id, delegate_prompt_type = self._extract_delegate_task_info(result)
+                        if delegate_task_id:
+                            active_delegate_task_id = delegate_task_id
+                        if delegate_prompt_type:
+                            active_delegate_prompt_type = delegate_prompt_type
                     if tool_name == "configure_skill" and tool_args.get("action") in ("add", "upsert"):
                         used_configure_skill = True
                     logger.info(
@@ -978,7 +1021,18 @@ Output exactly these sections when applicable:
                     )
                     if on_tool_after_execute is not None:
                         try:
-                            await on_tool_after_execute(tool_name, tool_args, result)
+                            try:
+                                await on_tool_after_execute(
+                                    tool_name,
+                                    tool_args,
+                                    result,
+                                    tc.id,
+                                    iteration + 1,
+                                    active_delegate_task_id if tool_name == "delegate" else None,
+                                    active_delegate_prompt_type if tool_name == "delegate" else None,
+                                )
+                            except TypeError:
+                                await on_tool_after_execute(tool_name, tool_args, result)
                         except Exception:
                             logger.exception(
                                 f"[{log_id}] tool.result-hook.error | name={tool_name}"
@@ -1006,6 +1060,8 @@ Output exactly these sections when applicable:
                                 executed_tool_calls=executed_tool_calls,
                                 used_configure_skill=used_configure_skill,
                                 had_tool_error=had_tool_error,
+                                active_delegate_task_id=active_delegate_task_id,
+                                active_delegate_prompt_type=active_delegate_prompt_type,
                                 verification_attempted=verification_attempted,
                                 verification_passed=verification_passed,
                                 context_compactions=context_compactions,
@@ -1079,6 +1135,8 @@ Output exactly these sections when applicable:
                     executed_tool_calls=executed_tool_calls,
                     used_configure_skill=used_configure_skill,
                     had_tool_error=had_tool_error,
+                    active_delegate_task_id=active_delegate_task_id,
+                    active_delegate_prompt_type=active_delegate_prompt_type,
                     verification_attempted=verification_attempted,
                     verification_passed=verification_passed,
                     context_compactions=context_compactions,
@@ -1090,6 +1148,8 @@ Output exactly these sections when applicable:
                 executed_tool_calls=executed_tool_calls,
                 used_configure_skill=used_configure_skill,
                 had_tool_error=had_tool_error,
+                active_delegate_task_id=active_delegate_task_id,
+                active_delegate_prompt_type=active_delegate_prompt_type,
                 verification_attempted=verification_attempted,
                 verification_passed=verification_passed,
                 context_compactions=context_compactions,
@@ -1112,6 +1172,8 @@ Output exactly these sections when applicable:
             executed_tool_calls=executed_tool_calls,
             used_configure_skill=used_configure_skill,
             had_tool_error=had_tool_error,
+            active_delegate_task_id=active_delegate_task_id,
+            active_delegate_prompt_type=active_delegate_prompt_type,
             verification_attempted=verification_attempted,
             verification_passed=verification_passed,
             context_compactions=context_compactions,

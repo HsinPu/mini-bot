@@ -94,6 +94,36 @@ class StoredRunTrace:
     file_changes: list[StoredRunFileChange] = field(default_factory=list)
 
 
+@dataclass
+class StoredWorkState:
+    """Persisted structured task state for one chat session."""
+
+    chat_id: str
+    objective: str
+    kind: str
+    status: str = "active"
+    steps: tuple[str, ...] = ()
+    constraints: tuple[str, ...] = ()
+    done_criteria: tuple[str, ...] = ()
+    long_running: bool = False
+    coding_task: bool = False
+    expects_code_change: bool = False
+    expects_verification: bool = False
+    current_step: str = "not set"
+    next_step: str = "not set"
+    completed_steps: tuple[str, ...] = ()
+    file_change_count: int = 0
+    touched_paths: tuple[str, ...] = ()
+    verification_attempted: bool = False
+    verification_passed: bool = False
+    last_next_action: str = ""
+    active_delegate_task_id: str | None = None
+    active_delegate_prompt_type: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    created_at: float = 0.0
+    updated_at: float = 0.0
+
+
 class StorageProvider(ABC):
     """
     Storage Provider 的抽象基底類別
@@ -288,6 +318,18 @@ class StorageProvider(ABC):
             parts=await self.get_run_parts(chat_id, run_id),
             file_changes=await self.get_run_file_changes(chat_id, run_id),
         )
+
+    async def get_work_state(self, chat_id: str) -> StoredWorkState | None:
+        """Return persisted structured work state for one chat when supported."""
+        return None
+
+    async def upsert_work_state(self, state: StoredWorkState) -> StoredWorkState | None:
+        """Create or replace the persisted work state for one chat when supported."""
+        return None
+
+    async def clear_work_state(self, chat_id: str) -> None:
+        """Remove persisted structured work state for one chat when supported."""
+        return None
     
     @abstractmethod
     async def get_all_chats(self) -> list[str]:
@@ -321,3 +363,26 @@ async def get_storage_messages_slice(
         return list(await getter(chat_id, start_index=max(0, start_index), end_index=end_index))
     messages = await storage.get_messages(chat_id)
     return list(messages[max(0, start_index):end_index])
+
+
+async def get_storage_work_state(storage: Any, chat_id: str) -> StoredWorkState | None:
+    """Compatibility helper for storages that may not implement work-state APIs yet."""
+    getter = getattr(storage, "get_work_state", None)
+    if callable(getter):
+        return await getter(chat_id)
+    return None
+
+
+async def upsert_storage_work_state(storage: Any, state: StoredWorkState) -> StoredWorkState | None:
+    """Compatibility helper for storages that may not implement work-state APIs yet."""
+    setter = getattr(storage, "upsert_work_state", None)
+    if callable(setter):
+        return await setter(state)
+    return None
+
+
+async def clear_storage_work_state(storage: Any, chat_id: str) -> None:
+    """Compatibility helper for storages that may not implement work-state APIs yet."""
+    clearer = getattr(storage, "clear_work_state", None)
+    if callable(clearer):
+        await clearer(chat_id)

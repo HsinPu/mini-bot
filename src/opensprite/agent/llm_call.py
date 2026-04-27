@@ -32,6 +32,7 @@ class LlmCallService:
         build_messages: Callable[..., list[dict[str, Any]]],
         build_system_prompt: Callable[[str], str],
         log_prepared_messages: Callable[[str, list[dict[str, Any]]], None],
+        get_work_state_summary: Callable[[str], Awaitable[str]],
         get_current_run_id: Callable[[], str | None],
         make_tool_progress_hook: Callable[..., Callable[[str, dict[str, Any]], Awaitable[None]] | None],
         make_tool_result_hook: Callable[..., Callable[[str, dict[str, Any], str], Awaitable[None]] | None],
@@ -53,6 +54,7 @@ class LlmCallService:
         self._build_messages = build_messages
         self._build_system_prompt = build_system_prompt
         self._log_prepared_messages = log_prepared_messages
+        self._get_work_state_summary = get_work_state_summary
         self._get_current_run_id = get_current_run_id
         self._make_tool_progress_hook = make_tool_progress_hook
         self._make_tool_result_hook = make_tool_result_hook
@@ -112,6 +114,17 @@ class LlmCallService:
         logger.info(
             f"[{chat_id}] prompt.build | history={len(history_dicts)} channel={channel or '-'} images={len(user_images or [])}"
         )
+        work_state_summary = await self._get_work_state_summary(chat_id)
+        if (
+            work_state_summary
+            and task_intent is not None
+            and task_intent.objective.strip() != str(current_message or "").strip()
+        ):
+            current_message = (
+                f"{current_message}\n\n"
+                "Use the existing structured work state below as the source of truth for continuing the task.\n"
+                f"{work_state_summary}"
+            )
         current_audios = self._get_current_audios()
         current_videos = self._get_current_videos()
         prompt_message = self._augment_message_for_media(
@@ -185,7 +198,14 @@ class LlmCallService:
             "on_tool_before_execute": on_tool_before_execute,
             "on_llm_status": on_llm_status,
             "refresh_system_prompt": lambda: self._build_system_prompt(chat_id),
+            "work_state_summary": work_state_summary,
         }
         if on_tool_after_execute is not None:
             execute_kwargs["on_tool_after_execute"] = on_tool_after_execute
-        return await self._execute_messages(chat_id, chat_messages, **execute_kwargs)
+        try:
+            return await self._execute_messages(chat_id, chat_messages, **execute_kwargs)
+        except TypeError as exc:
+            if "work_state_summary" not in str(exc):
+                raise
+            execute_kwargs.pop("work_state_summary", None)
+            return await self._execute_messages(chat_id, chat_messages, **execute_kwargs)

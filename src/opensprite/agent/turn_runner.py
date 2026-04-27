@@ -14,10 +14,11 @@ from .execution import ExecutionResult
 from .media import AgentMediaService
 from .response_finalizer import AgentResponseFinalizer
 from .run_trace import RunTraceRecorder
+from ..storage import StoredWorkState
 from .task_intent import TaskIntent, TaskIntentService
 from .turn_context import TurnContextService
 from .turn_input import PreparedTurnInput
-from .work_progress import WorkProgressService, WorkProgressUpdate
+from .work_progress import WorkPlan, WorkProgressService, WorkProgressUpdate
 
 
 class AgentTurnRunner:
@@ -41,8 +42,10 @@ class AgentTurnRunner:
         media_saved_ack: Callable[[], str],
         llm_not_configured_message: Callable[[], str],
         format_log_preview: Callable[..., str],
+        get_work_state: Callable[[str], Awaitable[StoredWorkState | None]],
+        save_work_state: Callable[[StoredWorkState | None], Awaitable[None]],
         apply_completion_gate_result: Callable[[str, CompletionGateResult], Awaitable[None]],
-        apply_work_progress: Callable[[str, WorkProgressUpdate], Awaitable[None]],
+        apply_work_progress: Callable[[str, WorkProgressUpdate, StoredWorkState | None], Awaitable[None]],
         schedule_post_response_maintenance: Callable[[str], None],
         maybe_schedule_skill_review: Callable[[str, ExecutionResult], None],
     ):
@@ -61,6 +64,8 @@ class AgentTurnRunner:
         self._media_saved_ack = media_saved_ack
         self._llm_not_configured_message = llm_not_configured_message
         self._format_log_preview = format_log_preview
+        self._get_work_state = get_work_state
+        self._save_work_state = save_work_state
         self._apply_completion_gate_result = apply_completion_gate_result
         self._apply_work_progress = apply_work_progress
         self._schedule_post_response_maintenance = schedule_post_response_maintenance
@@ -104,6 +109,8 @@ class AgentTurnRunner:
             videos=user_message.videos,
             metadata=user_message.metadata,
         )
+        existing_work_state = await self._get_work_state(turn.session_chat_id)
+        task_intent = self.work_progress.resolve_intent(task_intent, existing_work_state)
         await self._emit_run_event(
             turn.session_chat_id,
             run_id,
@@ -113,6 +120,13 @@ class AgentTurnRunner:
             transport_chat_id=turn.transport_chat_id,
         )
         work_plan = self.work_progress.create_plan(task_intent)
+        current_work_state = self.work_progress.build_initial_state(
+            chat_id=turn.session_chat_id,
+            task_intent=task_intent,
+            work_plan=work_plan,
+            existing_state=existing_work_state,
+        )
+        await self._save_work_state(current_work_state)
         if work_plan is not None:
             await self._emit_run_event(
                 turn.session_chat_id,
@@ -152,6 +166,8 @@ class AgentTurnRunner:
                     turn=turn,
                     run_id=run_id,
                     task_intent=task_intent,
+                    work_plan=work_plan,
+                    current_work_state=current_work_state,
                 )
             except asyncio.CancelledError:
                 await self.run_trace.fail_run(
@@ -249,6 +265,8 @@ class AgentTurnRunner:
         turn: PreparedTurnInput,
         run_id: str,
         task_intent: TaskIntent,
+        work_plan: WorkPlan | None,
+        current_work_state: StoredWorkState | None,
     ) -> AssistantMessage:
         """Execute the normal turn path after special-case early exits are ruled out."""
         await self._connect_mcp()
@@ -401,9 +419,23 @@ class AgentTurnRunner:
         completion_metadata["auto_continue_attempts"] = auto_continue_attempts
         response_metadata["completion_gate"] = completion_metadata
         status_metadata["completion_status"] = completion_result.status
+        response_metadata["active_delegate_task_id"] = aggregate_result.active_delegate_task_id
+        response_metadata["active_delegate_prompt_type"] = aggregate_result.active_delegate_prompt_type
+
+        updated_work_state = self.work_progress.update_state(
+            chat_id=turn.session_chat_id,
+            state=current_work_state,
+            task_intent=task_intent,
+            work_plan=work_plan,
+            progress=work_progress,
+            completion_result=completion_result,
+            delegate_task_id=aggregate_result.active_delegate_task_id,
+            delegate_prompt_type=aggregate_result.active_delegate_prompt_type,
+        )
 
         async def after_response_saved() -> None:
-            await self._apply_work_progress(turn.session_chat_id, work_progress)
+            await self._save_work_state(updated_work_state)
+            await self._apply_work_progress(turn.session_chat_id, work_progress, updated_work_state)
             await self._apply_completion_gate_result(turn.session_chat_id, completion_result)
             self._schedule_post_response_maintenance(turn.session_chat_id)
             self._maybe_schedule_skill_review(turn.session_chat_id, aggregate_result)
@@ -439,6 +471,14 @@ class AgentTurnRunner:
                     for result in results
                     for path in result.touched_paths
                 )
+            ),
+            active_delegate_task_id=next(
+                (result.active_delegate_task_id for result in reversed(results) if result.active_delegate_task_id),
+                None,
+            ),
+            active_delegate_prompt_type=next(
+                (result.active_delegate_prompt_type for result in reversed(results) if result.active_delegate_prompt_type),
+                None,
             ),
             used_configure_skill=any(result.used_configure_skill for result in results),
             had_tool_error=any(result.had_tool_error for result in results),

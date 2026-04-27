@@ -9,7 +9,7 @@ import time
 from collections import defaultdict
 from typing import Any
 
-from .base import StorageProvider, StoredMessage, StoredRun, StoredRunEvent, StoredRunFileChange, StoredRunPart
+from .base import StorageProvider, StoredMessage, StoredRun, StoredRunEvent, StoredRunFileChange, StoredRunPart, StoredWorkState
 
 
 class MemoryStorage(StorageProvider):
@@ -28,6 +28,7 @@ class MemoryStorage(StorageProvider):
         self._run_events: dict[tuple[str, str], list[StoredRunEvent]] = defaultdict(list)
         self._run_file_changes: dict[tuple[str, str], list[StoredRunFileChange]] = defaultdict(list)
         self._run_parts: dict[tuple[str, str], list[StoredRunPart]] = defaultdict(list)
+        self._work_states: dict[str, StoredWorkState] = {}
     
     async def get_messages(self, chat_id: str, limit: int | None = None) -> list[StoredMessage]:
         """
@@ -76,6 +77,7 @@ class MemoryStorage(StorageProvider):
                 self._run_events.pop((chat_id, run_id), None)
                 self._run_file_changes.pop((chat_id, run_id), None)
                 self._run_parts.pop((chat_id, run_id), None)
+        self._work_states.pop(chat_id, None)
     
     async def get_consolidated_index(self, chat_id: str) -> int:
         """取得 consolidation 標記"""
@@ -89,7 +91,10 @@ class MemoryStorage(StorageProvider):
         """
         取得所有聊天室
         """
-        return list(self._messages.keys())
+        chat_ids = set(self._messages.keys())
+        chat_ids.update(run.chat_id for run in self._runs.values())
+        chat_ids.update(self._work_states.keys())
+        return sorted(chat_ids)
 
     async def create_run(
         self,
@@ -144,6 +149,44 @@ class MemoryStorage(StorageProvider):
         if run is None or run.chat_id != chat_id:
             return None
         return run
+
+    async def get_work_state(self, chat_id: str) -> StoredWorkState | None:
+        return self._work_states.get(chat_id)
+
+    async def upsert_work_state(self, state: StoredWorkState) -> StoredWorkState:
+        existing = self._work_states.get(state.chat_id)
+        created_at = existing.created_at if existing is not None and existing.created_at else float(state.created_at or time.time())
+        updated = StoredWorkState(
+            chat_id=state.chat_id,
+            objective=state.objective,
+            kind=state.kind,
+            status=state.status,
+            steps=tuple(state.steps),
+            constraints=tuple(state.constraints),
+            done_criteria=tuple(state.done_criteria),
+            long_running=bool(state.long_running),
+            coding_task=bool(state.coding_task),
+            expects_code_change=bool(state.expects_code_change),
+            expects_verification=bool(state.expects_verification),
+            current_step=state.current_step,
+            next_step=state.next_step,
+            completed_steps=tuple(state.completed_steps),
+            file_change_count=int(state.file_change_count),
+            touched_paths=tuple(state.touched_paths),
+            verification_attempted=bool(state.verification_attempted),
+            verification_passed=bool(state.verification_passed),
+            last_next_action=state.last_next_action,
+            active_delegate_task_id=state.active_delegate_task_id,
+            active_delegate_prompt_type=state.active_delegate_prompt_type,
+            metadata=dict(state.metadata or {}),
+            created_at=created_at,
+            updated_at=float(state.updated_at or time.time()),
+        )
+        self._work_states[state.chat_id] = updated
+        return updated
+
+    async def clear_work_state(self, chat_id: str) -> None:
+        self._work_states.pop(chat_id, None)
 
     async def add_run_event(
         self,

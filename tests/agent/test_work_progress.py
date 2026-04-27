@@ -2,6 +2,7 @@ from opensprite.agent.completion_gate import CompletionGateResult
 from opensprite.agent.execution import ExecutionResult
 from opensprite.agent.task_intent import TaskIntentService
 from opensprite.agent.work_progress import WorkProgressService
+from opensprite.storage import StoredWorkState
 
 
 def test_work_progress_creates_coding_plan_from_intent():
@@ -15,7 +16,6 @@ def test_work_progress_creates_coding_plan_from_intent():
     assert plan.expects_code_change is True
     assert plan.expects_verification is True
     assert plan.steps == (
-        "understand the request",
         "inspect relevant code",
         "make the smallest correct change",
         "verify the result",
@@ -67,3 +67,77 @@ def test_work_progress_stops_repeated_continuation_without_progress():
 
     assert update.has_progress is False
     assert update.next_action == "stop_no_progress"
+
+
+def test_work_progress_resolves_vague_continue_from_existing_state():
+    service = WorkProgressService()
+    existing = StoredWorkState(
+        chat_id="web:browser-1",
+        objective="Finish the refactor",
+        kind="refactor",
+        status="active",
+        steps=("1. inspect", "2. change", "3. verify"),
+        constraints=("Keep the public API stable",),
+        done_criteria=("tests pass",),
+        long_running=True,
+        coding_task=True,
+        expects_code_change=True,
+        expects_verification=True,
+    )
+    vague_intent = TaskIntentService().classify("continue")
+
+    resolved = service.resolve_intent(vague_intent, existing)
+
+    assert resolved.objective == "Finish the refactor"
+    assert resolved.kind == "refactor"
+    assert resolved.expects_code_change is True
+    assert resolved.expects_verification is True
+    assert resolved.needs_clarification is False
+
+
+def test_work_progress_updates_state_and_renders_summary():
+    service = WorkProgressService()
+    intent = TaskIntentService().classify("Please refactor the agent and run tests.")
+    plan = service.create_plan(intent)
+    initial = service.build_initial_state(chat_id="web:browser-1", task_intent=intent, work_plan=plan)
+    assert initial is not None
+    progress = service.evaluate(
+        task_intent=intent,
+        completion_result=CompletionGateResult(
+            status="needs_verification",
+            reason="required verification was not recorded",
+            verification_required=True,
+        ),
+        execution_result=ExecutionResult(
+            content="Refactor complete.",
+            executed_tool_calls=1,
+            file_change_count=2,
+            touched_paths=("src/agent.py", "tests/test_agent.py"),
+        ),
+        auto_continue_attempts=0,
+        pass_index=1,
+    )
+
+    updated = service.update_state(
+        chat_id="web:browser-1",
+        state=initial,
+        task_intent=intent,
+        work_plan=plan,
+        progress=progress,
+        completion_result=CompletionGateResult(
+            status="needs_verification",
+            reason="required verification was not recorded",
+            verification_required=True,
+        ),
+        delegate_task_id="task_abc12345",
+        delegate_prompt_type="implementer",
+    )
+
+    assert updated is not None
+    assert updated.file_change_count == 2
+    assert updated.current_step == "3. verify the result"
+    assert updated.active_delegate_task_id == "task_abc12345"
+    summary = service.render_state_summary(updated)
+    assert "Structured Work State" in summary
+    assert "Active delegate: implementer (task_abc12345)" in summary
+    assert "src/agent.py" in summary

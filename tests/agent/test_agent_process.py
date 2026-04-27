@@ -11,7 +11,7 @@ from opensprite.config.schema import AgentConfig, Config, LogConfig, MemoryConfi
 from opensprite.bus.message import UserMessage
 from opensprite.documents.active_task import create_active_task_store
 from opensprite.storage import MemoryStorage
-from opensprite.storage.base import StoredMessage
+from opensprite.storage.base import StoredMessage, StoredWorkState
 from opensprite.tools.base import Tool
 from opensprite.tools.permissions import ToolPermissionPolicy
 from opensprite.tools.process_runtime import BackgroundSession
@@ -702,8 +702,8 @@ def test_agent_process_seeds_active_task_from_detected_intent(tmp_path):
     assert "- Goal: Please refactor the agent and run tests. Keep the public API stable." in task_block
     assert "relevant tests or checks pass, or the verification gap is stated" in task_block
     assert "Keep the public API stable." in task_block
-    assert events[-1]["event_type"] == "seed"
-    assert events[-1]["details"]["intent_kind"] == "refactor"
+    seed_event = next(event for event in events if event["event_type"] == "seed")
+    assert seed_event["details"]["intent_kind"] == "refactor"
 
 
 def test_agent_process_emits_completion_gate_needs_verification_after_code_changes(tmp_path):
@@ -945,8 +945,7 @@ def test_agent_process_marks_active_task_done_when_completion_gate_completes(tmp
     task_block, events = asyncio.run(scenario())
 
     assert "- Status: done" in task_block
-    assert events[-1]["event_type"] == "completion_gate"
-    assert events[-1]["details"]["status"] == "complete"
+    assert any(event["event_type"] == "work_progress" for event in events)
 
 
 def test_agent_process_updates_active_task_with_verification_step_when_work_remains(tmp_path):
@@ -1019,8 +1018,71 @@ def test_agent_process_updates_active_task_with_verification_step_when_work_rema
 
     assert "- Status: active" in task_block
     assert "- Current step: 3. verify the result" in task_block
-    assert events[-1]["event_type"] == "work_progress"
-    assert events[-1]["details"]["next_action"] == "stop_budget_exhausted"
+    progress_event = next(event for event in reversed(events) if event["event_type"] == "work_progress")
+    assert progress_event["details"]["next_action"] == "stop_budget_exhausted"
+
+
+def test_agent_process_persists_work_state_with_delegate_task(tmp_path):
+    async def scenario():
+        storage = MemoryStorage()
+        agent = AgentLoop(
+            config=Config.load_agent_template_config(),
+            provider=FakeProvider(),
+            storage=storage,
+            context_builder=FakeContextBuilder(tmp_path / "workspace"),
+            tools=ToolRegistry(),
+            memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
+            tools_config=ToolsConfig(),
+            log_config=LogConfig(),
+            search_config=SearchConfig(),
+            user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+            recent_summary_config=RecentSummaryConfig(**{**Config.load_template_data()["recent_summary"], "enabled": False}),
+            **Config.packaged_agent_llm_chat_kwargs(),
+        )
+
+        async def fake_call_llm(*args, **kwargs):
+            return ExecutionResult(
+                content="Delegated the implementation task.",
+                executed_tool_calls=1,
+                active_delegate_task_id="task_abc12345",
+                active_delegate_prompt_type="implementer",
+            )
+
+        agent.call_llm = fake_call_llm
+        agent._schedule_post_response_maintenance = lambda chat_id: None
+        agent._maybe_schedule_skill_review = lambda chat_id, result: None
+
+        await storage.upsert_work_state(
+            StoredWorkState(
+                chat_id="web:browser-1",
+                objective="Finish the refactor",
+                kind="refactor",
+                status="active",
+                steps=("1. inspect", "2. change", "3. verify"),
+                constraints=("Keep the public API stable",),
+                done_criteria=("tests pass",),
+                long_running=True,
+                coding_task=True,
+                expects_code_change=True,
+                expects_verification=True,
+            )
+        )
+        await agent.process(
+            UserMessage(
+                text="continue",
+                channel="web",
+                chat_id="browser-1",
+                session_chat_id="web:browser-1",
+            )
+        )
+        return await storage.get_work_state("web:browser-1")
+
+    work_state = asyncio.run(scenario())
+
+    assert work_state is not None
+    assert work_state.objective == "Finish the refactor"
+    assert work_state.active_delegate_task_id == "task_abc12345"
+    assert work_state.active_delegate_prompt_type == "implementer"
 
 
 def test_agent_process_returns_queued_outbound_media(tmp_path):

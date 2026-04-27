@@ -68,16 +68,25 @@ class RunHookService:
         sid = session_chat_id
         rid = run_id
 
-        async def _hook(tool_name: str, tool_args: dict[str, Any]) -> None:
+        async def _hook(tool_name: str, tool_args: dict[str, Any], tool_call_id: str | None = None, iteration: int | None = None) -> None:
             safe_args = json_safe_payload(tool_args or {})
             args_preview = self._format_log_preview(json.dumps(safe_args, ensure_ascii=False), max_chars=240)
+            metadata = {
+                "args": safe_args,
+                "args_preview": args_preview,
+                "state": "running",
+            }
+            if tool_call_id:
+                metadata["tool_call_id"] = tool_call_id
+            if iteration is not None:
+                metadata["iteration"] = int(iteration)
             await self._add_run_part(
                 sid,
                 rid,
                 "tool_call",
                 content=json.dumps(safe_args, ensure_ascii=False, sort_keys=True),
                 tool_name=tool_name,
-                metadata={"args": safe_args, "args_preview": args_preview},
+                metadata=metadata,
             )
             await self._emit_run_event(
                 sid,
@@ -86,6 +95,8 @@ class RunHookService:
                 {
                     "tool_name": tool_name,
                     "args_preview": args_preview,
+                    "tool_call_id": tool_call_id,
+                    "iteration": iteration,
                 },
                 channel=ch,
                 transport_chat_id=tid,
@@ -132,23 +143,41 @@ class RunHookService:
         tid = str(transport_chat_id) if transport_chat_id is not None else None
         rid = run_id
 
-        async def _hook(tool_name: str, tool_args: dict[str, Any], result: str) -> None:
+        async def _hook(
+            tool_name: str,
+            tool_args: dict[str, Any],
+            result: str,
+            tool_call_id: str | None = None,
+            iteration: int | None = None,
+            delegate_task_id: str | None = None,
+            delegate_prompt_type: str | None = None,
+        ) -> None:
             safe_args = json_safe_payload(tool_args or {})
             result_text = str(result or "")
             result_preview = self._format_log_preview(result_text, max_chars=240)
             ok = not result_text.lstrip().startswith("Error:")
+            metadata = {
+                "args": safe_args,
+                "ok": ok,
+                "result_len": len(result_text),
+                "result_preview": result_preview,
+                "state": "completed" if ok else "error",
+            }
+            if tool_call_id:
+                metadata["tool_call_id"] = tool_call_id
+            if iteration is not None:
+                metadata["iteration"] = int(iteration)
+            if delegate_task_id:
+                metadata["delegate_task_id"] = delegate_task_id
+            if delegate_prompt_type:
+                metadata["delegate_prompt_type"] = delegate_prompt_type
             await self._add_run_part(
                 session_chat_id,
                 rid,
                 "tool_result",
                 content=result_text,
                 tool_name=tool_name,
-                metadata={
-                    "args": safe_args,
-                    "ok": ok,
-                    "result_len": len(result_text),
-                    "result_preview": result_preview,
-                },
+                metadata=metadata,
             )
             await self._emit_run_event(
                 session_chat_id,
@@ -159,6 +188,10 @@ class RunHookService:
                     "ok": ok,
                     "result_len": len(result_text),
                     "result_preview": result_preview,
+                    "tool_call_id": tool_call_id,
+                    "iteration": iteration,
+                    "delegate_task_id": delegate_task_id,
+                    "delegate_prompt_type": delegate_prompt_type,
                 },
                 channel=channel,
                 transport_chat_id=tid,
