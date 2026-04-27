@@ -269,6 +269,17 @@ class WebAdapter(MessageAdapter):
         return dict(value) if isinstance(value, dict) else {}
 
     @staticmethod
+    def _json_safe(value: Any) -> Any:
+        try:
+            json.dumps(value)
+            return value
+        except TypeError:
+            return json.loads(json.dumps(value, default=str))
+
+    def _get_storage(self) -> Any | None:
+        return getattr(getattr(self.mq, "agent", None), "storage", None)
+
+    @staticmethod
     def _coerce_media_list(value: Any) -> list[str] | None:
         if not isinstance(value, list):
             return None
@@ -358,6 +369,39 @@ class WebAdapter(MessageAdapter):
 
     async def _handle_health(self, request: web.Request) -> web.Response:
         return web.json_response({"ok": True, "channel": "web"})
+
+    async def _handle_run_events(self, request: web.Request) -> web.Response:
+        storage = self._get_storage()
+        if storage is None:
+            raise web.HTTPServiceUnavailable(text="Run event storage is not available")
+
+        run_id = self._coerce_optional_text(request.match_info.get("run_id"))
+        chat_id = self._coerce_optional_text(request.query.get("chat_id"))
+        if run_id is None or chat_id is None:
+            raise web.HTTPBadRequest(text="Both run_id and chat_id are required")
+
+        run = await storage.get_run(chat_id, run_id)
+        if run is None:
+            raise web.HTTPNotFound(text="Run not found")
+
+        events = await storage.get_run_events(chat_id, run_id)
+        return web.json_response(
+            {
+                "run_id": run_id,
+                "chat_id": chat_id,
+                "events": [
+                    {
+                        "event_id": event.event_id,
+                        "run_id": event.run_id,
+                        "chat_id": event.chat_id,
+                        "event_type": event.event_type,
+                        "payload": self._json_safe(dict(event.payload or {})),
+                        "created_at": event.created_at,
+                    }
+                    for event in events
+                ],
+            }
+        )
 
     async def _handle_frontend_index(self, request: web.Request) -> web.FileResponse:
         if self._frontend_dir is None:
@@ -452,6 +496,7 @@ class WebAdapter(MessageAdapter):
         self.app = web.Application()
         self.app.router.add_get(ws_path, self._handle_websocket)
         self.app.router.add_get(health_path, self._handle_health)
+        self.app.router.add_get("/api/runs/{run_id}/events", self._handle_run_events)
         self.app.router.add_get("/", self._handle_frontend_index)
         self.app.router.add_get("/index.html", self._handle_frontend_index)
         if self._frontend_dir is not None:

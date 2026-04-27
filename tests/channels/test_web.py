@@ -7,6 +7,7 @@ from opensprite.bus.dispatcher import MessageQueue
 from opensprite.bus.events import RunEvent
 from opensprite.bus.message import AssistantMessage
 from opensprite.channels.web import WebAdapter
+from opensprite.storage import MemoryStorage
 
 
 class EchoAgent:
@@ -268,3 +269,82 @@ async def _run_web_frontend_unavailable_response(tmp_path: Path):
 
 def test_web_adapter_root_explains_missing_frontend(tmp_path):
     asyncio.run(_run_web_frontend_unavailable_response(tmp_path))
+
+
+async def _run_web_run_events_api():
+    storage = MemoryStorage()
+    await storage.create_run("web:browser-1", "run-1", created_at=100.0)
+    await storage.add_run_event(
+        "web:browser-1",
+        "run-1",
+        "task_intent.detected",
+        payload={"objective": "inspect run timeline", "path": Path("notes.txt")},
+        created_at=101.0,
+    )
+    await storage.add_run_event(
+        "web:browser-1",
+        "run-1",
+        "completion_gate.evaluated",
+        payload={"status": "complete"},
+        created_at=102.0,
+    )
+
+    agent = EchoAgent()
+    agent.storage = storage
+    queue = MessageQueue(agent)
+    adapter = WebAdapter(
+        mq=queue,
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "path": "/ws",
+            "health_path": "/healthz",
+            "frontend_auto_build": False,
+        },
+    )
+    adapter_task = asyncio.create_task(adapter.run())
+
+    try:
+        await adapter.wait_until_started()
+        port = adapter.bound_port
+        assert port is not None
+
+        async with ClientSession() as session:
+            async with session.get(
+                f"http://127.0.0.1:{port}/api/runs/run-1/events",
+                params={"chat_id": "web:browser-1"},
+            ) as resp:
+                assert resp.status == 200
+                payload = await resp.json()
+
+            assert payload["run_id"] == "run-1"
+            assert payload["chat_id"] == "web:browser-1"
+            assert [event["event_type"] for event in payload["events"]] == [
+                "task_intent.detected",
+                "completion_gate.evaluated",
+            ]
+            assert payload["events"][0]["event_id"] == 1
+            assert payload["events"][0]["payload"] == {
+                "objective": "inspect run timeline",
+                "path": "notes.txt",
+            }
+            assert payload["events"][1]["created_at"] == 102.0
+
+            async with session.get(f"http://127.0.0.1:{port}/api/runs/run-1/events") as resp:
+                assert resp.status == 400
+
+            async with session.get(
+                f"http://127.0.0.1:{port}/api/runs/missing-run/events",
+                params={"chat_id": "web:browser-1"},
+            ) as resp:
+                assert resp.status == 404
+    finally:
+        adapter_task.cancel()
+        try:
+            await adapter_task
+        except asyncio.CancelledError:
+            pass
+
+
+def test_web_adapter_exposes_run_events_api():
+    asyncio.run(_run_web_run_events_api())
