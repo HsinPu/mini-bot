@@ -49,7 +49,7 @@ class ActiveTaskCommandService:
         )
 
     def clear(self, chat_id: str) -> None:
-        """Reset ACTIVE_TASK.md for one chat session."""
+        """Reset ACTIVE_TASK.md for one session."""
         store = self.get_store(chat_id)
         if store is not None:
             store.clear(chat_id)

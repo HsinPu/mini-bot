@@ -11,8 +11,8 @@ from opensprite.tools.skill_config import (
 
 # Meets fixed minimums for add/upsert validation.
 _VALID_DESCRIPTION = (
-    "Chat-scoped helper: applies a repeatable workflow for tasks tied to this conversation only. "
-    "Use when the user asks for the same multi-step process within this chat workspace."
+    "Session-scoped helper: applies a repeatable workflow for tasks tied to this conversation only. "
+    "Use when the user asks for the same multi-step process within this session workspace."
 )
 _VALID_BODY = (
     "# Instructions\n\n"

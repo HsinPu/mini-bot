@@ -152,7 +152,7 @@ Keep high-level workflow in `AGENTS.md`; keep concrete tool usage rules here.
 ## Subagent Prompt Tool
 
 - `configure_subagent`
-  - Use when the user wants to add, update, inspect, or remove subagent prompts for this chat session.
+  - Use when the user wants to add, update, inspect, or remove subagent prompts for this session.
   - Session writes go under the current workspace `subagent_prompts/` tree.
   - `list` and `get` reflect merged results: session prompts override app-home defaults when both exist.
   - For `add` and `upsert`, use `tool_profile` when the subagent needs a capability boundary other than the safe fallback. Supported values are `read-only`, `research`, `implementation`, and `testing`.
@@ -227,7 +227,7 @@ Keep high-level workflow in `AGENTS.md`; keep concrete tool usage rules here.
 
 ## Scope Boundaries
 
-- `USER.md` lives at the chat session workspace root and stores durable user-focused context for this session.
+- `USER.md` lives at the session workspace root and stores durable user-focused context for this session.
 - `MEMORY.md` lives under `~/.opensprite/memory/` and stores durable chat continuity.
 - Prefer `configure_skill` and `configure_subagent` for those trees rather than ad-hoc edits elsewhere.
 - `search_history` and `search_knowledge` are retrieval tools, not always-on memory.

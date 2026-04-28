@@ -17,14 +17,14 @@ class AgentPermissionService:
         *,
         requests: PermissionRequestManager,
         events: PermissionEventRecorder,
-        current_chat_id: Callable[[], str | None],
+        current_session_id: Callable[[], str | None],
         current_run_id: Callable[[], str | None],
         current_channel: Callable[[], str | None],
         current_external_chat_id: Callable[[], str | None],
     ):
         self.requests = requests
         self.events = events
-        self._current_chat_id = current_chat_id
+        self._current_session_id = current_session_id
         self._current_run_id = current_run_id
         self._current_channel = current_channel
         self._current_external_chat_id = current_external_chat_id
@@ -56,7 +56,7 @@ class AgentPermissionService:
             tool_name=tool_name,
             params=params,
             reason=decision.reason,
-            chat_id=self._current_chat_id(),
+            session_id=self._current_session_id(),
             run_id=self._current_run_id(),
             channel=self._current_channel(),
             external_chat_id=self._current_external_chat_id(),

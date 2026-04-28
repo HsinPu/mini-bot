@@ -123,7 +123,7 @@ def test_implementer_subagent_can_use_profile_tools_but_not_delegate(tmp_path):
         user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
         **Config.packaged_agent_llm_chat_kwargs(),
     )
-    agent._current_chat_id.set("telegram:user-a")
+    agent._current_session_id.set("telegram:user-a")
     agent.app_home = tmp_path / "opensprite-home"
 
     result = asyncio.run(agent.run_subagent("do the task", prompt_type="implementer"))
@@ -143,13 +143,13 @@ def test_implementer_subagent_can_use_profile_tools_but_not_delegate(tmp_path):
     assert "configure_skill" not in tool_names
     assert "configure_subagent" not in tool_names
     assert "task_update" not in tool_names
-    child_chat_id = next(chat_id for chat_id in storage.messages if ":subagent:task_" in chat_id)
-    assert child_chat_id.startswith("telegram:user-a:subagent:task_")
-    assert storage.saved[0][0:4] == (child_chat_id, "user", "do the task", None)
-    assert storage.saved[1][0:4] == (child_chat_id, "tool", "tool:abc", "read_file")
-    assert storage.saved[2][0:4] == (child_chat_id, "assistant", "done", None)
+    child_session_id = next(session_id for session_id in storage.messages if ":subagent:task_" in session_id)
+    assert child_session_id.startswith("telegram:user-a:subagent:task_")
+    assert storage.saved[0][0:4] == (child_session_id, "user", "do the task", None)
+    assert storage.saved[1][0:4] == (child_session_id, "tool", "tool:abc", "read_file")
+    assert storage.saved[2][0:4] == (child_session_id, "assistant", "done", None)
     assert storage.saved[0][4]["kind"] == "subagent_task"
-    assert storage.saved[0][4]["parent_chat_id"] == "telegram:user-a"
+    assert storage.saved[0][4]["parent_session_id"] == "telegram:user-a"
 
 
 def test_code_reviewer_subagent_is_read_only(tmp_path):
@@ -171,7 +171,7 @@ def test_code_reviewer_subagent_is_read_only(tmp_path):
         user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
         **Config.packaged_agent_llm_chat_kwargs(),
     )
-    agent._current_chat_id.set("telegram:user-a")
+    agent._current_session_id.set("telegram:user-a")
     agent.app_home = tmp_path / "opensprite-home"
 
     result = asyncio.run(agent.run_subagent("review the task", prompt_type="code-reviewer"))
@@ -189,13 +189,13 @@ def test_code_reviewer_subagent_is_read_only(tmp_path):
 
 def test_custom_subagent_tool_profile_controls_runtime_tools(tmp_path):
     workspace = tmp_path / "workspace"
-    chat_workspace = get_chat_workspace("telegram:user-a", workspace_root=workspace)
-    prompt_dir = chat_workspace / "subagent_prompts"
+    session_workspace = get_chat_workspace("telegram:user-a", workspace_root=workspace)
+    prompt_dir = session_workspace / "subagent_prompts"
     prompt_dir.mkdir(parents=True)
     (prompt_dir / "custom-implementer.md").write_text(
         "---\n"
         "name: custom-implementer\n"
-        "description: Custom implementation helper for this chat workspace.\n"
+        "description: Custom implementation helper for this session workspace.\n"
         "tool_profile: implementation\n"
         "---\n"
         "Implement the requested change.\n",
@@ -219,7 +219,7 @@ def test_custom_subagent_tool_profile_controls_runtime_tools(tmp_path):
         user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
         **Config.packaged_agent_llm_chat_kwargs(),
     )
-    agent._current_chat_id.set("telegram:user-a")
+    agent._current_session_id.set("telegram:user-a")
     agent.app_home = tmp_path / "opensprite-home"
 
     result = asyncio.run(agent.run_subagent("do the task", prompt_type="custom-implementer"))
@@ -265,7 +265,7 @@ def test_custom_subagent_without_tool_profile_defaults_read_only(tmp_path):
         user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
         **Config.packaged_agent_llm_chat_kwargs(),
     )
-    agent._current_chat_id.set("telegram:user-a")
+    agent._current_session_id.set("telegram:user-a")
     agent.app_home = tmp_path / "opensprite-home"
 
     result = asyncio.run(agent.run_subagent("inspect", prompt_type="custom-agent"))
@@ -309,7 +309,7 @@ def test_invalid_subagent_tool_profile_blocks_delegation(tmp_path):
         user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
         **Config.packaged_agent_llm_chat_kwargs(),
     )
-    agent._current_chat_id.set("telegram:user-a")
+    agent._current_session_id.set("telegram:user-a")
     agent.app_home = tmp_path / "opensprite-home"
 
     result = asyncio.run(agent.run_subagent("do it", prompt_type="bad-agent"))
@@ -341,7 +341,7 @@ def test_code_reviewer_forbidden_write_call_is_not_executed(tmp_path):
         user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
         **Config.packaged_agent_llm_chat_kwargs(),
     )
-    agent._current_chat_id.set("telegram:user-a")
+    agent._current_session_id.set("telegram:user-a")
     agent.app_home = tmp_path / "opensprite-home"
 
     result = asyncio.run(agent.run_subagent("review the task", prompt_type="code-reviewer"))
@@ -380,7 +380,7 @@ def test_test_writer_write_tools_are_limited_to_test_paths(tmp_path):
         user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
         **Config.packaged_agent_llm_chat_kwargs(),
     )
-    agent._current_chat_id.set("telegram:user-a")
+    agent._current_session_id.set("telegram:user-a")
     agent.app_home = tmp_path / "opensprite-home"
 
     result = asyncio.run(agent.run_subagent("add tests", prompt_type="test-writer"))
@@ -419,7 +419,7 @@ def test_test_writer_can_use_write_tools_for_test_paths(tmp_path):
         user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
         **Config.packaged_agent_llm_chat_kwargs(),
     )
-    agent._current_chat_id.set("telegram:user-a")
+    agent._current_session_id.set("telegram:user-a")
     agent.app_home = tmp_path / "opensprite-home"
 
     result = asyncio.run(agent.run_subagent("add tests", prompt_type="test-writer"))
@@ -461,7 +461,7 @@ def test_test_writer_allows_common_js_tests_directory(tmp_path):
         user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
         **Config.packaged_agent_llm_chat_kwargs(),
     )
-    agent._current_chat_id.set("telegram:user-a")
+    agent._current_session_id.set("telegram:user-a")
     agent.app_home = tmp_path / "opensprite-home"
 
     result = asyncio.run(agent.run_subagent("add tests", prompt_type="test-writer"))
@@ -505,7 +505,7 @@ def test_subagent_resume_uses_child_session_history(tmp_path):
         user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
         **Config.packaged_agent_llm_chat_kwargs(),
     )
-    agent._current_chat_id.set("telegram:user-a")
+    agent._current_session_id.set("telegram:user-a")
     agent.app_home = tmp_path / "opensprite-home"
 
     first = asyncio.run(agent.run_subagent("initial task", prompt_type="implementer"))
@@ -518,8 +518,8 @@ def test_subagent_resume_uses_child_session_history(tmp_path):
     assert second_messages[1].content == "initial task"
     assert second_messages[2].content == "reply-1"
     assert second_messages[3].content == "continue task"
-    child_chat_id = f"telegram:user-a:subagent:{task_id}"
-    stored_roles = [message.role for message in storage.messages[child_chat_id]]
+    child_session_id = f"telegram:user-a:subagent:{task_id}"
+    stored_roles = [message.role for message in storage.messages[child_session_id]]
     assert stored_roles == ["user", "assistant", "user", "assistant"]
 
 
@@ -539,7 +539,7 @@ def test_subagent_resume_rejects_prompt_type_switch(tmp_path):
         user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
         **Config.packaged_agent_llm_chat_kwargs(),
     )
-    agent._current_chat_id.set("telegram:user-a")
+    agent._current_session_id.set("telegram:user-a")
     agent.app_home = tmp_path / "opensprite-home"
 
     first = asyncio.run(agent.run_subagent("initial task", prompt_type="implementer"))

@@ -22,7 +22,7 @@ class PermissionRequest:
     reason: str
     created_at: float
     expires_at: float
-    chat_id: str | None = None
+    session_id: str | None = None
     run_id: str | None = None
     channel: str | None = None
     external_chat_id: str | None = None
@@ -63,7 +63,7 @@ class PermissionRequestManager:
         tool_name: str,
         params: Any,
         reason: str,
-        chat_id: str | None = None,
+        session_id: str | None = None,
         run_id: str | None = None,
         channel: str | None = None,
         external_chat_id: str | None = None,
@@ -75,7 +75,7 @@ class PermissionRequestManager:
             tool_name=tool_name,
             params=params,
             reason=reason,
-            chat_id=chat_id,
+            session_id=session_id,
             run_id=run_id,
             channel=channel,
             external_chat_id=external_chat_id,

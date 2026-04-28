@@ -25,9 +25,9 @@ def validate_subagent_task_id(task_id: str) -> str | None:
     return "Error: task_id must match pattern task_[A-Za-z0-9_-]{8,64}."
 
 
-def build_child_subagent_chat_id(parent_chat_id: str, task_id: str) -> str:
-    """Build the storage chat id for one child subagent task session."""
-    return f"{parent_chat_id}:subagent:{task_id}"
+def build_child_subagent_session_id(parent_session_id: str, task_id: str) -> str:
+    """Build the storage session id for one child subagent task session."""
+    return f"{parent_session_id}:subagent:{task_id}"
 
 
 def extract_subagent_prompt_type(messages: list[StoredMessage]) -> str | None:

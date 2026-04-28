@@ -86,7 +86,7 @@ class AgentMediaService:
         directory_name: str,
         extensions: dict[str, str],
     ) -> list[str]:
-        """Persist inbound media data URLs under a chat workspace directory."""
+        """Persist inbound media data URLs under a session workspace directory."""
         if not media_items:
             return []
 
@@ -136,7 +136,7 @@ class AgentMediaService:
         return saved_files
 
     def persist_inbound_images(self, chat_id: str, images: list[str] | None) -> list[str]:
-        """Persist inbound image data URLs under the chat workspace images directory."""
+        """Persist inbound image data URLs under the session workspace images directory."""
         return self.persist_inbound_media(
             chat_id,
             images,
@@ -146,7 +146,7 @@ class AgentMediaService:
         )
 
     def persist_inbound_audios(self, chat_id: str, audios: list[str] | None) -> list[str]:
-        """Persist inbound audio data URLs under the chat workspace audios directory."""
+        """Persist inbound audio data URLs under the session workspace audios directory."""
         return self.persist_inbound_media(
             chat_id,
             audios,
@@ -156,7 +156,7 @@ class AgentMediaService:
         )
 
     def persist_inbound_videos(self, chat_id: str, videos: list[str] | None) -> list[str]:
-        """Persist inbound video data URLs under the chat workspace videos directory."""
+        """Persist inbound video data URLs under the session workspace videos directory."""
         return self.persist_inbound_media(
             chat_id,
             videos,
@@ -240,7 +240,7 @@ class AgentMediaService:
             )
             if user_image_files:
                 hints.append(
-                    f"Saved inbound image file(s) under the chat workspace: {', '.join(user_image_files)}."
+                    f"Saved inbound image file(s) under the session workspace: {', '.join(user_image_files)}."
                 )
         if user_audios:
             hints.append(
@@ -249,7 +249,7 @@ class AgentMediaService:
             )
             if user_audio_files:
                 hints.append(
-                    f"Saved inbound audio file(s) under the chat workspace: {', '.join(user_audio_files)}."
+                    f"Saved inbound audio file(s) under the session workspace: {', '.join(user_audio_files)}."
                 )
         if user_videos:
             hints.append(
@@ -258,7 +258,7 @@ class AgentMediaService:
             )
             if user_video_files:
                 hints.append(
-                    f"Saved inbound video file(s) under the chat workspace: {', '.join(user_video_files)}."
+                    f"Saved inbound video file(s) under the session workspace: {', '.join(user_video_files)}."
                 )
         if not hints:
             return current_message

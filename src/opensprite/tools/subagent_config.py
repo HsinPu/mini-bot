@@ -70,7 +70,7 @@ class ConfigureSubagentTool(Tool):
 
     name = "configure_subagent"
     description = (
-        "Inspect, add, update, or remove subagent prompt definitions for this chat session (one markdown file per id "
+        "Inspect, add, update, or remove subagent prompt definitions for this session (one markdown file per id "
         "under the session workspace subagent_prompts/). "
         "Use this when the user wants a new delegate target or to change prompts instead of editing files manually. "
         + _CONFIGURE_SUBAGENT_RULES_SUMMARY

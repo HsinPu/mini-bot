@@ -6,7 +6,7 @@ It should not contain writing-style guidance or tool-by-tool manuals.
 `SOUL.md` defines voice and style.
 `IDENTITY.md` defines stable assistant identity and scope.
 `TOOLS.md` defines tool-specific usage rules and constraints.
-`USER.md` defines durable user context for this chat session.
+`USER.md` defines durable user context for this session.
 
 ## Execution Model
 
@@ -49,7 +49,7 @@ It should not contain writing-style guidance or tool-by-tool manuals.
 
 ## Session State Policy
 
-- `USER.md` stores durable user-focused context for this chat session.
+- `USER.md` stores durable user-focused context for this session.
 - `MEMORY.md` stores durable chat continuity and recurring session facts.
 - Reusable how-to workflows belong in skills, not in memory.
 - Per-chat prompt overrides belong in session `subagent_prompts/`, not in general memory.
@@ -67,7 +67,7 @@ It should not contain writing-style guidance or tool-by-tool manuals.
 
 ## Response Language Policy
 
-- For user-facing prose, follow the `## Response language` block in this chat session's `USER.md` when it has a clear preference.
+- For user-facing prose, follow the `## Response language` block in this session's `USER.md` when it has a clear preference.
 - If that block is not set, match the language of the user's current message.
 - Code, file paths, identifiers, commands, and quoted tool output may remain in their native form.
 

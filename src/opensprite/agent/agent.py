@@ -249,7 +249,7 @@ class AgentLoop:
         await self.file_changes.record_changes(
             tool_name,
             changes,
-            chat_id=self.turn_context.current_chat_id(),
+            chat_id=self.turn_context.current_session_id(),
             run_id=self.turn_context.current_run_id(),
             channel=self.turn_context.current_channel(),
             external_chat_id=self.turn_context.current_external_chat_id(),
@@ -318,7 +318,7 @@ class AgentLoop:
         return self.background_notifications.make_exit_notifier(
             channel=self.turn_context.current_channel(),
             external_chat_id=self.turn_context.current_external_chat_id(),
-            session_id=self._get_current_chat_id(),
+            session_id=self._get_current_session_id(),
         )
 
     def __init__(
@@ -380,7 +380,7 @@ class AgentLoop:
         self.cron_manager = cron_manager
         self.media_router = media_router
         self.provider = provider
-        self._current_chat_id: ContextVar[str | None] = ContextVar("current_chat_id", default=None)
+        self._current_session_id: ContextVar[str | None] = ContextVar("current_session_id", default=None)
         self._current_channel: ContextVar[str | None] = ContextVar("current_channel", default=None)
         self._current_external_chat_id: ContextVar[str | None] = ContextVar(
             "current_external_chat_id", default=None
@@ -399,7 +399,7 @@ class AgentLoop:
         )
         self.background_process_manager: BackgroundProcessManager | None = None
         self.turn_context = TurnContextService(
-            current_chat_id=self._current_chat_id,
+            current_session_id=self._current_session_id,
             current_channel=self._current_channel,
             current_external_chat_id=self._current_external_chat_id,
             current_images=self._current_images,
@@ -497,7 +497,7 @@ class AgentLoop:
         self.permissions = AgentPermissionService(
             requests=self.permission_requests,
             events=self.permission_events,
-            current_chat_id=self.turn_context.current_chat_id,
+            current_session_id=self.turn_context.current_session_id,
             current_run_id=self.turn_context.current_run_id,
             current_channel=self.turn_context.current_channel,
             current_external_chat_id=self.turn_context.current_external_chat_id,
@@ -536,7 +536,7 @@ class AgentLoop:
             max_history_getter=lambda: self.config.max_history,
             app_home_getter=lambda: self.app_home,
             workspace_getter=self._get_current_workspace,
-            current_chat_id_getter=self._get_current_chat_id,
+            current_session_id_getter=self._get_current_session_id,
             skills_loader_getter=lambda: getattr(self._context_builder, "skills_loader", None),
             save_message=self._save_message,
             execute_messages=self._execute_messages,
@@ -791,7 +791,7 @@ class AgentLoop:
 
     def _register_memory_tool(self) -> None:
         """Register the save_memory tool."""
-        register_memory_tool(self.tools, self.memory, self._get_current_chat_id)
+        register_memory_tool(self.tools, self.memory, self._get_current_session_id)
 
     def _sync_runtime_mcp_tools_context(self) -> None:
         """Expose connected MCP tools to context builders that support prompt summaries."""
@@ -936,20 +936,20 @@ class AgentLoop:
             "context_window_tokens": self.llm_context_window_tokens,
         }
 
-    def _get_current_chat_id(self) -> str | None:
-        """Return the current task-local chat id."""
-        return self.turn_context.current_chat_id()
+    def _get_current_session_id(self) -> str | None:
+        """Return the current task-local session id."""
+        return self.turn_context.current_session_id()
 
     def _current_background_session_owner(self) -> dict[str, str | None] | None:
         """Return active turn ownership metadata for managed background sessions."""
-        chat_id = self.turn_context.current_chat_id()
+        session_id = self.turn_context.current_session_id()
         run_id = self.turn_context.current_run_id()
         channel = self.turn_context.current_channel()
         external_chat_id = self.turn_context.current_external_chat_id()
-        if chat_id is None and run_id is None:
+        if session_id is None and run_id is None:
             return None
         return {
-            "session_id": chat_id,
+            "session_id": session_id,
             "run_id": run_id,
             "channel": channel,
             "external_chat_id": external_chat_id,
@@ -972,11 +972,11 @@ class AgentLoop:
     def _get_current_workspace(self) -> Path:
         """Resolve the current task-local workspace."""
         workspace_root = self.tool_workspace or getattr(self._context_builder, "workspace", Path.cwd())
-        chat_id = self._get_current_chat_id() or "default"
-        return get_chat_workspace(chat_id, workspace_root=workspace_root)
+        session_id = self._get_current_session_id() or "default"
+        return get_chat_workspace(session_id, workspace_root=workspace_root)
 
     def _get_workspace_for_chat(self, chat_id: str) -> Path:
-        """Resolve the isolated workspace for a specific chat id."""
+        """Resolve the isolated workspace for a specific session id."""
         workspace_root = self.tool_workspace or getattr(self._context_builder, "workspace", Path.cwd())
         return get_chat_workspace(chat_id, workspace_root=workspace_root)
 
@@ -1014,7 +1014,7 @@ class AgentLoop:
         directory_name: str,
         extensions: dict[str, str],
     ) -> list[str]:
-        """Persist inbound media data URLs under a chat workspace directory."""
+        """Persist inbound media data URLs under a session workspace directory."""
         return self.media_service.persist_inbound_media(
             chat_id,
             media_items,
@@ -1024,15 +1024,15 @@ class AgentLoop:
         )
 
     def _persist_inbound_images(self, chat_id: str, images: list[str] | None) -> list[str]:
-        """Persist inbound image data URLs under the chat workspace images directory."""
+        """Persist inbound image data URLs under the session workspace images directory."""
         return self.media_service.persist_inbound_images(chat_id, images)
 
     def _persist_inbound_audios(self, chat_id: str, audios: list[str] | None) -> list[str]:
-        """Persist inbound audio data URLs under the chat workspace audios directory."""
+        """Persist inbound audio data URLs under the session workspace audios directory."""
         return self.media_service.persist_inbound_audios(chat_id, audios)
 
     def _persist_inbound_videos(self, chat_id: str, videos: list[str] | None) -> list[str]:
-        """Persist inbound video data URLs under the chat workspace videos directory."""
+        """Persist inbound video data URLs under the session workspace videos directory."""
         return self.media_service.persist_inbound_videos(chat_id, videos)
 
     def _register_default_tools(self) -> None:
@@ -1047,7 +1047,7 @@ class AgentLoop:
         register_default_tools(
             self.tools,
             workspace_resolver=self._get_current_workspace,
-            get_chat_id=self._get_current_chat_id,
+            get_session_id=self._get_current_session_id,
             run_subagent=self.run_subagent,
             config_path_resolver=self._get_config_path,
             reload_mcp=self.reload_mcp_from_config,
@@ -1082,7 +1082,7 @@ class AgentLoop:
         Load conversation history from storage.
         
         Args:
-            chat_id: 聊天室 ID。The chat session ID.
+            chat_id: 聊天室 ID。The session ID.
         
         Returns:
             ChatMessage 物件列表，供 LLM 使用。
@@ -1104,7 +1104,7 @@ class AgentLoop:
         Save a message to storage.
         
         Args:
-            chat_id: 聊天室 ID。The chat session ID.
+            chat_id: 聊天室 ID。The session ID.
             role: 訊息角色（"user"、"assistant" 或 "tool"）。
                   Message role ("user", "assistant", or "tool").
             content: 訊息內容。Message content.
@@ -1225,7 +1225,7 @@ class AgentLoop:
         
         Args:
             chat_id: 聊天室 ID，用於載入歷史。
-                      The chat session ID for loading history.
+                      The session ID for loading history.
             current_message: 本輪使用者輸入內容。
                              The current user message for this turn.
             channel: 頻道名稱（例如 "telegram"、"console"）。用於上下文。
@@ -1275,11 +1275,11 @@ class AgentLoop:
         tool_registry = self._skill_review_tool_registry()
         if tool_registry is None:
             return
-        token = self._current_chat_id.set(chat_id)
+        token = self._current_session_id.set(chat_id)
         try:
             await self.skill_review.run(chat_id, tool_registry=tool_registry)
         finally:
-            self._current_chat_id.reset(token)
+            self._current_session_id.reset(token)
 
     async def run_subagent(
         self,
@@ -1318,7 +1318,7 @@ class AgentLoop:
         the message count exceeds the threshold.
         
         Args:
-            chat_id: 聊天室 ID。The chat session ID.
+            chat_id: 聊天室 ID。The session ID.
         """
         await self.memory_consolidation.maybe_consolidate(chat_id)
 
@@ -1416,7 +1416,7 @@ class AgentLoop:
         await self.recent_summary_update.maybe_update(chat_id)
 
     def _clear_active_task(self, chat_id: str) -> None:
-        """Reset ACTIVE_TASK.md for one chat session."""
+        """Reset ACTIVE_TASK.md for one session."""
         self.active_task_commands.clear(chat_id)
 
     def _get_active_task_store(self, chat_id: str):
@@ -1487,6 +1487,6 @@ class AgentLoop:
         
         Args:
             chat_id: 聊天室 ID。如果為 None 則清除所有聊天室。
-                      The chat session ID. If None, clears all chats.
+                      The session ID. If None, clears all sessions.
         """
         await self.history_reset.reset(chat_id)

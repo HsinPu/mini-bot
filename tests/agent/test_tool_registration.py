@@ -43,7 +43,7 @@ def test_register_default_tools_includes_optional_skill_and_search_tools(tmp_pat
     register_default_tools(
         registry,
         workspace_resolver=lambda: Path.cwd(),
-        get_chat_id=lambda: "chat-1",
+        get_session_id=lambda: "chat-1",
         run_subagent=_fake_run_subagent,
         config_path_resolver=lambda: Path.cwd() / "opensprite.json",
         reload_mcp=_fake_reload_mcp,
@@ -94,7 +94,7 @@ def test_register_default_tools_skips_optional_skill_and_search_tools_when_depen
     register_default_tools(
         registry,
         workspace_resolver=lambda: Path.cwd(),
-        get_chat_id=lambda: "chat-1",
+        get_session_id=lambda: "chat-1",
         run_subagent=_fake_run_subagent,
         config_path_resolver=lambda: Path.cwd() / "opensprite.json",
         reload_mcp=_fake_reload_mcp,
@@ -133,7 +133,7 @@ def test_register_default_tools_applies_typed_tools_config_values():
     register_default_tools(
         registry,
         workspace_resolver=lambda: Path.cwd(),
-        get_chat_id=lambda: "chat-1",
+        get_session_id=lambda: "chat-1",
         run_subagent=_fake_run_subagent,
         config_path_resolver=lambda: Path.cwd() / "opensprite.json",
         reload_mcp=_fake_reload_mcp,
@@ -194,7 +194,7 @@ def test_register_default_tools_includes_run_trace_tools_when_storage_is_availab
     register_default_tools(
         registry,
         workspace_resolver=lambda: Path.cwd(),
-        get_chat_id=lambda: "chat-1",
+        get_session_id=lambda: "chat-1",
         run_subagent=_fake_run_subagent,
         config_path_resolver=lambda: Path.cwd() / "opensprite.json",
         reload_mcp=_fake_reload_mcp,
@@ -212,7 +212,7 @@ def test_register_default_tools_applies_permission_policy():
     register_default_tools(
         registry,
         workspace_resolver=lambda: Path.cwd(),
-        get_chat_id=lambda: "chat-1",
+        get_session_id=lambda: "chat-1",
         run_subagent=_fake_run_subagent,
         config_path_resolver=lambda: Path.cwd() / "opensprite.json",
         reload_mcp=_fake_reload_mcp,
@@ -234,7 +234,7 @@ def test_search_and_web_tools_describe_retrieval_preference():
     register_default_tools(
         registry,
         workspace_resolver=lambda: Path.cwd(),
-        get_chat_id=lambda: "chat-1",
+        get_session_id=lambda: "chat-1",
         run_subagent=_fake_run_subagent,
         config_path_resolver=lambda: Path.cwd() / "opensprite.json",
         reload_mcp=_fake_reload_mcp,
@@ -260,7 +260,7 @@ def test_register_default_tools_applies_cron_default_timezone_from_tools_config(
     register_default_tools(
         registry,
         workspace_resolver=lambda: Path.cwd(),
-        get_chat_id=lambda: "chat-1",
+        get_session_id=lambda: "chat-1",
         run_subagent=_fake_run_subagent,
         config_path_resolver=lambda: Path.cwd() / "opensprite.json",
         reload_mcp=_fake_reload_mcp,

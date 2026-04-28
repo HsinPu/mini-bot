@@ -18,12 +18,12 @@ class CronTool(Tool):
         self,
         cron_manager: CronManager | None,
         *,
-        get_chat_id: Callable[[], str | None],
+        get_session_id: Callable[[], str | None],
         default_timezone: str = "UTC",
         messages_config: CronMessagesConfig | None = None,
     ):
         self._cron_manager = cron_manager
-        self._get_chat_id = get_chat_id
+        self._get_session_id = get_session_id
         self._default_timezone = default_timezone
         self._messages = messages_config or CronMessagesConfig()
 
@@ -80,7 +80,7 @@ class CronTool(Tool):
                 },
                 "deliver": {
                     "type": "boolean",
-                    "description": "For add. Whether to send the future execution result back to the current chat.",
+                    "description": "For add. Whether to send the future execution result back to the current session.",
                     "default": True,
                 },
                 "job_id": {
@@ -121,10 +121,10 @@ class CronTool(Tool):
     async def _get_service(self):
         if self._cron_manager is None:
             return None, self._messages.error_manager_unavailable
-        chat_id = self._get_chat_id()
-        if not chat_id:
+        session_id = self._get_session_id()
+        if not session_id:
             return None, self._messages.error_no_active_session
-        return await self._cron_manager.get_or_create_service(chat_id), None
+        return await self._cron_manager.get_or_create_service(session_id), None
 
     async def _add_job(
         self,
@@ -163,7 +163,7 @@ class CronTool(Tool):
         else:
             return self._messages.error_schedule_required
 
-        session_id = self._get_chat_id() or "default"
+        session_id = self._get_session_id() or "default"
         if ":" in session_id:
             channel, chat_id = session_id.split(":", 1)
         else:

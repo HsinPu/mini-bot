@@ -20,7 +20,7 @@ def test_list_run_file_changes_tool_lists_specific_run():
             diff="--- /dev/null\n+++ b/notes.txt",
             created_at=11.0,
         )
-        tool = ListRunFileChangesTool(storage=storage, get_chat_id=lambda: "chat-1")
+        tool = ListRunFileChangesTool(storage=storage, get_session_id=lambda: "chat-1")
         return await tool.execute(run_id="run-1", include_diffs=True)
 
     payload = json.loads(asyncio.run(scenario()))
@@ -56,7 +56,7 @@ def test_list_run_file_changes_tool_scans_recent_runs():
             "update",
             created_at=21.0,
         )
-        tool = ListRunFileChangesTool(storage=storage, get_chat_id=lambda: "chat-1")
+        tool = ListRunFileChangesTool(storage=storage, get_session_id=lambda: "chat-1")
         return await tool.execute(change_limit=2)
 
     payload = json.loads(asyncio.run(scenario()))
@@ -75,7 +75,7 @@ def test_preview_run_file_change_revert_tool_delegates_with_current_session():
         return {"ok": True, "status": "ready", "path": "notes.txt"}
 
     async def scenario():
-        tool = PreviewRunFileChangeRevertTool(get_chat_id=lambda: "chat-1", preview_revert=preview)
+        tool = PreviewRunFileChangeRevertTool(get_session_id=lambda: "chat-1", preview_revert=preview)
         return await tool.execute(run_id="run-1", change_id=7)
 
     payload = json.loads(asyncio.run(scenario()))
@@ -90,8 +90,8 @@ def test_run_trace_tools_require_current_session():
 
     async def scenario():
         storage = MemoryStorage()
-        list_tool = ListRunFileChangesTool(storage=storage, get_chat_id=lambda: None)
-        preview_tool = PreviewRunFileChangeRevertTool(get_chat_id=lambda: None, preview_revert=preview)
+        list_tool = ListRunFileChangesTool(storage=storage, get_session_id=lambda: None)
+        preview_tool = PreviewRunFileChangeRevertTool(get_session_id=lambda: None, preview_revert=preview)
         return (
             await list_tool.execute(),
             await preview_tool.execute(run_id="run-1", change_id=1),

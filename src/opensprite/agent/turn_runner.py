@@ -150,7 +150,7 @@ class AgentTurnRunner:
                 )
 
             with self.turn_context.activate(
-                chat_id=turn.session_id,
+                session_id=turn.session_id,
                 channel=turn.channel,
                 external_chat_id=turn.external_chat_id,
                 images=user_message.images,

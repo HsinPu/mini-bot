@@ -23,7 +23,7 @@ class PermissionEventRecorder:
 
     async def emit(self, event_type: str, request: PermissionRequest) -> None:
         """Persist and publish one permission approval lifecycle event for a run."""
-        if not request.chat_id or not request.run_id:
+        if not request.session_id or not request.run_id:
             return
         try:
             params_preview = json.dumps(
@@ -51,7 +51,7 @@ class PermissionEventRecorder:
                 }
             )
         await self._emit_run_event(
-            request.chat_id,
+            request.session_id,
             request.run_id,
             event_type,
             payload,

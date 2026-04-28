@@ -165,11 +165,11 @@ Ids and descriptions below are **merged**: this chat's `subagent_prompts/<id>.md
         self._runtime_mcp_tools = list(tools)
 
     def get_chat_workspace(self, chat_id: str = "default") -> Path:
-        """Resolve the current chat's isolated workspace."""
+        """Resolve the current session's isolated workspace."""
         return get_chat_workspace(chat_id, workspace_root=self.tool_workspace)
 
     def get_chat_skills_dir(self, chat_id: str = "default") -> Path:
-        """Resolve the personal skills directory for the current chat."""
+        """Resolve the personal skills directory for the current session."""
         return get_chat_skills_dir(chat_id, workspace_root=self.tool_workspace)
 
     def get_user_profile_path(self, chat_id: str = "default") -> Path:

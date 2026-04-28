@@ -41,7 +41,7 @@ DEFAULT_ACTIVE_TASK_CONTENT = """- Status: inactive
   - none"""
 _ACTIVE_TASK_BOOTSTRAP = """# ACTIVE_TASK.md - Current Task Contract
 
-This file stores the active multi-step task for this chat session.
+This file stores the active multi-step task for this session.
 It should stay concise, execution-oriented, and current.
 If there is no active task, keep the status as `inactive`.
 
@@ -203,7 +203,7 @@ _BLOCKED_PATTERNS = (
 
 
 class ActiveTaskStore(ConversationDocumentStore):
-    """Persist one chat session's ACTIVE_TASK.md and its update state."""
+    """Persist one session's ACTIVE_TASK.md and its update state."""
 
     def __init__(self, active_task_file: Path, state_file: Path, event_log_file: Path):
         self.active_task_file = Path(active_task_file).expanduser()
@@ -835,7 +835,7 @@ async def consolidate_active_task(
     if not transcript:
         return True
 
-    prompt = f"""Review this recent conversation chunk and update ACTIVE_TASK.md for the current chat session.
+    prompt = f"""Review this recent conversation chunk and update ACTIVE_TASK.md for the current session.
 
 Current ACTIVE_TASK state:
 {current_task}

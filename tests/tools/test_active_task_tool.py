@@ -4,16 +4,16 @@ from opensprite.documents.active_task import create_active_task_store
 from opensprite.tools.active_task import TaskUpdateTool
 
 
-def _make_tool(tmp_path, chat_id="telegram:user-a", message_count=7):
-    store = create_active_task_store(tmp_path / "home", chat_id)
+def _make_tool(tmp_path, session_id="telegram:user-a", message_count=7):
+    store = create_active_task_store(tmp_path / "home", session_id)
 
-    async def get_message_count(current_chat_id: str) -> int:
-        assert current_chat_id == chat_id
+    async def get_message_count(current_session_id: str) -> int:
+        assert current_session_id == session_id
         return message_count
 
     tool = TaskUpdateTool(
-        get_chat_id=lambda: chat_id,
-        active_task_store_factory=lambda current_chat_id: store if current_chat_id == chat_id else None,
+        get_session_id=lambda: session_id,
+        active_task_store_factory=lambda current_session_id: store if current_session_id == session_id else None,
         get_message_count=get_message_count,
     )
     return tool, store
@@ -103,7 +103,7 @@ def test_task_update_reset_clears_active_task(tmp_path):
 
 
 def test_task_update_requires_active_session_context():
-    tool = TaskUpdateTool(get_chat_id=lambda: None)
+    tool = TaskUpdateTool(get_session_id=lambda: None)
 
     result = asyncio.run(tool.execute(action="show"))
 

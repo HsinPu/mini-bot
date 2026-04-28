@@ -21,12 +21,12 @@ _ACTION_VALUES = ("set", "update", "advance", "complete_step", "reset", "show")
 
 
 class TaskUpdateTool(Tool):
-    """Update the current chat session's ACTIVE_TASK.md managed block."""
+    """Update the current session's ACTIVE_TASK.md managed block."""
 
     name = "task_update"
 
     description = (
-        "Update the current chat session's ACTIVE_TASK.md so long-running work stays explicit. "
+        "Update the current session's ACTIVE_TASK.md so long-running work stays explicit. "
         "Use this after materially changing task status, completing a step, blocking on missing input, "
         "or setting/replacing the active task. Do not use it for trivial one-turn chat."
     )
@@ -34,11 +34,11 @@ class TaskUpdateTool(Tool):
     def __init__(
         self,
         *,
-        get_chat_id: Callable[[], str | None],
+        get_session_id: Callable[[], str | None],
         active_task_store_factory: ActiveTaskStoreFactory | None = None,
         get_message_count: MessageCountGetter | None = None,
     ):
-        self._get_chat_id = get_chat_id
+        self._get_session_id = get_session_id
         self._active_task_store_factory = active_task_store_factory
         self._get_message_count = get_message_count
 
@@ -88,7 +88,7 @@ class TaskUpdateTool(Tool):
         }
 
     def _resolve_store(self) -> tuple[str, ActiveTaskStore] | str:
-        session_id = self._get_chat_id()
+        session_id = self._get_session_id()
         if not session_id:
             return "Error: current session_id is unavailable. task_update requires an active session context."
         if self._active_task_store_factory is None:

@@ -422,7 +422,7 @@ def test_agent_default_filesystem_tools_record_run_file_changes(tmp_path):
         )
         await storage.create_run("web:browser-1", "run-1")
 
-        chat_token = agent._current_chat_id.set("web:browser-1")
+        session_token = agent._current_session_id.set("web:browser-1")
         channel_token = agent._current_channel.set("web")
         transport_token = agent._current_external_chat_id.set("browser-1")
         run_token = agent._current_run_id.set("run-1")
@@ -435,7 +435,7 @@ def test_agent_default_filesystem_tools_record_run_file_changes(tmp_path):
             agent._current_run_id.reset(run_token)
             agent._current_external_chat_id.reset(transport_token)
             agent._current_channel.reset(channel_token)
-            agent._current_chat_id.reset(chat_token)
+            agent._current_session_id.reset(session_token)
 
         changes = await storage.get_run_file_changes("web:browser-1", "run-1")
         events = await storage.get_run_events("web:browser-1", "run-1")
@@ -484,7 +484,7 @@ def test_agent_tool_permission_requests_emit_run_events(tmp_path):
         agent._message_bus = bus
         await storage.create_run("web:browser-1", "run-1")
 
-        chat_token = agent._current_chat_id.set("web:browser-1")
+        session_token = agent._current_session_id.set("web:browser-1")
         channel_token = agent._current_channel.set("web")
         transport_token = agent._current_external_chat_id.set("browser-1")
         run_token = agent._current_run_id.set("run-1")
@@ -508,7 +508,7 @@ def test_agent_tool_permission_requests_emit_run_events(tmp_path):
             agent._current_run_id.reset(run_token)
             agent._current_external_chat_id.reset(transport_token)
             agent._current_channel.reset(channel_token)
-            agent._current_chat_id.reset(chat_token)
+            agent._current_session_id.reset(session_token)
 
         stored_events = await storage.get_run_events("web:browser-1", "run-1")
         bus_events = []
@@ -1696,7 +1696,7 @@ def test_background_session_exit_notifier_publishes_outbound_and_persists_messag
     class _FakeProcess:
         pid = 4321
 
-    chat_token = agent._current_chat_id.set("telegram:room-1")
+    session_token = agent._current_session_id.set("telegram:room-1")
     channel_token = agent._current_channel.set("telegram")
     transport_token = agent._current_external_chat_id.set("room-1")
     try:
@@ -1725,7 +1725,7 @@ def test_background_session_exit_notifier_publishes_outbound_and_persists_messag
     finally:
         agent._current_external_chat_id.reset(transport_token)
         agent._current_channel.reset(channel_token)
-        agent._current_chat_id.reset(chat_token)
+        agent._current_session_id.reset(session_token)
 
     assert len(fake_bus.outbound) == 1
     outbound = fake_bus.outbound[0]

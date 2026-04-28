@@ -57,12 +57,12 @@ class SaveMemoryTool(Tool):
         "required": ["memory_update"],
     }
 
-    def __init__(self, memory_store: MemoryStore, get_chat_id: Callable[[], str | None]):
+    def __init__(self, memory_store: MemoryStore, get_session_id: Callable[[], str | None]):
         self.memory_store = memory_store
-        self.get_chat_id = get_chat_id
+        self.get_session_id = get_session_id
 
     async def _execute(self, memory_update: str, **kwargs: Any) -> str:
-        session_id = self.get_chat_id()
+        session_id = self.get_session_id()
         if not session_id:
             return "Error: current session_id is unavailable. save_memory requires an active session context."
         current = self.memory_store.read(session_id)
@@ -75,23 +75,23 @@ class SaveMemoryTool(Tool):
 def register_memory_tool(
     registry: ToolRegistry,
     memory_store: MemoryStore,
-    get_chat_id: Callable[[], str | None],
+    get_session_id: Callable[[], str | None],
 ) -> None:
     """Register the long-term memory update tool."""
-    registry.register(SaveMemoryTool(memory_store, get_chat_id))
+    registry.register(SaveMemoryTool(memory_store, get_session_id))
 
 
 def register_task_tools(
     registry: ToolRegistry,
     *,
-    get_chat_id: Callable[[], str | None],
+    get_session_id: Callable[[], str | None],
     active_task_store_factory: Callable[[str], Any | None] | None = None,
     get_message_count: Callable[[str], Awaitable[int]] | None = None,
 ) -> None:
     """Register explicit active-task state management tools."""
     registry.register(
         TaskUpdateTool(
-            get_chat_id=get_chat_id,
+            get_session_id=get_session_id,
             active_task_store_factory=active_task_store_factory,
             get_message_count=get_message_count,
         )
@@ -102,14 +102,14 @@ def register_run_trace_tools(
     registry: ToolRegistry,
     *,
     storage: Any,
-    get_chat_id: Callable[[], str | None],
+    get_session_id: Callable[[], str | None],
     preview_run_file_change_revert: Callable[[str, str, int], Awaitable[dict[str, Any]]],
 ) -> None:
     """Register read-only run trace inspection tools."""
-    registry.register(ListRunFileChangesTool(storage=storage, get_chat_id=get_chat_id))
+    registry.register(ListRunFileChangesTool(storage=storage, get_session_id=get_session_id))
     registry.register(
         PreviewRunFileChangeRevertTool(
-            get_chat_id=get_chat_id,
+            get_session_id=get_session_id,
             preview_revert=preview_run_file_change_revert,
         )
     )
@@ -321,9 +321,9 @@ def register_search_tools(
     *,
     search_store: SearchStore | None = None,
     search_config: SearchConfig | None = None,
-    get_chat_id: Callable[[], str | None],
+    get_session_id: Callable[[], str | None],
 ) -> None:
-    """Register per-chat search tools when search is enabled."""
+    """Register per-session search tools when search is enabled."""
     if search_store is None:
         return
 
@@ -331,14 +331,14 @@ def register_search_tools(
     registry.register(
         SearchHistoryTool(
             store=search_store,
-            get_chat_id=get_chat_id,
+            get_session_id=get_session_id,
             default_limit=current_search_config.history_top_k,
         )
     )
     registry.register(
         SearchKnowledgeTool(
             store=search_store,
-            get_chat_id=get_chat_id,
+            get_session_id=get_session_id,
             default_limit=current_search_config.knowledge_top_k,
         )
     )
@@ -350,14 +350,14 @@ def register_cron_tools(
     cron_manager: CronManager | None = None,
     tools_config: ToolsConfig | None = None,
     messages_config: CronMessagesConfig | None = None,
-    get_chat_id: Callable[[], str | None],
+    get_session_id: Callable[[], str | None],
 ) -> None:
     """Register per-session cron scheduling tools when cron is enabled."""
     current_tools_config = tools_config or ToolsConfig()
     registry.register(
         CronTool(
             cron_manager,
-            get_chat_id=get_chat_id,
+            get_session_id=get_session_id,
             default_timezone=current_tools_config.cron.default_timezone,
             messages_config=messages_config,
         )
@@ -373,7 +373,7 @@ def register_default_tools(
     registry: ToolRegistry,
     *,
     workspace_resolver: Callable[[], Path],
-    get_chat_id: Callable[[], str | None],
+    get_session_id: Callable[[], str | None],
     run_subagent: Callable[[str, str | None, str | None], Awaitable[str]],
     config_path_resolver: Callable[[], Path | None],
     reload_mcp: Callable[[], Awaitable[str]],
@@ -415,7 +415,7 @@ def register_default_tools(
     )
     register_task_tools(
         registry,
-        get_chat_id=get_chat_id,
+        get_session_id=get_session_id,
         active_task_store_factory=active_task_store_factory,
         get_message_count=get_message_count,
     )
@@ -423,7 +423,7 @@ def register_default_tools(
         register_run_trace_tools(
             registry,
             storage=storage,
-            get_chat_id=get_chat_id,
+            get_session_id=get_session_id,
             preview_run_file_change_revert=preview_run_file_change_revert,
         )
     register_config_tools(
@@ -461,13 +461,13 @@ def register_default_tools(
         registry,
         search_store=search_store,
         search_config=search_config,
-        get_chat_id=get_chat_id,
+        get_session_id=get_session_id,
     )
     register_cron_tools(
         registry,
         cron_manager=cron_manager,
         tools_config=current_tools_config,
         messages_config=cron_messages_config,
-        get_chat_id=get_chat_id,
+        get_session_id=get_session_id,
     )
     register_batch_tools(registry)

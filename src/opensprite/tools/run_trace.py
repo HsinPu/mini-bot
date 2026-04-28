@@ -65,9 +65,9 @@ class ListRunFileChangesTool(Tool):
         "Read-only; it never modifies files."
     )
 
-    def __init__(self, *, storage: StorageProvider, get_chat_id: SessionIdGetter):
+    def __init__(self, *, storage: StorageProvider, get_session_id: SessionIdGetter):
         self.storage = storage
-        self.get_chat_id = get_chat_id
+        self.get_session_id = get_session_id
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -99,7 +99,7 @@ class ListRunFileChangesTool(Tool):
         }
 
     async def _execute(self, **kwargs: Any) -> str:
-        session_id = self.get_chat_id()
+        session_id = self.get_session_id()
         if not session_id:
             return "Error: current session_id is unavailable. list_run_file_changes requires an active session context."
 
@@ -154,8 +154,8 @@ class PreviewRunFileChangeRevertTool(Tool):
         "Requires run_id and change_id from list_run_file_changes. Read-only dry-run; it never modifies files."
     )
 
-    def __init__(self, *, get_chat_id: SessionIdGetter, preview_revert: RevertPreviewer):
-        self.get_chat_id = get_chat_id
+    def __init__(self, *, get_session_id: SessionIdGetter, preview_revert: RevertPreviewer):
+        self.get_session_id = get_session_id
         self.preview_revert = preview_revert
 
     @property
@@ -178,7 +178,7 @@ class PreviewRunFileChangeRevertTool(Tool):
         }
 
     async def _execute(self, **kwargs: Any) -> str:
-        session_id = self.get_chat_id()
+        session_id = self.get_session_id()
         if not session_id:
             return "Error: current session_id is unavailable. preview_run_file_change_revert requires an active session context."
         preview = await self.preview_revert(session_id, str(kwargs["run_id"]), int(kwargs["change_id"]))

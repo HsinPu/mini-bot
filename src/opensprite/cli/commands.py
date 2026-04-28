@@ -1421,7 +1421,7 @@ def cron_list(
     session: str = typer.Option(
         ...,
         "--session",
-        help="Session chat id, for example telegram:user-a.",
+        help="Session id, for example telegram:user-a.",
     ),
     config: str | None = typer.Option(
         None,
@@ -1441,7 +1441,7 @@ def cron_add(
     session: str = typer.Option(
         ...,
         "--session",
-        help="Session chat id, for example telegram:user-a.",
+        help="Session id, for example telegram:user-a.",
     ),
     message: str = typer.Option(
         ...,
@@ -1519,7 +1519,7 @@ def cron_remove(
     session: str = typer.Option(
         ...,
         "--session",
-        help="Session chat id, for example telegram:user-a.",
+        help="Session id, for example telegram:user-a.",
     ),
     job_id: str = typer.Option(
         ...,
@@ -1546,7 +1546,7 @@ def cron_pause(
     session: str = typer.Option(
         ...,
         "--session",
-        help="Session chat id, for example telegram:user-a.",
+        help="Session id, for example telegram:user-a.",
     ),
     job_id: str = typer.Option(
         ...,
@@ -1573,7 +1573,7 @@ def cron_enable(
     session: str = typer.Option(
         ...,
         "--session",
-        help="Session chat id, for example telegram:user-a.",
+        help="Session id, for example telegram:user-a.",
     ),
     job_id: str = typer.Option(
         ...,
@@ -1600,7 +1600,7 @@ def cron_run(
     session: str = typer.Option(
         ...,
         "--session",
-        help="Session chat id, for example telegram:user-a.",
+        help="Session id, for example telegram:user-a.",
     ),
     job_id: str = typer.Option(
         ...,

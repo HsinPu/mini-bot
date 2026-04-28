@@ -9,7 +9,7 @@ from ..llms import ChatMessage
 from ..storage import StorageProvider
 from ..subagent_prompts import get_all_subagents
 from ..subagent_session import (
-    build_child_subagent_chat_id,
+    build_child_subagent_session_id,
     extract_subagent_prompt_type,
     new_subagent_task_id,
     validate_subagent_task_id,
@@ -31,7 +31,7 @@ class SubagentRunService:
         max_history_getter: Callable[[], int],
         app_home_getter: Callable[[], Path | None],
         workspace_getter: Callable[[], Path],
-        current_chat_id_getter: Callable[[], str | None],
+        current_session_id_getter: Callable[[], str | None],
         skills_loader_getter: Callable[[], Any],
         save_message: Callable[[str, str, str, str | None, dict[str, Any] | None], Awaitable[None]],
         execute_messages: Callable[..., Awaitable[Any]],
@@ -43,7 +43,7 @@ class SubagentRunService:
         self._max_history_getter = max_history_getter
         self._app_home_getter = app_home_getter
         self._workspace_getter = workspace_getter
-        self._current_chat_id_getter = current_chat_id_getter
+        self._current_session_id_getter = current_session_id_getter
         self._skills_loader_getter = skills_loader_getter
         self._save_message = save_message
         self._execute_messages = execute_messages
@@ -79,7 +79,7 @@ class SubagentRunService:
         app_home = self._app_home_getter()
         workspace = self._workspace_getter()
         subagents = get_all_subagents(app_home, session_workspace=workspace)
-        parent_chat_id = self._current_chat_id_getter() or "default"
+        parent_session_id = self._current_session_id_getter() or "default"
 
         resume_task_id = str(task_id or "").strip() or None
         is_resume = resume_task_id is not None
@@ -91,10 +91,10 @@ class SubagentRunService:
         else:
             child_task_id = new_subagent_task_id()
 
-        child_chat_id = build_child_subagent_chat_id(parent_chat_id, child_task_id)
-        existing_child_messages = await self.storage.get_messages(child_chat_id)
+        child_session_id = build_child_subagent_session_id(parent_session_id, child_task_id)
+        existing_child_messages = await self.storage.get_messages(child_session_id)
         if is_resume and not existing_child_messages:
-            return f"Error: unknown task_id '{child_task_id}' for current chat. Start a new delegate task instead."
+            return f"Error: unknown task_id '{child_task_id}' for current session. Start a new delegate task instead."
 
         stored_prompt_type = extract_subagent_prompt_type(existing_child_messages)
         requested_prompt_type = str(prompt_type).strip() if prompt_type is not None else ""
@@ -119,20 +119,20 @@ class SubagentRunService:
             return f"Error: {str(e)}"
 
         await self._save_message(
-            child_chat_id,
+            child_session_id,
             "user",
             task_text,
             None,
             {
                 "kind": "subagent_task",
                 "task_id": child_task_id,
-                "parent_chat_id": parent_chat_id,
+                "parent_session_id": parent_session_id,
                 "prompt_type": effective_prompt_type,
                 "resume": is_resume,
             },
         )
 
-        log_id = f"{parent_chat_id}:subagent:{effective_prompt_type}:{child_task_id}"
+        log_id = f"{parent_session_id}:subagent:{effective_prompt_type}:{child_task_id}"
         subagent_builder = SubagentMessageBuilder(skills_loader=self._skills_loader_getter())
         chat_messages = [
             ChatMessage(
@@ -144,7 +144,7 @@ class SubagentRunService:
                 ),
             )
         ]
-        stored_child_messages = await self.storage.get_messages(child_chat_id, limit=self._max_history_getter())
+        stored_child_messages = await self.storage.get_messages(child_session_id, limit=self._max_history_getter())
         for message in stored_child_messages:
             role, content = self._message_role_and_content(message)
             if role == "tool":
@@ -156,7 +156,7 @@ class SubagentRunService:
             [{"role": msg.role, "content": msg.content} for msg in chat_messages],
         )
         logger.info(
-            f"[{log_id}] subagent.run | child_chat_id={child_chat_id} resume={is_resume} "
+            f"[{log_id}] subagent.run | child_session_id={child_session_id} resume={is_resume} "
             f"workspace={workspace} task={self._format_log_preview(task_text, max_chars=200)}"
         )
         logger.info(
@@ -166,18 +166,18 @@ class SubagentRunService:
             log_id,
             chat_messages,
             allow_tools=bool(subagent_tools.tool_names),
-            tool_result_chat_id=child_chat_id,
+            tool_result_chat_id=child_session_id,
             tool_registry=subagent_tools,
         )
         await self._save_message(
-            child_chat_id,
+            child_session_id,
             "assistant",
             sub_result.content,
             None,
             {
                 "kind": "subagent_result",
                 "task_id": child_task_id,
-                "parent_chat_id": parent_chat_id,
+                "parent_session_id": parent_session_id,
                 "prompt_type": effective_prompt_type,
             },
         )

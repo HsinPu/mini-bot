@@ -1,6 +1,6 @@
 # USER.md - Durable User Context
 
-This file lives at this chat session's workspace root, beside `skills/` and `subagent_prompts/`.
+This file lives at this session's workspace root, beside `skills/` and `subagent_prompts/`.
 It stores durable user-focused context for this session: stable preferences, recurring constraints, and background that improve future collaboration in the same session.
 It should not contain assistant-wide rules, one-off tasks, or private secrets.
 

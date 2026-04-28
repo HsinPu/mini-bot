@@ -124,7 +124,7 @@ class RunFileChangeService:
                     logger.exception("[{}] run.file-change.progress-hook.failed | run_id={} path={}", chat_id, run_id, path)
 
     def _resolve_change_path(self, chat_id: str, path: str) -> tuple[Path | None, str | None]:
-        """Resolve a stored run file-change path and keep it inside the chat workspace."""
+        """Resolve a stored run file-change path and keep it inside the session workspace."""
         raw_path = str(path or "").strip()
         if not raw_path:
             return None, "stored file-change path is empty"

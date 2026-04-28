@@ -15,7 +15,7 @@ class TurnContextService:
     def __init__(
         self,
         *,
-        current_chat_id: ContextVar[str | None],
+        current_session_id: ContextVar[str | None],
         current_channel: ContextVar[str | None],
         current_external_chat_id: ContextVar[str | None],
         current_images: ContextVar[list[str] | None],
@@ -25,7 +25,7 @@ class TurnContextService:
         current_run_id: ContextVar[str | None],
         current_work_progress: ContextVar[dict[str, Any] | None],
     ):
-        self._current_chat_id = current_chat_id
+        self._current_session_id = current_session_id
         self._current_channel = current_channel
         self._current_external_chat_id = current_external_chat_id
         self._current_images = current_images
@@ -35,9 +35,9 @@ class TurnContextService:
         self._current_run_id = current_run_id
         self._current_work_progress = current_work_progress
 
-    def current_chat_id(self) -> str | None:
-        """Return the current task-local chat id."""
-        return self._current_chat_id.get()
+    def current_session_id(self) -> str | None:
+        """Return the current task-local session id."""
+        return self._current_session_id.get()
 
     def current_channel(self) -> str | None:
         """Return the current task-local channel."""
@@ -101,7 +101,7 @@ class TurnContextService:
     def activate(
         self,
         *,
-        chat_id: str,
+        session_id: str,
         channel: str | None,
         external_chat_id: str | None,
         images: list[str] | None,
@@ -110,7 +110,7 @@ class TurnContextService:
         run_id: str,
     ) -> Iterator[None]:
         """Set per-turn context values and reset them in reverse order."""
-        token = self._current_chat_id.set(chat_id)
+        token = self._current_session_id.set(session_id)
         channel_token = self._current_channel.set(channel)
         external_chat_id_token = self._current_external_chat_id.set(external_chat_id)
         images_token = self._current_images.set(list(images or []))
@@ -132,4 +132,4 @@ class TurnContextService:
             self._current_images.reset(images_token)
             self._current_external_chat_id.reset(external_chat_id_token)
             self._current_channel.reset(channel_token)
-            self._current_chat_id.reset(token)
+            self._current_session_id.reset(token)

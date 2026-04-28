@@ -11,7 +11,7 @@ def test_cron_tool_add_list_and_remove(tmp_path):
 
     async def scenario():
         manager = CronManager(workspace_root=tmp_path / "workspace", on_job=on_job)
-        tool = CronTool(manager, get_chat_id=lambda: "telegram:user-a")
+        tool = CronTool(manager, get_session_id=lambda: "telegram:user-a")
 
         created = await tool.execute(
             action="add",
@@ -47,7 +47,7 @@ def test_cron_tool_can_pause_enable_and_run(tmp_path):
 
     async def scenario():
         manager = CronManager(workspace_root=tmp_path / "workspace", on_job=on_job)
-        tool = CronTool(manager, get_chat_id=lambda: "telegram:user-a")
+        tool = CronTool(manager, get_session_id=lambda: "telegram:user-a")
 
         await tool.execute(
             action="add",

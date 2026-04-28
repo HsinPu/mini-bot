@@ -5,14 +5,14 @@ Path layout:
 - app home: ~/.opensprite
 - subagent prompts: ~/.opensprite/subagent_prompts/*.md (seeded from bundled templates on first sync)
 - bootstrap files: ~/.opensprite/bootstrap/*.md
-- per-chat user profile: ~/.opensprite/workspace/chats/{channel}/{chat_id}/USER.md (alongside skills/ and subagent_prompts/)
+- per-session user profile: ~/.opensprite/workspace/chats/{channel}/{chat_id}/USER.md (alongside skills/ and subagent_prompts/)
 - memory: ~/.opensprite/memory/<chat>/MEMORY.md
 - recent summary: ~/.opensprite/memory/<chat>/RECENT_SUMMARY.md
 - bundled skills (read-only, synced from package): ~/.opensprite/skills/<skill_id>/SKILL.md
 - session workspace skills (mutable): ~/.opensprite/workspace/chats/{channel}/{chat_id}/skills/*/SKILL.md
 - session subagent overrides: ~/.opensprite/workspace/chats/{channel}/{chat_id}/subagent_prompts/*.md
 - workspace root: ~/.opensprite/workspace
-- per-chat workspaces: ~/.opensprite/workspace/chats/{channel}/{chat_id}
+- per-session workspaces: ~/.opensprite/workspace/chats/{channel}/{chat_id}
 """
 
 import hashlib
@@ -63,7 +63,7 @@ def get_user_profile_file(
     chat_id: str | None = None,
     workspace_root: str | Path | None = None,
 ) -> Path:
-    """Get the per-chat USER.md profile file path (under the session workspace)."""
+    """Get the per-session USER.md profile file path."""
     return get_chat_workspace(chat_id, workspace_root=workspace_root, app_home=app_home) / "USER.md"
 
 
@@ -73,7 +73,7 @@ def get_user_profile_state_file(
     chat_id: str | None = None,
     workspace_root: str | Path | None = None,
 ) -> Path:
-    """Get the persisted state file for per-chat USER.md auto-update."""
+    """Get the persisted state file for per-session USER.md auto-update."""
     return get_chat_workspace(chat_id, workspace_root=workspace_root, app_home=app_home) / USER_PROFILE_STATE_FILENAME
 
 
@@ -83,7 +83,7 @@ def get_active_task_file(
     chat_id: str | None = None,
     workspace_root: str | Path | None = None,
 ) -> Path:
-    """Get the ACTIVE_TASK.md file path for one chat session."""
+    """Get the ACTIVE_TASK.md file path for one session."""
     return get_chat_workspace(chat_id, workspace_root=workspace_root, app_home=app_home) / "ACTIVE_TASK.md"
 
 
@@ -103,7 +103,7 @@ def get_active_task_event_log_file(
     chat_id: str | None = None,
     workspace_root: str | Path | None = None,
 ) -> Path:
-    """Get the append-only ACTIVE_TASK event log for one chat session."""
+    """Get the append-only ACTIVE_TASK event log for one session."""
     return get_chat_workspace(chat_id, workspace_root=workspace_root, app_home=app_home) / ACTIVE_TASK_EVENT_LOG_FILENAME
 
 
@@ -118,7 +118,7 @@ def get_skills_dir(app_home: str | Path | None = None) -> Path:
 
 
 def get_tool_workspace(app_home: str | Path | None = None) -> Path:
-    """Get the shared root directory that contains per-chat workspaces."""
+    """Get the shared root directory that contains per-session workspaces."""
     return ensure_dir(get_app_home(app_home) / WORKSPACE_DIRNAME)
 
 
@@ -159,7 +159,7 @@ def get_workspace_path(workspace: str | Path | None = None) -> Path:
 
 
 def split_session_id(session_id: str | None) -> tuple[str, str]:
-    """Split a session chat id into channel and raw chat id."""
+    """Split a session id into channel and raw external chat id."""
     value = (session_id or "default").strip() or "default"
     if ":" in value:
         channel, chat_id = value.split(":", 1)
@@ -188,7 +188,7 @@ def get_chat_workspace(
     workspace_root: str | Path | None = None,
     app_home: str | Path | None = None,
 ) -> Path:
-    """Get the isolated workspace directory for a chat session."""
+    """Get the isolated workspace directory for a session."""
     root = ensure_dir(Path(workspace_root).expanduser()) if workspace_root is not None else get_tool_workspace(app_home)
     channel, raw_chat_id = split_session_id(chat_id)
     safe_channel = _sanitize_path_segment(channel, default="default", max_length=32)
@@ -202,7 +202,7 @@ def get_chat_skills_dir(
     workspace_root: str | Path | None = None,
     app_home: str | Path | None = None,
 ) -> Path:
-    """Get the personal/per-chat skills directory for a chat session."""
+    """Get the personal/per-session skills directory for a session."""
     return get_chat_workspace(chat_id, workspace_root=workspace_root, app_home=app_home) / SKILLS_DIRNAME
 
 

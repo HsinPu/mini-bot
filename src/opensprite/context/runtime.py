@@ -25,6 +25,6 @@ def build_runtime_context(
     if channel:
         lines.append(f"Channel: {channel}")
     if chat_id:
-        lines.append(f"Chat ID: {chat_id}")
+        lines.append(f"Session ID: {chat_id}")
 
     return "\n".join(lines)

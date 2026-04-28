@@ -24,13 +24,13 @@ def _format_time(created_at: float) -> str:
 
 
 class _BaseSearchTool(Tool):
-    def __init__(self, store: SearchStore, get_chat_id: Callable[[], str | None], default_limit: int):
+    def __init__(self, store: SearchStore, get_session_id: Callable[[], str | None], default_limit: int):
         self.store = store
-        self.get_chat_id = get_chat_id
+        self.get_session_id = get_session_id
         self.default_limit = default_limit
 
-    def _current_chat_id(self) -> str | None:
-        return self.get_chat_id()
+    def _current_session_id(self) -> str | None:
+        return self.get_session_id()
 
     def _missing_chat_response(self) -> str:
         return "Error: current session_id is unavailable. Search tools require a session-scoped conversation."
@@ -43,14 +43,14 @@ class SearchHistoryTool(_BaseSearchTool):
 
     @property
     def description(self) -> str:
-        return "Search saved conversation history for the current chat only."
+        return "Search saved conversation history for the current session only."
 
     @property
     def parameters(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "What to search for in this chat history", "pattern": NON_EMPTY_STRING_PATTERN},
+                "query": {"type": "string", "description": "What to search for in this session history", "pattern": NON_EMPTY_STRING_PATTERN},
                 "limit": {"type": "integer", "description": "Maximum matches to return", "default": self.default_limit},
             },
             "required": ["query"],
@@ -58,13 +58,13 @@ class SearchHistoryTool(_BaseSearchTool):
 
     async def _execute(self, query: str, limit: int | None = None, **kwargs: Any) -> str:
         query = query.strip()
-        session_id = self._current_chat_id()
+        session_id = self._current_session_id()
         if not session_id:
             return self._missing_chat_response()
 
         hits = await self.store.search_history(session_id=session_id, query=query, limit=limit or self.default_limit)
         if not hits:
-            return f"No history matches found for '{query}' in this chat."
+            return f"No history matches found for '{query}' in this session."
 
         return self._format_hits(query, hits)
 
@@ -86,7 +86,7 @@ class SearchKnowledgeTool(_BaseSearchTool):
 
     @property
     def description(self) -> str:
-        return "Search stored web search and web fetch results for the current chat only. Prefer this before repeating web_search or web_fetch on topics already researched in this chat."
+        return "Search stored web search and web fetch results for the current session only. Prefer this before repeating web_search or web_fetch on topics already researched in this session."
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -122,7 +122,7 @@ class SearchKnowledgeTool(_BaseSearchTool):
         **kwargs: Any,
     ) -> str:
         query = query.strip()
-        session_id = self._current_chat_id()
+        session_id = self._current_session_id()
         if not session_id:
             return self._missing_chat_response()
 
@@ -139,7 +139,7 @@ class SearchKnowledgeTool(_BaseSearchTool):
         )
         if not hits:
             scope = source_type or provider or extractor or content_type or "web knowledge"
-            return f"No {scope} matches found for '{query}' in this chat."
+            return f"No {scope} matches found for '{query}' in this session."
 
         return self._format_hits(query, hits)
 

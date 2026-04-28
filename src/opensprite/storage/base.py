@@ -96,7 +96,7 @@ class StoredRunTrace:
 
 @dataclass
 class StoredWorkState:
-    """Persisted structured task state for one chat session."""
+    """Persisted structured task state for one session."""
 
     session_id: str
     objective: str

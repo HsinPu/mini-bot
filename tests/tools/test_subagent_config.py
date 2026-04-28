@@ -6,8 +6,8 @@ from opensprite.context.paths import sync_templates
 from opensprite.tools.subagent_config import ConfigureSubagentTool
 
 _VALID_DESCRIPTION = (
-    "Chat-scoped helper: applies a repeatable workflow for tasks tied to this conversation only. "
-    "Use when the user asks for the same multi-step process within this chat workspace."
+    "Session-scoped helper: applies a repeatable workflow for tasks tied to this conversation only. "
+    "Use when the user asks for the same multi-step process within this session workspace."
 )
 _VALID_BODY = (
     "# Instructions\n\n"
@@ -16,7 +16,7 @@ _VALID_BODY = (
 
 
 def _session_workspace(tmp_path: Path) -> Path:
-    ws = tmp_path / "chat-ws"
+    ws = tmp_path / "session-ws"
     ws.mkdir(parents=True, exist_ok=True)
     return ws
 

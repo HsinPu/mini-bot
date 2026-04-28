@@ -30,7 +30,7 @@ AUTO_PROFILE_INTRO = "This section is maintained by OpenSprite."
 
 
 class UserProfileStore:
-    """Persist one chat session's USER.md profile and its consolidation state."""
+    """Persist one session's USER.md profile and its consolidation state."""
 
     def __init__(self, user_profile_file: Path, state_file: Path, *, bootstrap_text: str = "# User Profile\n\n"):
         self.user_profile_file = Path(user_profile_file).expanduser()
