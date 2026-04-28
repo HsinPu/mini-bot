@@ -422,6 +422,13 @@ export function useChatClient() {
     messageText.value = value;
   }
 
+  function saveRunPanelVisibilitySettings(showRunTimeline, showRunTrace) {
+    state.showRunTimeline = Boolean(showRunTimeline);
+    state.showRunTrace = Boolean(showRunTrace);
+    writeStoredValue(STORAGE_KEYS.showRunTimeline, String(state.showRunTimeline));
+    writeStoredValue(STORAGE_KEYS.showRunTrace, String(state.showRunTrace));
+  }
+
   watch(settingsOpen, (isOpen) => {
     document.body.classList.toggle("settings-open", isOpen);
   });
@@ -429,6 +436,13 @@ export function useChatClient() {
   watch(sidebarOpen, (isOpen) => {
     document.body.classList.toggle("sidebar-open", isOpen);
   });
+
+  watch(
+    () => [settingsForm.showRunTimeline, settingsForm.showRunTrace],
+    ([showRunTimeline, showRunTrace]) => {
+      saveRunPanelVisibilitySettings(showRunTimeline, showRunTrace);
+    },
+  );
 
   function sortSessions() {
     state.sessions.sort((left, right) => right.updatedAt - left.updatedAt);
@@ -870,11 +884,10 @@ export function useChatClient() {
     scrollMessagesToBottom();
   }
 
-  function saveSettingsAndConnect() {
+  function saveConnectionSettings() {
     state.wsUrl = settingsForm.wsUrl.trim() || DEFAULT_WS_URL;
     state.displayName = settingsForm.displayName.trim() || "Local browser";
-    state.showRunTimeline = Boolean(settingsForm.showRunTimeline);
-    state.showRunTrace = Boolean(settingsForm.showRunTrace);
+    saveRunPanelVisibilitySettings(settingsForm.showRunTimeline, settingsForm.showRunTrace);
 
     const requestedChatId = settingsForm.chatId.trim();
     if (requestedChatId) {
@@ -885,15 +898,14 @@ export function useChatClient() {
     writeStoredValue(STORAGE_KEYS.wsUrl, state.wsUrl);
     writeStoredValue(STORAGE_KEYS.displayName, state.displayName);
     writeStoredValue(STORAGE_KEYS.activeChatId, state.activeChatId);
-    writeStoredValue(STORAGE_KEYS.showRunTimeline, String(state.showRunTimeline));
-    writeStoredValue(STORAGE_KEYS.showRunTrace, String(state.showRunTrace));
-
-    closeSettings();
-    connectSocket();
   }
 
-  function disconnectFromSettings() {
-    closeSettings();
+  function toggleSettingsConnection(shouldConnect) {
+    if (shouldConnect) {
+      saveConnectionSettings();
+      connectSocket();
+      return;
+    }
     disconnectSocket("Disconnected from the gateway.", "warning");
   }
 
@@ -1032,8 +1044,7 @@ export function useChatClient() {
     resizeComposer,
     createNewChat,
     cancelRun,
-    saveSettingsAndConnect,
-    disconnectFromSettings,
+    toggleSettingsConnection,
     submitMessage,
     handleComposerKeydown,
     applyPrompt,

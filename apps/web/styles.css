@@ -1424,14 +1424,6 @@ button:disabled {
   padding-top: 4px;
 }
 
-.settings-panel__actions {
-  display: flex;
-  gap: 10px;
-  justify-content: flex-end;
-  padding: 16px;
-  border-top: 1px solid #dedede;
-}
-
 .secondary-button {
   min-height: 38px;
   padding: 0 15px;
@@ -1760,9 +1752,6 @@ textarea:focus-visible {
     display: grid;
   }
 
-  .settings-panel__actions {
-    flex-direction: column;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -123,10 +123,19 @@
               <input v-model="form.chatId" type="text" spellcheck="false" />
             </label>
 
-            <div class="settings-panel__actions">
-              <button class="primary-button" type="button" @click="$emit('save')">Save and connect</button>
-              <button class="secondary-button" type="button" @click="$emit('disconnect')">Disconnect</button>
-            </div>
+            <label class="settings-row">
+              <div>
+                <strong>Gateway 連線</strong>
+                <span>{{ connectionSwitchLabel }}</span>
+              </div>
+              <input
+                class="switch"
+                type="checkbox"
+                :checked="connectionSwitchChecked"
+                :disabled="connectionState === 'connecting'"
+                @change="$emit('toggle-connection', $event.target.checked)"
+              />
+            </label>
           </div>
 
           <h3>外觀</h3>
@@ -400,6 +409,10 @@ const props = defineProps({
     type: Object,
     required: true,
   },
+  connectionState: {
+    type: String,
+    required: true,
+  },
 });
 
 const selectedConnectProvider = computed(() => {
@@ -414,11 +427,24 @@ const selectedConnectProvider = computed(() => {
   );
 });
 
+const connectionSwitchChecked = computed(
+  () => props.connectionState === "connected" || props.connectionState === "connecting",
+);
+
+const connectionSwitchLabel = computed(() => {
+  if (props.connectionState === "connecting") {
+    return "正在連線到 OpenSprite gateway...";
+  }
+  if (props.connectionState === "connected") {
+    return "已連線。關掉開關後會中斷目前 gateway 連線。";
+  }
+  return "開啟後會套用上方連線設定並連線。";
+});
+
 defineEmits([
   "close",
   "select-section",
-  "save",
-  "disconnect",
+  "toggle-connection",
   "begin-provider-connect",
   "cancel-provider-connect",
   "save-provider-connection",

@@ -54,10 +54,10 @@
     :title="settingsTitle"
     :form="settingsForm"
     :settings-state="settingsState"
+    :connection-state="state.connectionState"
     @close="closeSettings"
     @select-section="selectSettingsSection"
-    @save="saveSettingsAndConnect"
-    @disconnect="disconnectFromSettings"
+    @toggle-connection="toggleSettingsConnection"
     @begin-provider-connect="beginProviderConnect"
     @cancel-provider-connect="cancelProviderConnect"
     @save-provider-connection="saveProviderConnection"
@@ -110,8 +110,7 @@ const {
   resizeComposer,
   createNewChat,
   cancelRun,
-  saveSettingsAndConnect,
-  disconnectFromSettings,
+  toggleSettingsConnection,
   submitMessage,
   handleComposerKeydown,
   applyPrompt,
