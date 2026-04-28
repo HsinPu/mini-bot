@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from ..bus.message import UserMessage, AssistantMessage
-from ..llms import LLMProvider, ChatMessage
+from ..llms import LLMProvider, ChatMessage, create_llm
 from ..storage import StorageProvider
 from ..storage.base import get_storage_message_count
 from ..documents.active_task import ActiveTaskConsolidator, create_active_task_store
@@ -876,6 +876,65 @@ class AgentLoop:
     async def reload_mcp_from_config(self) -> str:
         """Reload MCP settings from disk and reconnect MCP tools for this agent."""
         return await self.mcp_lifecycle.reload_from_config()
+
+    @staticmethod
+    def _refresh_consolidator_llm(consolidator: Any | None, provider: LLMProvider) -> None:
+        """Point optional background document consolidators at the active LLM."""
+        if consolidator is None:
+            return
+        if hasattr(consolidator, "provider"):
+            consolidator.provider = provider
+        if hasattr(consolidator, "model"):
+            consolidator.model = provider.get_default_model()
+
+    def reload_llm_from_config(self, config: Config) -> dict[str, Any]:
+        """Reload the active chat LLM from an already persisted Config."""
+        cfg = config.llm.get_active()
+        provider = create_llm(
+            api_key=cfg.api_key,
+            model=cfg.model,
+            base_url=cfg.base_url or "",
+            provider_name=config.llm.default or "",
+            enabled=cfg.enabled if hasattr(cfg, "enabled") else True,
+        )
+
+        self.provider = provider
+        self.llm_chat_temperature = config.llm.temperature
+        self.llm_chat_max_tokens = config.llm.max_tokens
+        self.llm_chat_top_p = config.llm.top_p
+        self.llm_chat_frequency_penalty = config.llm.frequency_penalty
+        self.llm_chat_presence_penalty = config.llm.presence_penalty
+        self.llm_pass_decoding_params = config.llm.pass_decoding_params
+        self.llm_context_window_tokens = cfg.context_window_tokens
+        self.llm_configured = config.is_llm_configured
+
+        self.prompt_budget.provider = provider
+        self.execution_engine.provider = provider
+        self.execution_engine.chat_temperature = self.llm_chat_temperature
+        self.execution_engine.chat_max_tokens = self.llm_chat_max_tokens
+        self.execution_engine.chat_top_p = self.llm_chat_top_p
+        self.execution_engine.chat_frequency_penalty = self.llm_chat_frequency_penalty
+        self.execution_engine.chat_presence_penalty = self.llm_chat_presence_penalty
+        self.execution_engine.pass_decoding_params = self.llm_pass_decoding_params
+        self.execution_engine.context_compaction_token_budget = self._effective_context_token_budget()
+
+        self.memory_consolidation.provider = provider
+        self._refresh_consolidator_llm(self.user_profile_update.consolidator, provider)
+        self._refresh_consolidator_llm(self.recent_summary_update.consolidator, provider)
+        self._refresh_consolidator_llm(self.active_task_update.consolidator, provider)
+
+        logger.info(
+            "LLM runtime reloaded | provider={} model={} configured={}",
+            config.llm.default or "default",
+            provider.get_default_model(),
+            self.llm_configured,
+        )
+        return {
+            "provider_id": config.llm.default,
+            "model": provider.get_default_model(),
+            "configured": self.llm_configured,
+            "context_window_tokens": self.llm_context_window_tokens,
+        }
 
     def _get_current_chat_id(self) -> str | None:
         """Return the current task-local chat id."""

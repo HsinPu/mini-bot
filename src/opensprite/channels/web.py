@@ -20,7 +20,7 @@ from aiohttp import WSMsgType, web
 
 from ..bus.events import RunEvent
 from ..bus.message import AssistantMessage, MessageAdapter, UserMessage
-from ..config import MessagesConfig
+from ..config import Config, MessagesConfig
 from ..config.provider_settings import (
     ProviderSettingsConflict,
     ProviderSettingsError,
@@ -298,6 +298,31 @@ class WebAdapter(MessageAdapter):
 
     def _get_provider_settings(self) -> ProviderSettingsService:
         return ProviderSettingsService(self._get_config_path())
+
+    def _reload_agent_llm_from_config(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Hot-apply persisted LLM settings to the running agent when possible."""
+        if not payload.get("restart_required"):
+            return payload
+
+        updated = dict(payload)
+        agent = self._get_agent()
+        reload_llm = getattr(agent, "reload_llm_from_config", None) if agent is not None else None
+        if not callable(reload_llm):
+            updated["runtime_reloaded"] = False
+            return updated
+
+        try:
+            runtime = reload_llm(Config.load(self._get_config_path()))
+        except Exception as exc:
+            logger.warning("LLM runtime reload failed after settings change: {}", exc)
+            updated["runtime_reloaded"] = False
+            updated["reload_error"] = str(exc)
+            return updated
+
+        updated["restart_required"] = False
+        updated["runtime_reloaded"] = True
+        updated["runtime"] = self._json_safe(runtime)
+        return updated
 
     @staticmethod
     async def _read_json_body(request: web.Request) -> dict[str, Any]:
@@ -601,6 +626,7 @@ class WebAdapter(MessageAdapter):
             payload = self._get_provider_settings().disconnect_provider(provider_id)
         except ProviderSettingsError as exc:
             self._raise_provider_settings_error(exc)
+        payload = self._reload_agent_llm_from_config(payload)
         return web.json_response(payload)
 
     async def _handle_settings_models(self, request: web.Request) -> web.Response:
@@ -620,6 +646,7 @@ class WebAdapter(MessageAdapter):
             payload = self._get_provider_settings().select_model(provider_id, model)
         except ProviderSettingsError as exc:
             self._raise_provider_settings_error(exc)
+        payload = self._reload_agent_llm_from_config(payload)
         return web.json_response(payload)
 
     async def _handle_frontend_index(self, request: web.Request) -> web.FileResponse:

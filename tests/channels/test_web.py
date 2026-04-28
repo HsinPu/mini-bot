@@ -522,8 +522,18 @@ async def _run_web_settings_provider_api(tmp_path: Path):
     config_path = tmp_path / "opensprite.json"
     Config.copy_template(config_path)
 
-    agent = EchoAgent()
-    agent.config_path = config_path
+    class SettingsAgent(EchoAgent):
+        def __init__(self):
+            super().__init__()
+            self.config_path = config_path
+            self.reloads = []
+
+        def reload_llm_from_config(self, config):
+            active = config.llm.get_active()
+            self.reloads.append((config.llm.default, active.model))
+            return {"provider_id": config.llm.default, "model": active.model, "configured": config.is_llm_configured}
+
+    agent = SettingsAgent()
     queue = MessageQueue(agent)
     adapter = WebAdapter(
         mq=queue,
@@ -574,7 +584,14 @@ async def _run_web_settings_provider_api(tmp_path: Path):
                 assert resp.status == 200
                 select_payload = await resp.json()
 
-            assert select_payload["restart_required"] is True
+            assert select_payload["restart_required"] is False
+            assert select_payload["runtime_reloaded"] is True
+            assert select_payload["runtime"] == {
+                "provider_id": "openai",
+                "model": "gpt-4.1-mini",
+                "configured": True,
+            }
+            assert agent.reloads[-1] == ("openai", "gpt-4.1-mini")
             providers = json.loads((tmp_path / "llm.providers.json").read_text(encoding="utf-8"))
             assert providers["openai"]["api_key"] == "secret-key"
             assert providers["openai"]["enabled"] is True
@@ -584,7 +601,14 @@ async def _run_web_settings_provider_api(tmp_path: Path):
                 assert resp.status == 200
                 disconnect_payload = await resp.json()
 
-            assert disconnect_payload == {"ok": True, "provider_id": "openai", "restart_required": True}
+            assert disconnect_payload == {
+                "ok": True,
+                "provider_id": "openai",
+                "restart_required": False,
+                "runtime_reloaded": True,
+                "runtime": {"provider_id": None, "model": "", "configured": False},
+            }
+            assert agent.reloads[-1] == (None, "")
             main_config = json.loads(config_path.read_text(encoding="utf-8"))
             providers = json.loads((tmp_path / "llm.providers.json").read_text(encoding="utf-8"))
             assert main_config["llm"]["default"] is None
