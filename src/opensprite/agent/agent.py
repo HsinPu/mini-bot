@@ -417,11 +417,11 @@ class AgentLoop:
             app_home_getter=lambda: self.app_home,
         )
         self._skill_review_scheduler = CoalescingTaskScheduler[str](
-            on_exception=lambda chat_id, _exc: logger.exception("[%s] skill.review.failed", chat_id),
-            on_rerun=lambda chat_id: logger.info("[%s] skill.review.rerun", chat_id),
-            on_schedule_error=lambda chat_id, _exc: logger.warning(
+            on_exception=lambda session_id, _exc: logger.exception("[%s] skill.review.failed", session_id),
+            on_rerun=lambda session_id: logger.info("[%s] skill.review.rerun", session_id),
+            on_schedule_error=lambda session_id, _exc: logger.warning(
                 "[%s] skill.review.skip | reason=no-running-event-loop",
-                chat_id,
+                session_id,
             ),
         )
         self.post_response_maintenance = PostResponseMaintenanceService()
@@ -480,15 +480,15 @@ class AgentLoop:
             media_saved_ack=lambda: self.messages.agent.media_saved_ack,
             llm_not_configured_message=lambda: self.messages.agent.llm_not_configured,
             format_log_preview=self._format_log_preview,
-            get_work_state=lambda chat_id: self._get_work_state(chat_id),
+            get_work_state=lambda session_id: self._get_work_state(session_id),
             save_work_state=lambda state: self._save_work_state(state),
-            apply_completion_gate_result=lambda chat_id, result: self._maybe_apply_completion_gate_result(
-                chat_id,
+            apply_completion_gate_result=lambda session_id, result: self._maybe_apply_completion_gate_result(
+                session_id,
                 result,
             ),
-            apply_work_progress=lambda chat_id, progress, state: self._maybe_apply_work_progress(chat_id, progress, state),
-            schedule_post_response_maintenance=lambda chat_id: self._schedule_post_response_maintenance(chat_id),
-            maybe_schedule_skill_review=lambda chat_id, result: self._maybe_schedule_skill_review(chat_id, result),
+            apply_work_progress=lambda session_id, progress, state: self._maybe_apply_work_progress(session_id, progress, state),
+            schedule_post_response_maintenance=lambda session_id: self._schedule_post_response_maintenance(session_id),
+            maybe_schedule_skill_review=lambda session_id, result: self._maybe_schedule_skill_review(session_id, result),
         )
         self.permission_events = PermissionEventRecorder(
             emit_run_event=self._emit_run_event,
@@ -566,7 +566,7 @@ class AgentLoop:
             tools=self.tools,
             transcript_message_limit_getter=lambda: self.config.skill_review_transcript_messages,
             max_tool_iterations_getter=lambda: self.config.skill_review_max_tool_iterations,
-            build_system_prompt=lambda chat_id: self._context_builder.build_system_prompt(chat_id),
+            build_system_prompt=lambda session_id: self._context_builder.build_system_prompt(session_id),
             execute_messages=self._execute_messages,
         )
         self.user_profile_update = self._setup_user_profile_update()
@@ -579,12 +579,12 @@ class AgentLoop:
         self.recent_summary_update = self._setup_recent_summary_update()
         self.llm_calls = LlmCallService(
             config=self.config,
-            maybe_seed_active_task=lambda chat_id, message, task_intent=None: self._maybe_seed_active_task(
-                chat_id,
+            maybe_seed_active_task=lambda session_id, message, task_intent=None: self._maybe_seed_active_task(
+                session_id,
                 message,
                 task_intent=task_intent,
             ),
-            load_history=lambda chat_id: self._load_history(chat_id),
+            load_history=lambda session_id: self._load_history(session_id),
             get_current_audios=self._get_current_audios,
             get_current_videos=self._get_current_videos,
             augment_message_for_media=lambda *args, **kwargs: self._augment_message_for_media(*args, **kwargs),
@@ -595,12 +595,12 @@ class AgentLoop:
             llm_chat_max_tokens=lambda: self.llm_chat_max_tokens,
             sync_runtime_mcp_tools_context=self._sync_runtime_mcp_tools_context,
             build_messages=lambda **kwargs: self._context_builder.build_messages(**kwargs),
-            build_system_prompt=lambda chat_id: self._context_builder.build_system_prompt(chat_id),
+            build_system_prompt=lambda session_id: self._context_builder.build_system_prompt(session_id),
             log_prepared_messages=self._log_prepared_messages,
-            get_work_state_summary=lambda chat_id: self._get_work_state_summary(chat_id),
+            get_work_state_summary=lambda session_id: self._get_work_state_summary(session_id),
             get_tool_registry=lambda: self.tools,
             get_current_run_id=self.turn_context.current_run_id,
-            should_cancel_run=lambda chat_id, run_id: self._is_run_cancel_requested(chat_id, run_id),
+            should_cancel_run=lambda session_id, run_id: self._is_run_cancel_requested(session_id, run_id),
             make_tool_progress_hook=lambda *args, **kwargs: self._make_tool_progress_hook(*args, **kwargs),
             make_tool_result_hook=lambda *args, **kwargs: self._make_tool_result_hook(*args, **kwargs),
             make_llm_status_hook=lambda *args, **kwargs: self._make_llm_status_hook(*args, **kwargs),
@@ -613,7 +613,7 @@ class AgentLoop:
         history: list[dict[str, Any]],
         current_message: str,
         channel: str | None,
-        chat_id: str,
+        session_id: str,
         tool_schema_tokens: int = 0,
     ) -> tuple[list[dict[str, Any]], int, int, int]:
         """Trim oldest history messages when the prompt would exceed the history token budget."""
@@ -621,7 +621,7 @@ class AgentLoop:
             history=history,
             current_message=current_message,
             channel=channel,
-            chat_id=chat_id,
+            session_id=session_id,
             tool_schema_tokens=tool_schema_tokens,
         )
 
@@ -783,11 +783,11 @@ class AgentLoop:
         )
         return ActiveTaskUpdateService(consolidator)
 
-    def _clear_recent_summary(self, chat_id: str) -> None:
+    def _clear_recent_summary(self, session_id: str) -> None:
         memory_dir = getattr(self._context_builder, "memory_dir", None)
         if memory_dir is None:
             return
-        RecentSummaryStore(memory_dir, get_recent_summary_state_file(memory_dir)).clear(chat_id)
+        RecentSummaryStore(memory_dir, get_recent_summary_state_file(memory_dir)).clear(session_id)
 
     def _register_memory_tool(self) -> None:
         """Register the save_memory tool."""
@@ -816,16 +816,16 @@ class AgentLoop:
         self,
         *,
         kind: str,
-        chat_id: str,
+        session_id: str,
         runner: Callable[[str], Awaitable[None]],
     ) -> None:
-        """Run one maintenance path in the background with per-chat coalescing."""
-        self.post_response_maintenance.schedule(kind=kind, chat_id=chat_id, runner=runner)
+        """Run one maintenance path in the background with per-session coalescing."""
+        self.post_response_maintenance.schedule(kind=kind, session_id=session_id, runner=runner)
 
-    def _schedule_post_response_maintenance(self, chat_id: str) -> None:
+    def _schedule_post_response_maintenance(self, session_id: str) -> None:
         """Queue post-response document maintenance without blocking the reply."""
         self.post_response_maintenance.schedule_post_response(
-            chat_id,
+            session_id,
             memory_runner=self._maybe_consolidate_memory,
             recent_summary_runner=self._maybe_update_recent_summary,
             user_profile_runner=self._maybe_update_user_profile,
@@ -858,7 +858,7 @@ class AgentLoop:
 
     async def _maybe_seed_active_task(
         self,
-        chat_id: str,
+        session_id: str,
         current_message: str,
         *,
         task_intent: TaskIntent | None = None,
@@ -867,7 +867,7 @@ class AgentLoop:
         if task_intent is None:
             task_intent = self.task_intents.classify(current_message)
         await self.active_task_commands.maybe_seed(
-            chat_id,
+            session_id,
             current_message,
             enabled=self.active_task_config.enabled,
             task_intent=task_intent,
@@ -1075,24 +1075,24 @@ class AgentLoop:
         
         logger.info(f"agent.init | tools={', '.join(self.tools.tool_names)}")
 
-    async def _load_history(self, chat_id: str) -> list[ChatMessage]:
+    async def _load_history(self, session_id: str) -> list[ChatMessage]:
         """
         從儲存區載入對話歷史。
         
         Load conversation history from storage.
         
         Args:
-            chat_id: 聊天室 ID。The session ID.
+            session_id: Internal session ID.
         
         Returns:
             ChatMessage 物件列表，供 LLM 使用。
             List of ChatMessage objects for LLM consumption.
         """
-        return await self.message_history.load_history(chat_id)
+        return await self.message_history.load_history(session_id)
 
     async def _save_message(
         self,
-        chat_id: str,
+        session_id: str,
         role: str,
         content: str,
         tool_name: str | None = None,
@@ -1104,7 +1104,7 @@ class AgentLoop:
         Save a message to storage.
         
         Args:
-            chat_id: 聊天室 ID。The session ID.
+            session_id: Internal session ID.
             role: 訊息角色（"user"、"assistant" 或 "tool"）。
                   Message role ("user", "assistant", or "tool").
             content: 訊息內容。Message content.
@@ -1112,7 +1112,7 @@ class AgentLoop:
                        Tool name if this is a tool result.
         """
         await self.message_history.save_message(
-            chat_id,
+            session_id,
             role,
             content,
             tool_name=tool_name,
@@ -1202,7 +1202,7 @@ class AgentLoop:
 
     async def call_llm(
         self,
-        chat_id: str,
+        session_id: str,
         current_message: str,
         channel: str | None = None,
         allow_tools: bool = True,
@@ -1224,8 +1224,7 @@ class AgentLoop:
         Handles tool execution loop if LLM requests tool calls.
         
         Args:
-            chat_id: 聊天室 ID，用於載入歷史。
-                      The session ID for loading history.
+            session_id: Internal session ID for loading history.
             current_message: 本輪使用者輸入內容。
                              The current user message for this turn.
             channel: 頻道名稱（例如 "telegram"、"console"）。用於上下文。
@@ -1241,7 +1240,7 @@ class AgentLoop:
                           If tool execution fails or exceeds max iterations.
         """
         return await self.llm_calls.call_llm(
-            chat_id,
+            session_id,
             current_message,
             channel=channel,
             allow_tools=allow_tools,
@@ -1258,7 +1257,7 @@ class AgentLoop:
         """Tools allowed during background skill review (subset of main registry)."""
         return self.skill_review.tool_registry()
 
-    def _maybe_schedule_skill_review(self, chat_id: str, result: ExecutionResult) -> None:
+    def _maybe_schedule_skill_review(self, session_id: str, result: ExecutionResult) -> None:
         """Fire-and-forget background pass after a heavy tool turn without skill upsert."""
         if not self.config.skill_review_enabled:
             return
@@ -1269,15 +1268,15 @@ class AgentLoop:
         if self._skill_review_tool_registry() is None:
             return
 
-        self._skill_review_scheduler.schedule(chat_id, lambda: self._run_skill_review(chat_id))
+        self._skill_review_scheduler.schedule(session_id, lambda: self._run_skill_review(session_id))
 
-    async def _run_skill_review(self, chat_id: str) -> None:
+    async def _run_skill_review(self, session_id: str) -> None:
         tool_registry = self._skill_review_tool_registry()
         if tool_registry is None:
             return
-        token = self._current_session_id.set(chat_id)
+        token = self._current_session_id.set(session_id)
         try:
-            await self.skill_review.run(chat_id, tool_registry=tool_registry)
+            await self.skill_review.run(session_id, tool_registry=tool_registry)
         finally:
             self._current_session_id.reset(token)
 
@@ -1307,7 +1306,7 @@ class AgentLoop:
             llm_configured=self.llm_configured,
         )
 
-    async def _maybe_consolidate_memory(self, chat_id: str) -> None:
+    async def _maybe_consolidate_memory(self, session_id: str) -> None:
         """
         檢查是否需要進行記憶整合並執行。
         
@@ -1318,46 +1317,46 @@ class AgentLoop:
         the message count exceeds the threshold.
         
         Args:
-            chat_id: 聊天室 ID。The session ID.
+            session_id: Internal session ID.
         """
-        await self.memory_consolidation.maybe_consolidate(chat_id)
+        await self.memory_consolidation.maybe_consolidate(session_id)
 
-    async def _maybe_update_user_profile(self, chat_id: str) -> None:
-        """Check whether this chat's USER.md (session workspace) should be refreshed."""
-        await self.user_profile_update.maybe_update(chat_id)
+    async def _maybe_update_user_profile(self, session_id: str) -> None:
+        """Check whether this session's USER.md should be refreshed."""
+        await self.user_profile_update.maybe_update(session_id)
 
-    async def _maybe_update_active_task(self, chat_id: str) -> None:
-        """Check whether this chat's ACTIVE_TASK.md should be refreshed."""
-        await self.active_task_update.maybe_update(chat_id)
+    async def _maybe_update_active_task(self, session_id: str) -> None:
+        """Check whether this session's ACTIVE_TASK.md should be refreshed."""
+        await self.active_task_update.maybe_update(session_id)
 
     async def _maybe_apply_immediate_task_transition(
         self,
-        chat_id: str,
+        session_id: str,
         response_text: str,
         exec_result: ExecutionResult,
     ) -> None:
         """Apply conservative immediate task-state transitions before background maintenance runs."""
         await self.active_task_commands.apply_immediate_transition(
-            chat_id,
+            session_id,
             response_text,
             had_tool_error=exec_result.had_tool_error,
         )
 
     async def _maybe_apply_completion_gate_result(
         self,
-        chat_id: str,
+        session_id: str,
         result: CompletionGateResult,
     ) -> None:
         """Apply completion-gate task-state updates when safe."""
-        await self.active_task_commands.apply_completion_gate_result(chat_id, result)
+        await self.active_task_commands.apply_completion_gate_result(session_id, result)
 
-    async def _maybe_apply_work_progress(self, chat_id: str, progress: WorkProgressUpdate, state) -> None:
+    async def _maybe_apply_work_progress(self, session_id: str, progress: WorkProgressUpdate, state) -> None:
         """Apply final structured work progress hints to ACTIVE_TASK when useful."""
-        await self.active_task_commands.apply_work_progress(chat_id, progress, state)
+        await self.active_task_commands.apply_work_progress(session_id, progress, state)
 
-    async def _get_work_state(self, chat_id: str):
+    async def _get_work_state(self, session_id: str):
         """Return persisted structured work state when supported by storage."""
-        return await get_storage_work_state(self.storage, chat_id)
+        return await get_storage_work_state(self.storage, session_id)
 
     async def _save_work_state(self, state) -> None:
         """Persist structured work state when supported by storage."""
@@ -1365,20 +1364,20 @@ class AgentLoop:
             return
         await upsert_storage_work_state(self.storage, state)
 
-    async def _clear_work_state(self, chat_id: str) -> None:
+    async def _clear_work_state(self, session_id: str) -> None:
         """Remove persisted structured work state when supported by storage."""
-        await clear_storage_work_state(self.storage, chat_id)
+        await clear_storage_work_state(self.storage, session_id)
 
-    async def _get_work_state_summary(self, chat_id: str) -> str:
+    async def _get_work_state_summary(self, session_id: str) -> str:
         """Render the current persisted work state into a compact summary string."""
-        state = await self._get_work_state(chat_id)
+        state = await self._get_work_state(session_id)
         return self.work_progress.render_state_summary(state)
 
-    def _is_run_cancel_requested(self, chat_id: str, run_id: str | None) -> bool:
+    def _is_run_cancel_requested(self, session_id: str, run_id: str | None) -> bool:
         """Return whether cooperative cancellation was requested for the current run."""
         if run_id is None:
             return False
-        return self.run_state.is_cancel_requested(chat_id, run_id)
+        return self.run_state.is_cancel_requested(session_id, run_id)
 
     def get_active_run(self, chat_id: str):
         """Return the active run state for one session, if any."""
@@ -1411,9 +1410,9 @@ class AgentLoop:
         )
         return True
 
-    async def _maybe_update_recent_summary(self, chat_id: str) -> None:
+    async def _maybe_update_recent_summary(self, session_id: str) -> None:
         """Check whether RECENT_SUMMARY.md should be refreshed."""
-        await self.recent_summary_update.maybe_update(chat_id)
+        await self.recent_summary_update.maybe_update(session_id)
 
     def _clear_active_task(self, chat_id: str) -> None:
         """Reset ACTIVE_TASK.md for one session."""

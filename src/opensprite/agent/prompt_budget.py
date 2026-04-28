@@ -67,7 +67,7 @@ class PromptBudgetService:
         history: list[dict[str, Any]],
         current_message: str,
         channel: str | None,
-        chat_id: str,
+        session_id: str,
         tool_schema_tokens: int = 0,
     ) -> tuple[list[dict[str, Any]], int, int, int]:
         """Trim oldest history messages when the prompt would exceed the history token budget."""
@@ -78,7 +78,7 @@ class PromptBudgetService:
             current_message=current_message,
             current_images=None,
             channel=channel,
-            chat_id=chat_id,
+            chat_id=session_id,
         )
         base_tokens = count_messages_tokens(base_messages, model=model) + tool_schema_tokens
         if budget <= 0 or not history:
@@ -87,7 +87,7 @@ class PromptBudgetService:
 
         if base_tokens >= budget:
             logger.warning(
-                f"[{chat_id}] prompt.trim | base_tokens={base_tokens} budget={budget} history_retained=0 reason=base-exceeds-budget"
+                f"[{session_id}] prompt.trim | base_tokens={base_tokens} budget={budget} history_retained=0 reason=base-exceeds-budget"
             )
             return [], base_tokens, 0, base_tokens
 
@@ -100,7 +100,7 @@ class PromptBudgetService:
                 break
             if not trimmed_reversed and running_tokens + message_tokens > budget:
                 logger.warning(
-                    f"[{chat_id}] prompt.trim | base_tokens={base_tokens} first_history_tokens={message_tokens} budget={budget} history_retained=0 reason=first-message-exceeds-budget"
+                    f"[{session_id}] prompt.trim | base_tokens={base_tokens} first_history_tokens={message_tokens} budget={budget} history_retained=0 reason=first-message-exceeds-budget"
                 )
                 return [], base_tokens, 0, base_tokens
             trimmed_reversed.append(message)
@@ -110,6 +110,6 @@ class PromptBudgetService:
         trimmed_history = list(reversed(trimmed_reversed))
         if len(trimmed_history) != len(history):
             logger.info(
-                f"[{chat_id}] prompt.trim | budget={budget} base_tokens={base_tokens} history_before={len(history)} history_after={len(trimmed_history)} estimated_tokens={running_tokens}"
+                f"[{session_id}] prompt.trim | budget={budget} base_tokens={base_tokens} history_before={len(history)} history_after={len(trimmed_history)} estimated_tokens={running_tokens}"
             )
         return trimmed_history, base_tokens, retained_history_tokens, running_tokens

@@ -22,26 +22,26 @@ class PostResponseMaintenanceService:
         self,
         *,
         kind: str,
-        chat_id: str,
+        session_id: str,
         runner: Callable[[str], Awaitable[None]],
     ) -> None:
-        """Run one maintenance path in the background with per-chat coalescing."""
-        self._scheduler.schedule((kind, chat_id), lambda: runner(chat_id))
+        """Run one maintenance path in the background with per-session coalescing."""
+        self._scheduler.schedule((kind, session_id), lambda: runner(session_id))
 
     def schedule_post_response(
         self,
-        chat_id: str,
+        session_id: str,
         *,
         memory_runner: Callable[[str], Awaitable[None]],
         recent_summary_runner: Callable[[str], Awaitable[None]],
         user_profile_runner: Callable[[str], Awaitable[None]],
         active_task_runner: Callable[[str], Awaitable[None]],
     ) -> None:
-        """Queue all post-response document maintenance jobs for one chat."""
-        self.schedule(kind="memory", chat_id=chat_id, runner=memory_runner)
-        self.schedule(kind="recent_summary", chat_id=chat_id, runner=recent_summary_runner)
-        self.schedule(kind="user_profile", chat_id=chat_id, runner=user_profile_runner)
-        self.schedule(kind="active_task", chat_id=chat_id, runner=active_task_runner)
+        """Queue all post-response document maintenance jobs for one session."""
+        self.schedule(kind="memory", session_id=session_id, runner=memory_runner)
+        self.schedule(kind="recent_summary", session_id=session_id, runner=recent_summary_runner)
+        self.schedule(kind="user_profile", session_id=session_id, runner=user_profile_runner)
+        self.schedule(kind="active_task", session_id=session_id, runner=active_task_runner)
 
     async def wait(self) -> None:
         """Wait until all currently scheduled maintenance tasks finish."""

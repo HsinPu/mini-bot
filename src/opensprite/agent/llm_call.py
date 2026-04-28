@@ -69,7 +69,7 @@ class LlmCallService:
 
     async def call_llm(
         self,
-        chat_id: str,
+        session_id: str,
         current_message: str,
         channel: str | None = None,
         allow_tools: bool = True,
@@ -83,10 +83,10 @@ class LlmCallService:
         task_intent: TaskIntent | None = None,
     ) -> ExecutionResult:
         """Prepare prompt messages and run the LLM/tool execution loop."""
-        await self._maybe_seed_active_task(chat_id, current_message, task_intent=task_intent)
+        await self._maybe_seed_active_task(session_id, current_message, task_intent=task_intent)
 
-        logger.info(f"[{chat_id}] history.load | requested=true")
-        history_messages = await self._load_history(chat_id)
+        logger.info(f"[{session_id}] history.load | requested=true")
+        history_messages = await self._load_history(session_id)
 
         # Tool results are only valid inside the turn where they were produced.
         filtered = []
@@ -118,9 +118,9 @@ class LlmCallService:
             history_dicts.append(msg)
 
         logger.info(
-            f"[{chat_id}] prompt.build | history={len(history_dicts)} channel={channel or '-'} images={len(user_images or [])}"
+            f"[{session_id}] prompt.build | history={len(history_dicts)} channel={channel or '-'} images={len(user_images or [])}"
         )
-        work_state_summary = await self._get_work_state_summary(chat_id)
+        work_state_summary = await self._get_work_state_summary(session_id)
         if (
             work_state_summary
             and task_intent is not None
@@ -146,7 +146,7 @@ class LlmCallService:
         selected_tool_registry = planning_mode.tool_registry
         if planning_mode.enabled and selected_tool_registry is not None:
             logger.info(
-                f"[{chat_id}] prompt.mode | planning_mode=true allowed_tools={','.join(selected_tool_registry.tool_names)}"
+                f"[{session_id}] prompt.mode | planning_mode=true allowed_tools={','.join(selected_tool_registry.tool_names)}"
             )
         tool_schema_tokens = self._estimate_tool_schema_tokens(
             allow_tools=allow_tools,
@@ -156,12 +156,12 @@ class LlmCallService:
             history=history_dicts,
             current_message=prompt_message,
             channel=channel,
-            chat_id=chat_id,
+            session_id=session_id,
             tool_schema_tokens=tool_schema_tokens,
         )
         effective_context_budget = self._effective_context_token_budget()
         logger.info(
-            f"[{chat_id}] prompt.tokens | budget={effective_context_budget} "
+            f"[{session_id}] prompt.tokens | budget={effective_context_budget} "
             f"history_budget={self.config.history_token_budget} model_window={self._llm_context_window_tokens() or '-'} "
             f"output_reserve={self._llm_chat_max_tokens()} base={base_tokens} tools={tool_schema_tokens} "
             f"history={history_tokens} final_estimated={final_tokens}"
@@ -172,7 +172,7 @@ class LlmCallService:
             current_message=prompt_message,
             current_images=None,
             channel=channel,
-            chat_id=chat_id,
+            chat_id=session_id,
         )
 
         chat_messages = []
@@ -184,46 +184,46 @@ class LlmCallService:
                 msg.tool_calls = m["tool_calls"]
             chat_messages.append(msg)
 
-        self._log_prepared_messages(chat_id, full_messages)
+        self._log_prepared_messages(session_id, full_messages)
         run_id = self._get_current_run_id()
         on_tool_before_execute = self._make_tool_progress_hook(
             channel=channel,
             external_chat_id=external_chat_id,
-            session_id=chat_id,
+            session_id=session_id,
             run_id=run_id,
             enabled=emit_tool_progress,
         )
         on_tool_after_execute = self._make_tool_result_hook(
             channel=channel,
             external_chat_id=external_chat_id,
-            session_id=chat_id,
+            session_id=session_id,
             run_id=run_id,
             enabled=emit_tool_progress,
         )
         on_llm_status = self._make_llm_status_hook(
             channel=channel,
             external_chat_id=external_chat_id,
-            session_id=chat_id,
+            session_id=session_id,
             run_id=run_id,
             enabled=emit_tool_progress,
         )
         execute_kwargs = {
             "allow_tools": allow_tools,
-            "tool_result_chat_id": chat_id if allow_tools else None,
+            "tool_result_chat_id": session_id if allow_tools else None,
             "tool_registry": selected_tool_registry,
             "on_tool_before_execute": on_tool_before_execute,
             "on_llm_status": on_llm_status,
-            "refresh_system_prompt": lambda: self._build_system_prompt(chat_id),
-            "should_cancel": lambda: self._should_cancel_run(chat_id, run_id),
+            "refresh_system_prompt": lambda: self._build_system_prompt(session_id),
+            "should_cancel": lambda: self._should_cancel_run(session_id, run_id),
             "work_state_summary": work_state_summary,
         }
         if on_tool_after_execute is not None:
             execute_kwargs["on_tool_after_execute"] = on_tool_after_execute
         try:
-            return await self._execute_messages(chat_id, chat_messages, **execute_kwargs)
+            return await self._execute_messages(session_id, chat_messages, **execute_kwargs)
         except TypeError as exc:
             if "work_state_summary" not in str(exc) and "should_cancel" not in str(exc):
                 raise
             execute_kwargs.pop("work_state_summary", None)
             execute_kwargs.pop("should_cancel", None)
-            return await self._execute_messages(chat_id, chat_messages, **execute_kwargs)
+            return await self._execute_messages(session_id, chat_messages, **execute_kwargs)

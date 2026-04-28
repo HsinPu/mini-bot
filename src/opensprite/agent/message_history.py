@@ -12,7 +12,7 @@ from ..utils.log import logger
 
 
 class MessageHistoryService:
-    """Loads chat history and persists messages with optional search indexing."""
+    """Loads session history and persists messages with optional search indexing."""
 
     def __init__(
         self,
@@ -25,10 +25,10 @@ class MessageHistoryService:
         self.search_store = search_store
         self._max_history_getter = max_history_getter
 
-    async def load_history(self, chat_id: str) -> list[ChatMessage]:
+    async def load_history(self, session_id: str) -> list[ChatMessage]:
         """Load conversation history as ChatMessage objects for LLM consumption."""
         stored_messages = await self.storage.get_messages(
-            chat_id,
+            session_id,
             limit=self._max_history_getter(),
         )
 
@@ -43,7 +43,7 @@ class MessageHistoryService:
 
     async def save_message(
         self,
-        chat_id: str,
+        session_id: str,
         role: str,
         content: str,
         tool_name: str | None = None,
@@ -52,7 +52,7 @@ class MessageHistoryService:
         """Save one message to storage and index it when search is configured."""
         created_at = time.time()
         await self.storage.add_message(
-            chat_id,
+            session_id,
             StoredMessage(
                 role=role,
                 content=content,
@@ -66,11 +66,11 @@ class MessageHistoryService:
 
         try:
             await self.search_store.index_message(
-                chat_id=chat_id,
+                session_id=session_id,
                 role=role,
                 content=content,
                 tool_name=tool_name,
                 created_at=created_at,
             )
         except Exception as e:
-            logger.warning("[{}] Failed to index message for search: {}", chat_id, e)
+            logger.warning("[{}] Failed to index message for search: {}", session_id, e)

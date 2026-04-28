@@ -186,8 +186,8 @@ def test_agent_process_persists_user_then_assistant_then_runs_maintenance(tmp_pa
         call_order = []
         release_maintenance = asyncio.Event()
 
-        async def fake_call_llm(chat_id, current_message, channel=None, user_images=None, allow_tools=True, **kwargs):
-            call_order.append(("call_llm", chat_id, current_message, channel, list(user_images or [])))
+        async def fake_call_llm(session_id, current_message, channel=None, user_images=None, allow_tools=True, **kwargs):
+            call_order.append(("call_llm", session_id, current_message, channel, list(user_images or [])))
             assert storage.saved[0][1] == "user"
             return ExecutionResult(content="assistant reply", executed_tool_calls=0, used_configure_skill=False)
 
@@ -795,7 +795,7 @@ def test_agent_process_auto_continues_once_when_code_changes_are_missing(tmp_pat
         )
         calls = []
 
-        async def fake_call_llm(chat_id, current_message, **kwargs):
+        async def fake_call_llm(session_id, current_message, **kwargs):
             calls.append(current_message)
             if len(calls) == 1:
                 return ExecutionResult(content="Completed the refactor.", executed_tool_calls=0)
@@ -873,7 +873,7 @@ def test_agent_process_stops_auto_continue_when_continuation_has_no_progress(tmp
         )
         calls = []
 
-        async def fake_call_llm(chat_id, current_message, **kwargs):
+        async def fake_call_llm(session_id, current_message, **kwargs):
             calls.append(current_message)
             return ExecutionResult(content="Completed the refactor.", executed_tool_calls=0)
 
@@ -1447,7 +1447,7 @@ def test_agent_process_returns_queued_outbound_media(tmp_path):
             **Config.packaged_agent_llm_chat_kwargs(),
         )
 
-        async def fake_call_llm(chat_id, current_message, channel=None, user_images=None, allow_tools=True, **kwargs):
+        async def fake_call_llm(session_id, current_message, channel=None, user_images=None, allow_tools=True, **kwargs):
             assert agent._queue_outbound_media("image", "img-out") is None
             assert agent._queue_outbound_media("voice", "voice-out") is None
             assert agent._queue_outbound_media("audio", "audio-out") is None
@@ -1838,7 +1838,7 @@ def test_trim_history_reports_base_tokens_without_history(tmp_path):
         history=[],
         current_message="hello",
         channel="telegram",
-        chat_id="telegram:room-1",
+        session_id="telegram:room-1",
     )
 
     assert history == []
@@ -1899,14 +1899,14 @@ def test_tool_schema_tokens_reduce_history_budget(tmp_path):
         history=[{"role": "assistant", "content": "recent message"}],
         current_message="hello",
         channel="telegram",
-        chat_id="telegram:room-1",
+        session_id="telegram:room-1",
         tool_schema_tokens=0,
     )
     kept_with_tools, _, _, _ = agent._trim_history_to_token_budget(
         history=[{"role": "assistant", "content": "recent message"}],
         current_message="hello",
         channel="telegram",
-        chat_id="telegram:room-1",
+        session_id="telegram:room-1",
         tool_schema_tokens=tool_tokens,
     )
 

@@ -73,7 +73,7 @@ def test_process_connects_mcp_before_saving_and_calling_llm(tmp_path):
             order.append("connect")
             assert agent.storage.saved == []
 
-        async def fake_call_llm(chat_id, current_message, channel=None, user_images=None, allow_tools=True, **kwargs):
+        async def fake_call_llm(session_id, current_message, channel=None, user_images=None, allow_tools=True, **kwargs):
             from opensprite.agent.execution import ExecutionResult
 
             order.append("call_llm")
