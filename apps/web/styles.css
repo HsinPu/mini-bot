@@ -641,6 +641,124 @@ button:disabled {
   font-variant-numeric: tabular-nums;
 }
 
+.run-trace {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0 4px 46px;
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--surface-muted);
+}
+
+.run-trace__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.run-trace__header > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.run-trace__eyebrow {
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.run-trace__header strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-trace__status {
+  flex: 0 0 auto;
+  padding: 3px 9px;
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.run-trace__status[data-status="completed"] {
+  color: #08634e;
+  background: #effaf6;
+}
+
+.run-trace__status[data-status="failed"] {
+  color: #9b241c;
+  background: #fff3f1;
+}
+
+.run-trace__status[data-status="cancelled"] {
+  color: #7c520f;
+  background: #fff8eb;
+}
+
+.run-trace__events {
+  display: grid;
+  gap: 6px;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.run-trace__event {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: #ffffff;
+}
+
+.run-trace__event summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.run-trace__event summary span {
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-trace__event summary time {
+  flex: 0 0 auto;
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.run-trace__event pre {
+  max-height: 220px;
+  margin: 0;
+  overflow: auto;
+  padding: 10px;
+  border-top: 1px solid var(--border-soft);
+  color: #263238;
+  background: #fbfbfc;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
 .composer {
   width: min(var(--content-width), calc(100% - 40px));
   margin: 0 auto;
@@ -1128,6 +1246,10 @@ textarea:focus-visible {
   }
 
   .run-timeline {
+    margin-left: 38px;
+  }
+
+  .run-trace {
     margin-left: 38px;
   }
 
