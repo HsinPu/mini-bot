@@ -51,10 +51,16 @@
     :section="settingsSection"
     :title="settingsTitle"
     :form="settingsForm"
+    :settings-state="settingsState"
     @close="closeSettings"
     @select-section="selectSettingsSection"
     @save="saveSettingsAndConnect"
     @disconnect="disconnectFromSettings"
+    @begin-provider-connect="beginProviderConnect"
+    @cancel-provider-connect="cancelProviderConnect"
+    @save-provider-connection="saveProviderConnection"
+    @disconnect-provider="disconnectProvider"
+    @select-model="selectModel"
   />
 </template>
 
@@ -72,6 +78,7 @@ const {
   settingsOpen,
   settingsSection,
   settingsForm,
+  settingsState,
   currentMessages,
   currentRun,
   currentRunTimeline,
@@ -91,6 +98,11 @@ const {
   selectSettingsSection,
   openSettings,
   closeSettings,
+  beginProviderConnect,
+  cancelProviderConnect,
+  saveProviderConnection,
+  disconnectProvider,
+  selectModel,
   toggleSidebar,
   connectSocket,
   resizeComposer,

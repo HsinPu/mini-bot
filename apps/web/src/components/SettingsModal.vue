@@ -80,45 +80,6 @@
               </select>
             </div>
 
-            <label class="settings-row">
-              <div>
-                <strong>自動接受權限</strong>
-                <span>權限請求將被自動批准</span>
-              </div>
-              <input class="switch" type="checkbox" />
-            </label>
-
-            <label class="settings-row">
-              <div>
-                <strong>顯示推理摘要</strong>
-                <span>在時間軸中顯示模型推理摘要</span>
-              </div>
-              <input class="switch" type="checkbox" />
-            </label>
-
-            <label class="settings-row">
-              <div>
-                <strong>展開 shell 工具區塊</strong>
-                <span>在時間軸中預設展開 shell 工具區塊</span>
-              </div>
-              <input class="switch" type="checkbox" />
-            </label>
-
-            <label class="settings-row">
-              <div>
-                <strong>展開 edit 工具區塊</strong>
-                <span>在時間軸中預設展開 edit、write 和 patch 工具區塊</span>
-              </div>
-              <input class="switch" type="checkbox" />
-            </label>
-
-            <label class="settings-row">
-              <div>
-                <strong>顯示工作階段進度列</strong>
-                <span>當代理程式正在運作時，在工作階段頂部顯示動畫進度列</span>
-              </div>
-              <input class="switch" type="checkbox" checked />
-            </label>
           </div>
 
           <h3>連線</h3>
@@ -189,25 +150,175 @@
         </section>
 
         <section v-show="section === 'providers'" class="settings-page">
-          <div class="settings-card">
-            <div class="settings-row">
+          <p v-if="settingsState.providersLoading" class="settings-inline-status">讀取提供商設定中...</p>
+          <p v-if="settingsState.providersError" class="settings-inline-status settings-inline-status--error">
+            {{ settingsState.providersError }}
+          </p>
+          <p v-if="settingsState.providersNotice" class="settings-inline-status settings-inline-status--success">
+            {{ settingsState.providersNotice }}
+          </p>
+
+          <h3>已連線的提供商</h3>
+          <div class="settings-card provider-card">
+            <div v-if="settingsState.providers.connected.length === 0" class="provider-row provider-row--empty">
               <div>
-                <strong>提供者設定</strong>
-                <span>提供者設定之後會放在這裡</span>
+                <strong>尚未連線提供商</strong>
+                <span>從下方熱門提供商開始連線。</span>
               </div>
-              <span class="settings-muted">Coming soon</span>
+            </div>
+
+            <div v-for="provider in settingsState.providers.connected" :key="provider.id" class="provider-row">
+              <div class="provider-row__main">
+                <span class="provider-row__mark" aria-hidden="true">{{ provider.name.slice(0, 2) }}</span>
+                <div>
+                  <div class="provider-row__title">
+                    <strong>{{ provider.name }}</strong>
+                    <span v-if="provider.is_default" class="provider-row__badge">目前使用中</span>
+                  </div>
+                  <span>{{ provider.base_url }}</span>
+                </div>
+              </div>
+              <button
+                class="provider-row__action"
+                type="button"
+                :disabled="provider.is_default || settingsState.providersLoading"
+                @click="$emit('disconnect-provider', provider)"
+              >
+                {{ provider.is_default ? "目前使用中" : "中斷連線" }}
+              </button>
+            </div>
+          </div>
+
+          <h3>熱門提供商</h3>
+          <div class="settings-card provider-card">
+            <div v-if="settingsState.providers.available.length === 0" class="provider-row provider-row--empty">
+              <div>
+                <strong>所有內建提供商都已連線</strong>
+                <span>請到模型頁選擇要使用的模型。</span>
+              </div>
+            </div>
+
+            <div v-for="provider in settingsState.providers.available" :key="provider.id" class="provider-row provider-row--stacked">
+              <div class="provider-row__content">
+                <div class="provider-row__main">
+                  <span class="provider-row__mark" aria-hidden="true">{{ provider.name.slice(0, 2) }}</span>
+                  <div>
+                    <div class="provider-row__title">
+                      <strong>{{ provider.name }}</strong>
+                      <span class="provider-row__badge">內建</span>
+                    </div>
+                    <span>{{ provider.default_base_url }}</span>
+                  </div>
+                </div>
+                <button
+                  class="provider-row__action"
+                  type="button"
+                  :disabled="settingsState.providersLoading"
+                  @click="$emit('begin-provider-connect', provider)"
+                >
+                  + 連線
+                </button>
+              </div>
+
+              <div v-if="settingsState.connectForm.providerId === provider.id" class="provider-connect-form">
+                <label>
+                  <span>API key</span>
+                  <input v-model="settingsState.connectForm.apiKey" type="password" autocomplete="off" />
+                </label>
+                <button
+                  class="provider-connect-form__toggle"
+                  type="button"
+                  @click="settingsState.connectForm.showAdvanced = !settingsState.connectForm.showAdvanced"
+                >
+                  {{ settingsState.connectForm.showAdvanced ? "隱藏進階設定" : "進階設定" }}
+                </button>
+                <label v-if="settingsState.connectForm.showAdvanced">
+                  <span>Base URL</span>
+                  <input v-model="settingsState.connectForm.baseUrl" type="text" spellcheck="false" />
+                </label>
+                <div class="provider-connect-form__actions">
+                  <button class="primary-button" type="button" @click="$emit('save-provider-connection')">
+                    儲存連線
+                  </button>
+                  <button class="secondary-button" type="button" @click="$emit('cancel-provider-connect')">
+                    取消
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </section>
 
         <section v-show="section === 'models'" class="settings-page">
-          <div class="settings-card">
+          <p v-if="settingsState.modelsLoading" class="settings-inline-status">讀取模型設定中...</p>
+          <p v-if="settingsState.modelsError" class="settings-inline-status settings-inline-status--error">
+            {{ settingsState.modelsError }}
+          </p>
+          <p v-if="settingsState.modelsNotice" class="settings-inline-status settings-inline-status--success">
+            {{ settingsState.modelsNotice }}
+          </p>
+
+          <div v-if="settingsState.models.providers.length === 0" class="settings-card">
             <div class="settings-row">
               <div>
-                <strong>模型設定</strong>
-                <span>模型清單與預設模型之後會放在這裡</span>
+                <strong>尚未連線提供商</strong>
+                <span>請先到提供者頁連線 OpenAI、OpenRouter 或 MiniMax。</span>
               </div>
-              <span class="settings-muted">Coming soon</span>
+              <span class="settings-muted">No providers</span>
+            </div>
+          </div>
+
+          <div
+            v-for="provider in settingsState.models.providers"
+            :key="provider.id"
+            class="settings-card model-provider-card"
+          >
+            <div class="model-provider-card__header">
+              <div class="provider-row__main">
+                <span class="provider-row__mark" aria-hidden="true">{{ provider.name.slice(0, 2) }}</span>
+                <div>
+                  <div class="provider-row__title">
+                    <strong>{{ provider.name }}</strong>
+                    <span v-if="provider.is_default" class="provider-row__badge">目前使用中</span>
+                  </div>
+                  <span>{{ provider.selected_model || "尚未選擇模型" }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="model-grid">
+              <button
+                v-for="model in provider.models"
+                :key="`${provider.id}:${model}`"
+                class="model-option"
+                :class="{ 'model-option--active': provider.is_default && provider.selected_model === model }"
+                type="button"
+                :disabled="settingsState.modelsLoading"
+                @click="$emit('select-model', provider.id, model)"
+              >
+                <strong>{{ model }}</strong>
+                <span>{{ provider.is_default && provider.selected_model === model ? "目前使用中" : "選擇模型" }}</span>
+              </button>
+            </div>
+
+            <div class="custom-model-row">
+              <label>
+                <span>自訂模型</span>
+                <input
+                  v-model="settingsState.customModels[provider.id]"
+                  type="text"
+                  placeholder="輸入模型名稱"
+                  spellcheck="false"
+                />
+              </label>
+              <button
+                class="secondary-button"
+                type="button"
+                :disabled="settingsState.modelsLoading"
+                @click="$emit('select-model', provider.id, settingsState.customModels[provider.id])"
+              >
+                使用自訂模型
+              </button>
             </div>
           </div>
         </section>
@@ -234,7 +345,21 @@ defineProps({
     type: Object,
     required: true,
   },
+  settingsState: {
+    type: Object,
+    required: true,
+  },
 });
 
-defineEmits(["close", "select-section", "save", "disconnect"]);
+defineEmits([
+  "close",
+  "select-section",
+  "save",
+  "disconnect",
+  "begin-provider-connect",
+  "cancel-provider-connect",
+  "save-provider-connection",
+  "disconnect-provider",
+  "select-model",
+]);
 </script>

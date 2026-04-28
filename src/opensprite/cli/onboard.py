@@ -16,6 +16,14 @@ except ModuleNotFoundError:  # pragma: no cover - exercised when dependency is a
 
 from ..config import Config
 from ..config.llm_presets import load_llm_presets
+from ..config.provider_settings import (
+    ensure_provider_entry,
+    get_model_choices as get_provider_model_choices,
+    get_provider_choices as get_settings_provider_choices,
+    get_selected_provider as get_settings_selected_provider,
+    prune_llm_providers,
+    select_model_in_config,
+)
 from ..context.paths import (
     BOOTSTRAP_DIRNAME,
     MEMORY_DIRNAME,
@@ -246,26 +254,12 @@ def _persist_config_data(config_path: Path, config_data: dict[str, Any]) -> None
 
 def _get_selected_provider(config_data: dict[str, Any], *, provider_order: tuple[str, ...]) -> str | None:
     """Return the currently selected provider, if valid."""
-    llm = config_data.get("llm", {})
-    providers = llm.get("providers", {})
-    default = llm.get("default")
-    if isinstance(default, str) and default in providers:
-        return default
-
-    for provider_name in provider_order:
-        provider = providers.get(provider_name, {})
-        if isinstance(provider, dict) and (provider.get("enabled") or provider.get("api_key")):
-            return provider_name
-    return None
+    return get_settings_selected_provider(config_data, provider_order=provider_order)
 
 
 def _get_provider_choices(config_data: dict[str, Any], *, provider_order: tuple[str, ...]) -> list[str]:
     """Build the provider selection list with a stable order."""
-    providers = config_data.get("llm", {}).get("providers", {})
-    order_set = set(provider_order)
-    ordered = list(provider_order)
-    extras = sorted(name for name in providers if name not in order_set)
-    return ordered + extras
+    return get_settings_provider_choices(config_data, provider_order=provider_order)
 
 
 def _get_model_choices(
@@ -275,29 +269,16 @@ def _get_model_choices(
     model_choices: tuple[str, ...],
 ) -> tuple[list[str], str | None]:
     """Return model choices and the default selection for a provider."""
-    choices = list(model_choices)
-    if current_model and current_model not in choices:
-        choices.insert(0, current_model)
-    if CUSTOM_MODEL_CHOICE not in choices:
-        choices.append(CUSTOM_MODEL_CHOICE)
-    default = current_model or (choices[0] if choices else None)
-    return choices, default
+    return get_provider_model_choices(
+        current_model,
+        model_choices=model_choices,
+        custom_choice=CUSTOM_MODEL_CHOICE,
+    )
 
 
 def _prune_llm_providers(llm: dict[str, Any]) -> None:
     """Keep the default provider and any others that still have an API key; drop empty shells."""
-    providers = llm.get("providers")
-    if not isinstance(providers, dict):
-        return
-    default = llm.get("default")
-    if not isinstance(default, str) or not default.strip():
-        return
-    default = default.strip()
-    keep: set[str] = {default}
-    for name, p in providers.items():
-        if isinstance(p, dict) and str(p.get("api_key", "") or "").strip():
-            keep.add(name)
-    llm["providers"] = {k: dict(providers[k]) for k in sorted(keep) if k in providers}
+    prune_llm_providers(llm)
 
 
 def _get_selected_channel(config_data: dict[str, Any]) -> str | None:
@@ -359,25 +340,7 @@ def _run_interactive_setup(config_data: dict[str, Any]) -> dict[str, Any]:
         if provider_name not in presets.providers:
             raise ValueError(f"Unknown LLM provider in presets: {provider_name}")
         preset = presets.providers[provider_name]
-        if provider_name not in providers or not isinstance(providers.get(provider_name), dict):
-            providers[provider_name] = {
-                "api_key": "",
-                "model": "",
-                "base_url": preset.default_base_url,
-                "enabled": False,
-            }
-
-        llm["default"] = provider_name
-        for name, provider in providers.items():
-            if isinstance(provider, dict):
-                provider["enabled"] = name == provider_name
-
-        selected = providers[provider_name]
-        if not isinstance(selected, dict):
-            raise ValueError(f"Invalid provider configuration for {provider_name}")
-
-        if not (selected.get("base_url") or "").strip():
-            selected["base_url"] = preset.default_base_url
+        selected = ensure_provider_entry(providers, provider_name, preset)
 
         model_choices, default_model = _get_model_choices(
             provider_name,
@@ -398,6 +361,7 @@ def _run_interactive_setup(config_data: dict[str, Any]) -> dict[str, Any]:
             str(selected.get("api_key", "")),
             required=False,
         )
+        select_model_in_config(updated, provider_name, selected["model"], require_api_key=False)
 
     channels = updated.setdefault("channels", {})
     channel_default = _get_selected_channel(updated)

@@ -152,11 +152,16 @@ function runTone(status, fallbackTone = "running") {
   return fallbackTone || "running";
 }
 
-function buildRunCancelUrl(wsUrl, runId, chatId) {
+function buildHttpApiUrl(wsUrl, pathname) {
   const url = new URL(wsUrl);
   url.protocol = url.protocol === "wss:" ? "https:" : "http:";
-  url.pathname = `/api/runs/${encodeURIComponent(runId)}/cancel`;
+  url.pathname = pathname;
   url.search = "";
+  return url;
+}
+
+function buildRunCancelUrl(wsUrl, runId, chatId) {
+  const url = buildHttpApiUrl(wsUrl, `/api/runs/${encodeURIComponent(runId)}/cancel`);
   url.searchParams.set("chat_id", chatId);
   return url.toString();
 }
@@ -291,6 +296,31 @@ export function useChatClient() {
     wsUrl: state.wsUrl,
     displayName: state.displayName,
     chatId: state.activeChatId,
+  });
+  const settingsState = reactive({
+    providersLoading: false,
+    providersError: "",
+    providersNotice: "",
+    providers: {
+      default_provider: null,
+      connected: [],
+      available: [],
+    },
+    connectForm: {
+      providerId: "",
+      apiKey: "",
+      baseUrl: "",
+      showAdvanced: false,
+    },
+    modelsLoading: false,
+    modelsError: "",
+    modelsNotice: "",
+    models: {
+      default_provider: null,
+      active_model: "",
+      providers: [],
+    },
+    customModels: {},
   });
 
   let activeSocket = null;
@@ -499,6 +529,7 @@ export function useChatClient() {
 
   function selectSettingsSection(sectionName) {
     settingsSection.value = SETTINGS_TITLES[sectionName] ? sectionName : "general";
+    loadSettingsSection(settingsSection.value);
   }
 
   function syncSettingsForm() {
@@ -547,6 +578,149 @@ export function useChatClient() {
     const url = new URL(baseUrl);
     url.searchParams.set("chat_id", chatId);
     return url.toString();
+  }
+
+  async function requestSettingsJson(pathname, options = {}) {
+    const response = await fetch(buildHttpApiUrl(state.wsUrl, pathname).toString(), {
+      ...options,
+      headers: {
+        ...(options.body ? { "Content-Type": "application/json" } : {}),
+        ...(options.headers || {}),
+      },
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || `HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+
+  async function loadProviderSettings() {
+    settingsState.providersLoading = true;
+    settingsState.providersError = "";
+    try {
+      settingsState.providers = await requestSettingsJson("/api/settings/providers");
+    } catch (error) {
+      settingsState.providersError = error?.message || "Could not load provider settings.";
+    } finally {
+      settingsState.providersLoading = false;
+    }
+  }
+
+  async function loadModelSettings() {
+    settingsState.modelsLoading = true;
+    settingsState.modelsError = "";
+    try {
+      settingsState.models = await requestSettingsJson("/api/settings/models");
+      for (const provider of settingsState.models.providers || []) {
+        if (!Object.prototype.hasOwnProperty.call(settingsState.customModels, provider.id)) {
+          settingsState.customModels[provider.id] = "";
+        }
+      }
+    } catch (error) {
+      settingsState.modelsError = error?.message || "Could not load model settings.";
+    } finally {
+      settingsState.modelsLoading = false;
+    }
+  }
+
+  function loadSettingsSection(sectionName) {
+    if (sectionName === "providers") {
+      loadProviderSettings();
+      return;
+    }
+    if (sectionName === "models") {
+      loadModelSettings();
+    }
+  }
+
+  function beginProviderConnect(provider) {
+    settingsState.providersNotice = "";
+    settingsState.providersError = "";
+    settingsState.connectForm.providerId = provider.id;
+    settingsState.connectForm.apiKey = "";
+    settingsState.connectForm.baseUrl = provider.default_base_url || provider.base_url || "";
+    settingsState.connectForm.showAdvanced = false;
+  }
+
+  function cancelProviderConnect() {
+    settingsState.connectForm.providerId = "";
+    settingsState.connectForm.apiKey = "";
+    settingsState.connectForm.baseUrl = "";
+    settingsState.connectForm.showAdvanced = false;
+  }
+
+  async function saveProviderConnection() {
+    const providerId = settingsState.connectForm.providerId;
+    if (!providerId) {
+      return;
+    }
+    settingsState.providersLoading = true;
+    settingsState.providersError = "";
+    settingsState.providersNotice = "";
+    try {
+      await requestSettingsJson(`/api/settings/providers/${encodeURIComponent(providerId)}/connect`, {
+        method: "PUT",
+        body: JSON.stringify({
+          api_key: settingsState.connectForm.apiKey,
+          base_url: settingsState.connectForm.baseUrl,
+        }),
+      });
+      settingsState.providersNotice = "已連線，請到模型頁選擇使用的模型。";
+      cancelProviderConnect();
+      await loadProviderSettings();
+      await loadModelSettings();
+    } catch (error) {
+      settingsState.providersError = error?.message || "Could not connect provider.";
+    } finally {
+      settingsState.providersLoading = false;
+    }
+  }
+
+  async function disconnectProvider(provider) {
+    settingsState.providersLoading = true;
+    settingsState.providersError = "";
+    settingsState.providersNotice = "";
+    try {
+      await requestSettingsJson(`/api/settings/providers/${encodeURIComponent(provider.id)}/disconnect`, {
+        method: "POST",
+      });
+      settingsState.providersNotice = `${provider.name} 已中斷連線。`;
+      await loadProviderSettings();
+      await loadModelSettings();
+    } catch (error) {
+      settingsState.providersError = error?.message || "Could not disconnect provider.";
+    } finally {
+      settingsState.providersLoading = false;
+    }
+  }
+
+  async function selectModel(providerId, model) {
+    const normalizedModel = String(model || "").trim();
+    if (!normalizedModel) {
+      settingsState.modelsError = "請先輸入模型名稱。";
+      return;
+    }
+
+    settingsState.modelsLoading = true;
+    settingsState.modelsError = "";
+    settingsState.modelsNotice = "";
+    try {
+      const payload = await requestSettingsJson("/api/settings/models/select", {
+        method: "POST",
+        body: JSON.stringify({ provider_id: providerId, model: normalizedModel }),
+      });
+      settingsState.modelsNotice = payload.restart_required
+        ? "已儲存，重啟 opensprite gateway 後生效。"
+        : "已套用模型設定。";
+      settingsState.customModels[providerId] = "";
+      await loadModelSettings();
+      await loadProviderSettings();
+    } catch (error) {
+      settingsState.modelsError = error?.message || "Could not select model.";
+    } finally {
+      settingsState.modelsLoading = false;
+    }
   }
 
   function handleSocketMessage(rawData) {
@@ -800,6 +974,7 @@ export function useChatClient() {
     settingsOpen,
     settingsSection,
     settingsForm,
+    settingsState,
     currentMessages,
     currentRun,
     currentRunTimeline,
@@ -819,6 +994,13 @@ export function useChatClient() {
     selectSettingsSection,
     openSettings,
     closeSettings,
+    loadProviderSettings,
+    loadModelSettings,
+    beginProviderConnect,
+    cancelProviderConnect,
+    saveProviderConnection,
+    disconnectProvider,
+    selectModel,
     toggleSidebar,
     connectSocket,
     resizeComposer,

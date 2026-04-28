@@ -21,6 +21,13 @@ from aiohttp import WSMsgType, web
 from ..bus.events import RunEvent
 from ..bus.message import AssistantMessage, MessageAdapter, UserMessage
 from ..config import MessagesConfig
+from ..config.provider_settings import (
+    ProviderSettingsConflict,
+    ProviderSettingsError,
+    ProviderSettingsNotFound,
+    ProviderSettingsService,
+    ProviderSettingsValidationError,
+)
 from ..utils.log import logger
 
 
@@ -282,6 +289,36 @@ class WebAdapter(MessageAdapter):
     def _get_agent(self) -> Any | None:
         return getattr(self.mq, "agent", None)
 
+    def _get_config_path(self) -> Path:
+        agent = self._get_agent()
+        raw_path = getattr(agent, "config_path", None) if agent is not None else None
+        if raw_path is not None:
+            return Path(raw_path).expanduser().resolve()
+        return (Path.home() / ".opensprite" / "opensprite.json").resolve()
+
+    def _get_provider_settings(self) -> ProviderSettingsService:
+        return ProviderSettingsService(self._get_config_path())
+
+    @staticmethod
+    async def _read_json_body(request: web.Request) -> dict[str, Any]:
+        try:
+            payload = await request.json()
+        except json.JSONDecodeError as exc:
+            raise web.HTTPBadRequest(text="Request body must be valid JSON") from exc
+        if not isinstance(payload, dict):
+            raise web.HTTPBadRequest(text="Request body must be a JSON object")
+        return payload
+
+    @staticmethod
+    def _raise_provider_settings_error(exc: ProviderSettingsError) -> None:
+        if isinstance(exc, ProviderSettingsValidationError):
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        if isinstance(exc, ProviderSettingsNotFound):
+            raise web.HTTPNotFound(text=str(exc)) from exc
+        if isinstance(exc, ProviderSettingsConflict):
+            raise web.HTTPConflict(text=str(exc)) from exc
+        raise web.HTTPServiceUnavailable(text=str(exc)) from exc
+
     def _serialize_run(self, run: Any) -> dict[str, Any]:
         return {
             "run_id": run.run_id,
@@ -534,6 +571,57 @@ class WebAdapter(MessageAdapter):
 
         return web.json_response({"ok": True, "chat_id": chat_id, "run_id": run_id, "status": "cancelling"})
 
+    async def _handle_settings_providers(self, request: web.Request) -> web.Response:
+        try:
+            payload = self._get_provider_settings().list_providers()
+        except ProviderSettingsError as exc:
+            self._raise_provider_settings_error(exc)
+        return web.json_response(payload)
+
+    async def _handle_settings_provider_connect(self, request: web.Request) -> web.Response:
+        provider_id = self._coerce_optional_text(request.match_info.get("provider_id"))
+        if provider_id is None:
+            raise web.HTTPBadRequest(text="provider_id is required")
+        body = await self._read_json_body(request)
+        try:
+            payload = self._get_provider_settings().connect_provider(
+                provider_id,
+                api_key=self._coerce_optional_text(body.get("api_key")),
+                base_url=self._coerce_optional_text(body.get("base_url")),
+            )
+        except ProviderSettingsError as exc:
+            self._raise_provider_settings_error(exc)
+        return web.json_response(payload)
+
+    async def _handle_settings_provider_disconnect(self, request: web.Request) -> web.Response:
+        provider_id = self._coerce_optional_text(request.match_info.get("provider_id"))
+        if provider_id is None:
+            raise web.HTTPBadRequest(text="provider_id is required")
+        try:
+            payload = self._get_provider_settings().disconnect_provider(provider_id)
+        except ProviderSettingsError as exc:
+            self._raise_provider_settings_error(exc)
+        return web.json_response(payload)
+
+    async def _handle_settings_models(self, request: web.Request) -> web.Response:
+        try:
+            payload = self._get_provider_settings().list_models()
+        except ProviderSettingsError as exc:
+            self._raise_provider_settings_error(exc)
+        return web.json_response(payload)
+
+    async def _handle_settings_model_select(self, request: web.Request) -> web.Response:
+        body = await self._read_json_body(request)
+        provider_id = self._coerce_optional_text(body.get("provider_id"))
+        model = self._coerce_optional_text(body.get("model"))
+        if provider_id is None or model is None:
+            raise web.HTTPBadRequest(text="provider_id and model are required")
+        try:
+            payload = self._get_provider_settings().select_model(provider_id, model)
+        except ProviderSettingsError as exc:
+            self._raise_provider_settings_error(exc)
+        return web.json_response(payload)
+
     async def _handle_frontend_index(self, request: web.Request) -> web.FileResponse:
         if self._frontend_dir is None:
             raise web.HTTPServiceUnavailable(
@@ -631,6 +719,11 @@ class WebAdapter(MessageAdapter):
         self.app.router.add_get("/api/runs/{run_id}", self._handle_run_trace)
         self.app.router.add_get("/api/runs/{run_id}/events", self._handle_run_events)
         self.app.router.add_post("/api/runs/{run_id}/cancel", self._handle_run_cancel)
+        self.app.router.add_get("/api/settings/providers", self._handle_settings_providers)
+        self.app.router.add_put("/api/settings/providers/{provider_id}/connect", self._handle_settings_provider_connect)
+        self.app.router.add_post("/api/settings/providers/{provider_id}/disconnect", self._handle_settings_provider_disconnect)
+        self.app.router.add_get("/api/settings/models", self._handle_settings_models)
+        self.app.router.add_post("/api/settings/models/select", self._handle_settings_model_select)
         self.app.router.add_get("/", self._handle_frontend_index)
         self.app.router.add_get("/index.html", self._handle_frontend_index)
         if self._frontend_dir is not None:

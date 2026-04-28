@@ -1,4 +1,5 @@
 import asyncio
+import json
 from pathlib import Path
 
 from aiohttp import ClientSession
@@ -7,6 +8,7 @@ from opensprite.bus.dispatcher import MessageQueue
 from opensprite.bus.events import RunEvent
 from opensprite.bus.message import AssistantMessage
 from opensprite.channels.web import WebAdapter
+from opensprite.config import Config
 from opensprite.storage import MemoryStorage
 
 
@@ -514,3 +516,79 @@ async def _run_web_run_cancel_api():
 
 def test_web_adapter_exposes_run_cancel_api():
     asyncio.run(_run_web_run_cancel_api())
+
+
+async def _run_web_settings_provider_api(tmp_path: Path):
+    config_path = tmp_path / "opensprite.json"
+    Config.copy_template(config_path)
+
+    agent = EchoAgent()
+    agent.config_path = config_path
+    queue = MessageQueue(agent)
+    adapter = WebAdapter(
+        mq=queue,
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "path": "/ws",
+            "health_path": "/healthz",
+            "frontend_auto_build": False,
+        },
+    )
+    adapter_task = asyncio.create_task(adapter.run())
+
+    try:
+        await adapter.wait_until_started()
+        port = adapter.bound_port
+        assert port is not None
+
+        async with ClientSession() as session:
+            async with session.get(f"http://127.0.0.1:{port}/api/settings/providers") as resp:
+                assert resp.status == 200
+                providers_payload = await resp.json()
+
+            assert providers_payload["connected"] == []
+            assert {provider["id"] for provider in providers_payload["available"]} >= {"openai", "openrouter", "minimax"}
+
+            async with session.put(
+                f"http://127.0.0.1:{port}/api/settings/providers/openai/connect",
+                json={"api_key": "secret-key"},
+            ) as resp:
+                assert resp.status == 200
+                connect_payload = await resp.json()
+
+            assert connect_payload["provider"]["api_key_configured"] is True
+            assert "api_key" not in connect_payload["provider"]
+
+            async with session.get(f"http://127.0.0.1:{port}/api/settings/models") as resp:
+                assert resp.status == 200
+                models_payload = await resp.json()
+
+            assert models_payload["providers"][0]["id"] == "openai"
+            assert "gpt-4.1-mini" in models_payload["providers"][0]["models"]
+
+            async with session.post(
+                f"http://127.0.0.1:{port}/api/settings/models/select",
+                json={"provider_id": "openai", "model": "gpt-4.1-mini"},
+            ) as resp:
+                assert resp.status == 200
+                select_payload = await resp.json()
+
+            assert select_payload["restart_required"] is True
+            providers = json.loads((tmp_path / "llm.providers.json").read_text(encoding="utf-8"))
+            assert providers["openai"]["api_key"] == "secret-key"
+            assert providers["openai"]["enabled"] is True
+            assert providers["openai"]["model"] == "gpt-4.1-mini"
+
+            async with session.post(f"http://127.0.0.1:{port}/api/settings/providers/openai/disconnect") as resp:
+                assert resp.status == 409
+    finally:
+        adapter_task.cancel()
+        try:
+            await adapter_task
+        except asyncio.CancelledError:
+            pass
+
+
+def test_web_adapter_exposes_settings_provider_api(tmp_path):
+    asyncio.run(_run_web_settings_provider_api(tmp_path))
