@@ -182,10 +182,10 @@ def test_process_tool_shows_run_ownership_metadata(tmp_path):
             process_manager=manager,
             timeout=5,
             background_session_owner_factory=lambda: {
-                "session_chat_id": "web:browser-1",
+                "session_id": "web:browser-1",
                 "run_id": "run-123",
                 "channel": "web",
-                "transport_chat_id": "browser-1",
+                "external_chat_id": "browser-1",
             },
         )
         process_tool = ProcessTool(manager)

@@ -56,5 +56,5 @@ class PermissionEventRecorder:
             event_type,
             payload,
             channel=request.channel,
-            transport_chat_id=request.transport_chat_id,
+            external_chat_id=request.external_chat_id,
         )

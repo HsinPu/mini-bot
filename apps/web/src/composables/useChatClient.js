@@ -118,7 +118,7 @@ function makeMessage(role, text, meta) {
 function createSession(chatId) {
   return {
     chatId: chatId || generateChatId(),
-    sessionChatId: null,
+    sessionId: null,
     title: "New chat",
     updatedAt: Date.now(),
     messages: [],
@@ -466,10 +466,10 @@ export function useChatClient() {
     if (!session) {
       return "No active chat";
     }
-    return session.sessionChatId || `web:${session.chatId}`;
+    return session.sessionId || `web:${session.chatId}`;
   }
 
-  function ensureSession(chatId, sessionChatId) {
+  function ensureSession(chatId, sessionId) {
     const resolvedChatId = chatId || generateChatId();
     let session = state.sessions.find((entry) => entry.chatId === resolvedChatId);
     if (!session) {
@@ -483,8 +483,8 @@ export function useChatClient() {
       ];
       state.sessions.unshift(session);
     }
-    if (sessionChatId) {
-      session.sessionChatId = sessionChatId;
+    if (sessionId) {
+      session.sessionId = sessionId;
     }
     session.updatedAt = Date.now();
     return session;
@@ -519,7 +519,7 @@ export function useChatClient() {
 
   function handleRunEvent(payload) {
     const chatId = payload.chat_id || currentSession.value?.chatId || generateChatId();
-    const session = ensureSession(chatId, payload.session_chat_id);
+    const session = ensureSession(chatId, payload.session_id);
     const runId = String(payload.run_id || `run-${Date.now().toString(36)}-${randomToken()}`);
     const eventType = String(payload.event_type || "run_event");
     const eventPayload = coerceEventPayload(payload.payload);
@@ -888,18 +888,18 @@ export function useChatClient() {
     }
 
     if (payload.type === "session") {
-      const session = ensureSession(payload.chat_id, payload.session_chat_id);
+      const session = ensureSession(payload.chat_id, payload.session_id);
       if (!state.activeChatId) {
         state.activeChatId = session.chatId;
       }
-      setNotice(`Live session ready: ${payload.session_chat_id}`, "success");
+      setNotice(`Live session ready: ${payload.session_id}`, "success");
       return;
     }
 
     if (payload.type === "message") {
       const chatId = payload.chat_id || currentSession.value?.chatId || generateChatId();
-      const session = ensureSession(chatId, payload.session_chat_id);
-      addMessage(session.chatId, makeMessage("assistant", payload.text || "", payload.session_chat_id || "OpenSprite"));
+      const session = ensureSession(chatId, payload.session_id);
+      addMessage(session.chatId, makeMessage("assistant", payload.text || "", payload.session_id || "OpenSprite"));
       scrollMessagesToBottom();
       return;
     }

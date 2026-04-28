@@ -20,7 +20,7 @@ class InboundMessage:
     sender_id: str  # User identifier
     chat_id: str  # Transport chat/channel identifier
     content: str  # Message text
-    session_chat_id: str | None = None  # Internal normalized chat/session identifier
+    session_id: str | None = None  # Internal normalized chat/session identifier
     sender_name: str | None = None
     timestamp: datetime = field(default_factory=datetime.now)
     images: list[str] = field(default_factory=list)  # base64 image data URLs
@@ -32,7 +32,7 @@ class InboundMessage:
     @property
     def session_key(self) -> str:
         """Unique key for session identification."""
-        return self.session_chat_id or f"{self.channel}:{self.chat_id}"
+        return self.session_id or f"{self.channel}:{self.chat_id}"
 
 
 @dataclass
@@ -42,7 +42,7 @@ class OutboundMessage:
     channel: str
     chat_id: str  # Transport chat/channel identifier
     content: str
-    session_chat_id: str | None = None
+    session_id: str | None = None
     reply_to: str | None = None
     images: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -55,7 +55,7 @@ class RunEvent:
 
     channel: str
     chat_id: str
-    session_chat_id: str
+    session_id: str
     run_id: str
     event_type: str
     payload: dict[str, Any] = field(default_factory=dict)

@@ -44,10 +44,10 @@ class BackgroundSession:
     notify_on_exit: bool = True
     notify_on_exit_empty_success: bool = False
     suppress_exit_notification: bool = False
-    owner_session_chat_id: str | None = None
+    owner_session_id: str | None = None
     owner_run_id: str | None = None
     owner_channel: str | None = None
-    owner_transport_chat_id: str | None = None
+    owner_external_chat_id: str | None = None
 
     @property
     def pid(self) -> int:
@@ -88,10 +88,10 @@ class BackgroundProcessManager:
         exit_notifier: SessionExitNotifier | None = None,
         notify_on_exit: bool = True,
         notify_on_exit_empty_success: bool = False,
-        owner_session_chat_id: str | None = None,
+        owner_session_id: str | None = None,
         owner_run_id: str | None = None,
         owner_channel: str | None = None,
-        owner_transport_chat_id: str | None = None,
+        owner_external_chat_id: str | None = None,
     ) -> BackgroundSession:
         session = BackgroundSession(
             session_id=uuid.uuid4().hex[:12],
@@ -107,10 +107,10 @@ class BackgroundProcessManager:
             exit_notifier=exit_notifier,
             notify_on_exit=notify_on_exit,
             notify_on_exit_empty_success=notify_on_exit_empty_success,
-            owner_session_chat_id=owner_session_chat_id,
+            owner_session_id=owner_session_id,
             owner_run_id=owner_run_id,
             owner_channel=owner_channel,
-            owner_transport_chat_id=owner_transport_chat_id,
+            owner_external_chat_id=owner_external_chat_id,
         )
         session.watch_task = asyncio.create_task(self._watch_session(session))
         self._sessions[session.session_id] = session
@@ -120,10 +120,10 @@ class BackgroundProcessManager:
     def _session_owned_by(
         session: BackgroundSession,
         *,
-        session_chat_id: str,
+        session_id: str,
         run_id: str | None = None,
     ) -> bool:
-        if session.owner_session_chat_id != session_chat_id:
+        if session.owner_session_id != session_id:
             return False
         if run_id is not None and session.owner_run_id != run_id:
             return False
@@ -205,7 +205,7 @@ class BackgroundProcessManager:
 
     async def list_owned_sessions(
         self,
-        session_chat_id: str,
+        session_id: str,
         *,
         run_id: str | None = None,
     ) -> list[BackgroundSession]:
@@ -213,7 +213,7 @@ class BackgroundProcessManager:
         return [
             session
             for session in sessions
-            if self._session_owned_by(session, session_chat_id=session_chat_id, run_id=run_id)
+            if self._session_owned_by(session, session_id=session_id, run_id=run_id)
         ]
 
     async def get_session(self, session_id: str) -> BackgroundSession | None:
@@ -263,12 +263,12 @@ class BackgroundProcessManager:
 
     async def kill_owned_sessions(
         self,
-        session_chat_id: str,
+        session_id: str,
         *,
         run_id: str | None = None,
     ) -> list[BackgroundSession]:
         killed: list[BackgroundSession] = []
-        for session in await self.list_owned_sessions(session_chat_id, run_id=run_id):
+        for session in await self.list_owned_sessions(session_id, run_id=run_id):
             if session.state != "running":
                 continue
             killed_session = await self.kill_session(session.session_id)

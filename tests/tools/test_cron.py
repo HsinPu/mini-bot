@@ -6,7 +6,7 @@ from opensprite.tools.cron import CronTool
 
 
 def test_cron_tool_add_list_and_remove(tmp_path):
-    async def on_job(session_chat_id: str, job: CronJob):
+    async def on_job(session_id: str, job: CronJob):
         return "ok"
 
     async def scenario():
@@ -41,8 +41,8 @@ def test_cron_tool_add_list_and_remove(tmp_path):
 def test_cron_tool_can_pause_enable_and_run(tmp_path):
     executions = []
 
-    async def on_job(session_chat_id: str, job: CronJob):
-        executions.append((session_chat_id, job.id))
+    async def on_job(session_id: str, job: CronJob):
+        executions.append((session_id, job.id))
         return "ok"
 
     async def scenario():

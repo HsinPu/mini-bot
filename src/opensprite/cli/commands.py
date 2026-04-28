@@ -1264,7 +1264,7 @@ async def _seed_demo_search_data(loaded, search_store, *, chat_id: str, reset: b
 def _get_cron_service(session: str) -> CronService:
     """Open the cron service store for a session without starting a timer loop."""
     workspace = get_chat_workspace(session, workspace_root=_resolve_workspace_root())
-    return CronService(workspace / "cron" / "jobs.json", session_chat_id=session)
+    return CronService(workspace / "cron" / "jobs.json", session_id=session)
 
 
 def _build_cli_schedule(

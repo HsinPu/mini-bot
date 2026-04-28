@@ -213,8 +213,8 @@ def _build_background_session_result(
             f"Status: {session.state}",
             f"PID: {session.pid}",
             *(
-                [f"Owner: {session.owner_session_chat_id or '-'} / {session.owner_run_id or '-'}"]
-                if session.owner_session_chat_id or session.owner_run_id
+                [f"Owner: {session.owner_session_id or '-'} / {session.owner_run_id or '-'}"]
+                if session.owner_session_id or session.owner_run_id
                 else []
             ),
             "Use process with action=\"poll\" to inspect it or action=\"kill\" to stop it.",
@@ -388,16 +388,16 @@ class ExecTool(Tool):
             ),
             notify_on_exit=notify_on_exit,
             notify_on_exit_empty_success=notify_on_exit_empty_success,
-            owner_session_chat_id=(
-                str(owner.get("session_chat_id"))
-                if owner.get("session_chat_id") is not None
+            owner_session_id=(
+                str(owner.get("session_id"))
+                if owner.get("session_id") is not None
                 else None
             ),
             owner_run_id=(str(owner.get("run_id")) if owner.get("run_id") is not None else None),
             owner_channel=(str(owner.get("channel")) if owner.get("channel") is not None else None),
-            owner_transport_chat_id=(
-                str(owner.get("transport_chat_id"))
-                if owner.get("transport_chat_id") is not None
+            owner_external_chat_id=(
+                str(owner.get("external_chat_id"))
+                if owner.get("external_chat_id") is not None
                 else None
             ),
         )

@@ -135,11 +135,11 @@ class TelegramAdapter(MessageAdapter):
         except Exception as exc:
             logger.debug("Telegram typing action failed for chat {}: {}", chat_id, exc)
 
-    def _start_typing_indicator(self, session_chat_id: str | None, chat_id: str | None) -> None:
+    def _start_typing_indicator(self, session_id: str | None, chat_id: str | None) -> None:
         """Start a periodic typing indicator for an active session."""
-        if self.app is None or not session_chat_id or not chat_id:
+        if self.app is None or not session_id or not chat_id:
             return
-        if session_chat_id in self._typing_tasks:
+        if session_id in self._typing_tasks:
             return
 
         interval = max(1, self._get_int("typing_action_interval"))
@@ -152,13 +152,13 @@ class TelegramAdapter(MessageAdapter):
             except asyncio.CancelledError:
                 raise
 
-        self._typing_tasks[session_chat_id] = asyncio.create_task(run_typing())
+        self._typing_tasks[session_id] = asyncio.create_task(run_typing())
 
-    async def _stop_typing_indicator(self, session_chat_id: str | None) -> None:
+    async def _stop_typing_indicator(self, session_id: str | None) -> None:
         """Stop the periodic typing indicator for a session."""
-        if not session_chat_id:
+        if not session_id:
             return
-        task = self._typing_tasks.pop(session_chat_id, None)
+        task = self._typing_tasks.pop(session_id, None)
         if task is None:
             return
         task.cancel()
@@ -305,7 +305,7 @@ class TelegramAdapter(MessageAdapter):
         
         # 取出聊天室 ID
         chat_id = str(message.chat.id) if message.chat else None
-        session_chat_id = build_session_id(self.channel_instance_id, chat_id) if chat_id else None
+        session_id = build_session_id(self.channel_instance_id, chat_id) if chat_id else None
         
         telegram_bot = self._resolve_update_bot(raw_update, bot)
 
@@ -362,7 +362,7 @@ class TelegramAdapter(MessageAdapter):
             text=text,
             channel=self.channel_instance_id,
             chat_id=chat_id,
-            session_chat_id=session_chat_id,
+            session_id=session_id,
             sender_id=sender_id,
             sender_name=sender_name,
             images=images if images else None,
@@ -531,7 +531,7 @@ class TelegramAdapter(MessageAdapter):
             logger.warning(
                 "Telegram reply text is empty for chat {} session {}; sending fallback notice",
                 message.chat_id,
-                message.session_chat_id,
+                message.session_id,
             )
             text = self.messages.telegram.empty_message_fallback
         max_length = 4000
@@ -548,7 +548,7 @@ class TelegramAdapter(MessageAdapter):
                 logger.warning(
                     "Telegram HTML renderer produced empty output for chat {} session {}; using escaped plain text",
                     message.chat_id,
-                    message.session_chat_id,
+                    message.session_id,
                 )
                 html_text = html.escape(text)
             
@@ -776,12 +776,12 @@ class TelegramAdapter(MessageAdapter):
         """
         meta = response.metadata or {}
         if not meta.get("interim"):
-            await self._stop_typing_indicator(response.session_chat_id)
+            await self._stop_typing_indicator(response.session_id)
         await self.send(response)
 
-    async def _on_error(self, session_chat_id: str, error: str) -> None:
+    async def _on_error(self, session_id: str, error: str) -> None:
         """Stop typing when queued processing fails."""
-        await self._stop_typing_indicator(session_chat_id)
+        await self._stop_typing_indicator(session_id)
     
     async def run(self):
         """
@@ -812,7 +812,7 @@ class TelegramAdapter(MessageAdapter):
             
             if self.mq:
                 # === 新方式：走 MessageQueue ===
-                self._start_typing_indicator(user_msg.session_chat_id, user_msg.chat_id)
+                self._start_typing_indicator(user_msg.session_id, user_msg.chat_id)
                 await self.mq.enqueue(user_msg)
             else:
                 # === 舊方式：直接叫 agent（向後相容）===

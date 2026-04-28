@@ -218,7 +218,7 @@ def test_agent_process_persists_user_then_assistant_then_runs_maintenance(tmp_pa
                 text="hello",
                 channel="telegram",
                 chat_id="room-1",
-                session_chat_id="telegram:room-1",
+                session_id="telegram:room-1",
                 sender_id="user-1",
                 sender_name="alice",
                 images=["img1"],
@@ -240,7 +240,7 @@ def test_agent_process_persists_user_then_assistant_then_runs_maintenance(tmp_pa
     assert [entry[1] for entry in storage.saved] == ["user", "assistant"]
     assert storage.saved[0][3]["sender_name"] == "alice"
     assert storage.saved[0][3]["images_count"] == 1
-    assert storage.saved[1][3] == {"channel": "telegram", "transport_chat_id": "room-1"}
+    assert storage.saved[1][3] == {"channel": "telegram", "external_chat_id": "room-1"}
     assert call_order[0] == ("call_llm", "telegram:room-1", "hello", "telegram", ["img1"])
     assert set(call_order[1:]) == {
         ("memory", "telegram:room-1"),
@@ -250,7 +250,7 @@ def test_agent_process_persists_user_then_assistant_then_runs_maintenance(tmp_pa
     }
     assert response.text == "assistant reply"
     assert response.channel == "telegram"
-    assert response.session_chat_id == "telegram:room-1"
+    assert response.session_id == "telegram:room-1"
 
 
 def test_agent_process_emits_run_lifecycle_events(tmp_path):
@@ -301,7 +301,7 @@ def test_agent_process_emits_run_lifecycle_events(tmp_path):
                 text="hello",
                 channel="web",
                 chat_id="browser-1",
-                session_chat_id="web:browser-1",
+                session_id="web:browser-1",
                 sender_id="user-1",
             )
         )
@@ -361,15 +361,15 @@ def test_agent_verify_hooks_emit_verification_events(tmp_path):
 
         before = agent._make_tool_progress_hook(
             channel="web",
-            transport_chat_id="browser-1",
-            session_chat_id="web:browser-1",
+            external_chat_id="browser-1",
+            session_id="web:browser-1",
             run_id="run-1",
             enabled=True,
         )
         after = agent._make_tool_result_hook(
             channel="web",
-            transport_chat_id="browser-1",
-            session_chat_id="web:browser-1",
+            external_chat_id="browser-1",
+            session_id="web:browser-1",
             run_id="run-1",
             enabled=True,
         )
@@ -424,7 +424,7 @@ def test_agent_default_filesystem_tools_record_run_file_changes(tmp_path):
 
         chat_token = agent._current_chat_id.set("web:browser-1")
         channel_token = agent._current_channel.set("web")
-        transport_token = agent._current_transport_chat_id.set("browser-1")
+        transport_token = agent._current_external_chat_id.set("browser-1")
         run_token = agent._current_run_id.set("run-1")
         try:
             result = await agent.tools.execute(
@@ -433,7 +433,7 @@ def test_agent_default_filesystem_tools_record_run_file_changes(tmp_path):
             )
         finally:
             agent._current_run_id.reset(run_token)
-            agent._current_transport_chat_id.reset(transport_token)
+            agent._current_external_chat_id.reset(transport_token)
             agent._current_channel.reset(channel_token)
             agent._current_chat_id.reset(chat_token)
 
@@ -486,7 +486,7 @@ def test_agent_tool_permission_requests_emit_run_events(tmp_path):
 
         chat_token = agent._current_chat_id.set("web:browser-1")
         channel_token = agent._current_channel.set("web")
-        transport_token = agent._current_transport_chat_id.set("browser-1")
+        transport_token = agent._current_external_chat_id.set("browser-1")
         run_token = agent._current_run_id.set("run-1")
         try:
             task = asyncio.create_task(agent.tools.execute("dummy", {}))
@@ -506,7 +506,7 @@ def test_agent_tool_permission_requests_emit_run_events(tmp_path):
             result = await task
         finally:
             agent._current_run_id.reset(run_token)
-            agent._current_transport_chat_id.reset(transport_token)
+            agent._current_external_chat_id.reset(transport_token)
             agent._current_channel.reset(channel_token)
             agent._current_chat_id.reset(chat_token)
 
@@ -567,7 +567,7 @@ def test_agent_process_persists_media_only_message_without_llm(tmp_path):
                 text="",
                 channel="telegram",
                 chat_id="room-1",
-                session_chat_id="telegram:room-1",
+                session_id="telegram:room-1",
                 images=[_image_data_url(b"image-bytes")],
                 audios=[_media_data_url(b"audio-bytes", "audio/ogg")],
                 videos=[_media_data_url(b"video-bytes", "video/mp4")],
@@ -659,7 +659,7 @@ def test_agent_process_passes_saved_media_paths_when_text_requests_analysis(tmp_
                 text="請幫我分析這些檔案",
                 channel="telegram",
                 chat_id="room-1",
-                session_chat_id="telegram:room-1",
+                session_id="telegram:room-1",
                 images=[_image_data_url(b"image-bytes")],
                 audios=[_media_data_url(b"audio-bytes", "audio/ogg")],
                 videos=[_media_data_url(b"video-bytes", "video/mp4")],
@@ -712,7 +712,7 @@ def test_agent_process_seeds_active_task_from_detected_intent(tmp_path):
                 text="Please refactor the agent and run tests. Keep the public API stable.",
                 channel="telegram",
                 chat_id="room-1",
-                session_chat_id="telegram:room-1",
+                session_id="telegram:room-1",
             )
         )
         store = create_active_task_store(agent.app_home, "telegram:room-1", workspace_root=agent.tool_workspace)
@@ -762,7 +762,7 @@ def test_agent_process_emits_completion_gate_needs_verification_after_code_chang
                 text="Please refactor the agent and run tests.",
                 channel="web",
                 chat_id="browser-1",
-                session_chat_id="web:browser-1",
+                session_id="web:browser-1",
             )
         )
 
@@ -817,7 +817,7 @@ def test_agent_process_auto_continues_once_when_code_changes_are_missing(tmp_pat
                 text="Please refactor the agent and run tests.",
                 channel="web",
                 chat_id="browser-1",
-                session_chat_id="web:browser-1",
+                session_id="web:browser-1",
             )
         )
         run = next(iter(storage._runs.values()))
@@ -886,7 +886,7 @@ def test_agent_process_stops_auto_continue_when_continuation_has_no_progress(tmp
                 text="Please refactor the agent and run tests.",
                 channel="web",
                 chat_id="browser-1",
-                session_chat_id="web:browser-1",
+                session_id="web:browser-1",
             )
         )
         run = next(iter(storage._runs.values()))
@@ -958,7 +958,7 @@ def test_agent_process_marks_active_task_done_when_completion_gate_completes(tmp
                 text="Please implement the final cleanup.",
                 channel="telegram",
                 chat_id="room-1",
-                session_chat_id="telegram:room-1",
+                session_id="telegram:room-1",
             )
         )
         return store.read_managed_block(), store.read_events()
@@ -1030,7 +1030,7 @@ def test_agent_process_updates_active_task_with_verification_step_when_work_rema
                 text="Please refactor the agent and run tests.",
                 channel="telegram",
                 chat_id="room-1",
-                session_chat_id="telegram:room-1",
+                session_id="telegram:room-1",
             )
         )
         return store.read_managed_block(), store.read_events()
@@ -1093,7 +1093,7 @@ def test_agent_process_persists_work_state_with_delegate_task(tmp_path):
                 text="continue",
                 channel="web",
                 chat_id="browser-1",
-                session_chat_id="web:browser-1",
+                session_id="web:browser-1",
             )
         )
         return await storage.get_work_state("web:browser-1")
@@ -1238,7 +1238,7 @@ def test_agent_process_rejects_overlapping_runs_for_same_session(tmp_path):
                     text="Please implement the change.",
                     channel="web",
                     chat_id="browser-1",
-                    session_chat_id="web:browser-1",
+                    session_id="web:browser-1",
                 )
             )
         )
@@ -1255,7 +1255,7 @@ def test_agent_process_rejects_overlapping_runs_for_same_session(tmp_path):
                     text="Please implement another change.",
                     channel="web",
                     chat_id="browser-1",
-                    session_chat_id="web:browser-1",
+                    session_id="web:browser-1",
                 )
             )
         except RunBusyError:
@@ -1301,7 +1301,7 @@ def test_agent_process_cancel_request_marks_run_cancelled_and_clears_active_run(
                     text="Please implement the change.",
                     channel="web",
                     chat_id="browser-1",
-                    session_chat_id="web:browser-1",
+                    session_id="web:browser-1",
                 )
             )
         )
@@ -1317,7 +1317,7 @@ def test_agent_process_cancel_request_marks_run_cancelled_and_clears_active_run(
             "web:browser-1",
             active.run_id,
             channel="web",
-            transport_chat_id="browser-1",
+            external_chat_id="browser-1",
         )
         assert accepted is True
 
@@ -1384,7 +1384,7 @@ def test_agent_process_cancel_request_kills_owned_background_sessions(tmp_path):
                     text="Please implement the change.",
                     channel="web",
                     chat_id="browser-1",
-                    session_chat_id="web:browser-1",
+                    session_id="web:browser-1",
                 )
             )
         )
@@ -1400,7 +1400,7 @@ def test_agent_process_cancel_request_kills_owned_background_sessions(tmp_path):
             "web:browser-1",
             active.run_id,
             channel="web",
-            transport_chat_id="browser-1",
+            external_chat_id="browser-1",
         )
         assert accepted is True
 
@@ -1421,7 +1421,7 @@ def test_agent_process_cancel_request_kills_owned_background_sessions(tmp_path):
     assert session is not None
     assert session.state == "exited"
     assert session.termination_reason == "killed"
-    assert session.owner_session_chat_id == "web:browser-1"
+    assert session.owner_session_id == "web:browser-1"
     assert session.owner_run_id is not None
     cancel_event = next(event for event in events if event.event_type == "run_cancel_requested")
     assert cancel_event.payload["owned_background_sessions_cancelled"] == 1
@@ -1468,7 +1468,7 @@ def test_agent_process_returns_queued_outbound_media(tmp_path):
                 text="send it",
                 channel="telegram",
                 chat_id="room-1",
-                session_chat_id="telegram:room-1",
+                session_id="telegram:room-1",
             )
         )
         await agent.wait_for_background_maintenance()
@@ -1597,7 +1597,7 @@ def test_process_moves_active_task_to_waiting_user_when_reply_requests_missing_i
                 text="繼續做",
                 channel="telegram",
                 chat_id="room-1",
-                session_chat_id="telegram:room-1",
+                session_id="telegram:room-1",
             )
         )
         return store.read_managed_block()
@@ -1662,7 +1662,7 @@ def test_process_moves_active_task_to_blocked_when_reply_reports_blocking_error(
                 text="繼續驗證",
                 channel="telegram",
                 chat_id="room-1",
-                session_chat_id="telegram:room-1",
+                session_id="telegram:room-1",
             )
         )
         return store.read_managed_block()
@@ -1698,7 +1698,7 @@ def test_background_session_exit_notifier_publishes_outbound_and_persists_messag
 
     chat_token = agent._current_chat_id.set("telegram:room-1")
     channel_token = agent._current_channel.set("telegram")
-    transport_token = agent._current_transport_chat_id.set("room-1")
+    transport_token = agent._current_external_chat_id.set("room-1")
     try:
         notifier = agent._make_background_session_exit_notifier()
         assert notifier is not None
@@ -1723,7 +1723,7 @@ def test_background_session_exit_notifier_publishes_outbound_and_persists_messag
 
         asyncio.run(notifier(session))
     finally:
-        agent._current_transport_chat_id.reset(transport_token)
+        agent._current_external_chat_id.reset(transport_token)
         agent._current_channel.reset(channel_token)
         agent._current_chat_id.reset(chat_token)
 
@@ -1731,7 +1731,7 @@ def test_background_session_exit_notifier_publishes_outbound_and_persists_messag
     outbound = fake_bus.outbound[0]
     assert outbound.channel == "telegram"
     assert outbound.chat_id == "room-1"
-    assert outbound.session_chat_id == "telegram:room-1"
+    assert outbound.session_id == "telegram:room-1"
     assert "Background session finished." in outbound.content
     assert "Session ID: bg123" in outbound.content
     assert "job done" in outbound.content
@@ -1945,7 +1945,7 @@ def test_agent_process_returns_setup_hint_when_llm_not_configured(tmp_path):
                 text="hello",
                 channel="telegram",
                 chat_id="room-1",
-                session_chat_id="telegram:room-1",
+                session_id="telegram:room-1",
                 sender_id="user-1",
                 sender_name="alice",
             )

@@ -73,7 +73,7 @@ def test_agent_process_keeps_workspace_and_sqlite_history_isolated_per_session(t
                 text="hello from A",
                 channel="telegram",
                 chat_id="user-a",
-                session_chat_id="telegram:user-a",
+                session_id="telegram:user-a",
             )
         )
         response_b = await agent.process(
@@ -81,7 +81,7 @@ def test_agent_process_keeps_workspace_and_sqlite_history_isolated_per_session(t
                 text="hello from B",
                 channel="telegram",
                 chat_id="user-b",
-                session_chat_id="telegram:user-b",
+                session_id="telegram:user-b",
             )
         )
 
@@ -108,5 +108,5 @@ def test_agent_process_keeps_workspace_and_sqlite_history_isolated_per_session(t
     assert [message.content for message in result["messages_a"]] == ["hello from A", "reply-1"]
     assert [message.content for message in result["messages_b"]] == ["hello from B", "reply-2"]
     assert result["all_chats"] == ["telegram:user-a", "telegram:user-b"]
-    assert result["response_a"].session_chat_id == "telegram:user-a"
-    assert result["response_b"].session_chat_id == "telegram:user-b"
+    assert result["response_a"].session_id == "telegram:user-a"
+    assert result["response_b"].session_id == "telegram:user-b"

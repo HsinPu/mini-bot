@@ -163,11 +163,11 @@ class CronTool(Tool):
         else:
             return self._messages.error_schedule_required
 
-        session_chat_id = self._get_chat_id() or "default"
-        if ":" in session_chat_id:
-            channel, chat_id = session_chat_id.split(":", 1)
+        session_id = self._get_chat_id() or "default"
+        if ":" in session_id:
+            channel, chat_id = session_id.split(":", 1)
         else:
-            channel, chat_id = "default", session_chat_id
+            channel, chat_id = "default", session_id
 
         try:
             job = service.add_job(

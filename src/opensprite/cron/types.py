@@ -68,5 +68,5 @@ class CronStore:
     """Persistent store payload for one session cron file."""
 
     version: int = 1
-    session_chat_id: str = ""
+    session_id: str = ""
     jobs: list[CronJob] = field(default_factory=list)

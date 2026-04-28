@@ -49,23 +49,23 @@ class BackgroundSessionNotificationService:
         self,
         *,
         channel: str | None,
-        transport_chat_id: str | None,
-        session_chat_id: str | None,
+        external_chat_id: str | None,
+        session_id: str | None,
     ) -> Callable[[BackgroundSession], Awaitable[None]] | None:
         """Build an outbound notifier for managed background session completion."""
         bus = self._message_bus_getter()
-        if not bus or not channel or transport_chat_id is None or session_chat_id is None:
+        if not bus or not channel or external_chat_id is None or session_id is None:
             return None
 
         ch = channel
-        tid = str(transport_chat_id)
-        sid = session_chat_id
+        tid = str(external_chat_id)
+        sid = session_id
 
         async def _notify(session: BackgroundSession) -> None:
             content = self.format_exit_message(session)
             metadata = {
                 "channel": ch,
-                "transport_chat_id": tid,
+                "external_chat_id": tid,
                 "kind": "background_session_exit",
                 "session_id": session.session_id,
                 "termination_reason": session.termination_reason or "exit",
@@ -76,7 +76,7 @@ class BackgroundSessionNotificationService:
                 OutboundMessage(
                     channel=ch,
                     chat_id=tid,
-                    session_chat_id=sid,
+                    session_id=sid,
                     content=content,
                     metadata=metadata,
                 )

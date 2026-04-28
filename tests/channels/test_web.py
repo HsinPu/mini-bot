@@ -22,7 +22,7 @@ class EchoAgent:
             text=f"echo:{user_message.text}",
             channel="web",
             chat_id=user_message.chat_id,
-            session_chat_id=user_message.session_chat_id,
+            session_id=user_message.session_id,
             metadata={"source": "test"},
         )
 
@@ -59,13 +59,13 @@ async def _run_web_roundtrip():
                 assert session_frame["type"] == "session"
                 assert session_frame["channel"] == "web"
                 assert session_frame["channel_type"] == "web"
-                assert session_frame["session_chat_id"].startswith("web:")
+                assert session_frame["session_id"].startswith("web:")
 
                 await queue.bus.publish_run_event(
                     RunEvent(
                         channel="web",
                         chat_id=session_frame["chat_id"],
-                        session_chat_id=session_frame["session_chat_id"],
+                        session_id=session_frame["session_id"],
                         run_id="run-test",
                         event_type="run_started",
                         payload={"status": "running"},
@@ -78,7 +78,7 @@ async def _run_web_roundtrip():
                     "channel": "web",
                     "channel_type": "web",
                     "chat_id": session_frame["chat_id"],
-                    "session_chat_id": session_frame["session_chat_id"],
+                    "session_id": session_frame["session_id"],
                     "run_id": "run-test",
                     "event_type": "run_started",
                     "payload": {"status": "running"},
@@ -92,7 +92,7 @@ async def _run_web_roundtrip():
                     "channel": "web",
                     "channel_type": "web",
                     "chat_id": session_frame["chat_id"],
-                    "session_chat_id": session_frame["session_chat_id"],
+                    "session_id": session_frame["session_id"],
                     "text": "echo:hello from browser",
                     "metadata": {"source": "test"},
                 }
@@ -100,11 +100,11 @@ async def _run_web_roundtrip():
                 await ws.send_json({"chat_id": "browser-2", "text": "second round"})
                 second_reply = await ws.receive_json(timeout=2)
                 assert second_reply["chat_id"] == "browser-2"
-                assert second_reply["session_chat_id"] == "web:browser-2"
+                assert second_reply["session_id"] == "web:browser-2"
                 assert second_reply["text"] == "echo:second round"
 
-        seen_sessions = [message.session_chat_id for message in agent.seen_messages]
-        assert seen_sessions == [session_frame["session_chat_id"], "web:browser-2"]
+        seen_sessions = [message.session_id for message in agent.seen_messages]
+        assert seen_sessions == [session_frame["session_id"], "web:browser-2"]
     finally:
         adapter_task.cancel()
         try:
@@ -451,8 +451,8 @@ async def _run_web_run_cancel_api():
             super().__init__()
             self.storage = storage
 
-        async def request_run_cancel(self, chat_id, run_id, *, channel=None, transport_chat_id=None):
-            cancel_calls.append((chat_id, run_id, channel, transport_chat_id))
+        async def request_run_cancel(self, chat_id, run_id, *, channel=None, external_chat_id=None):
+            cancel_calls.append((chat_id, run_id, channel, external_chat_id))
             return run_id == "run-1"
 
     agent = CancelAgent()

@@ -18,7 +18,7 @@ class FakeAgent:
             text="pong",
             channel=self.response_channel,
             chat_id=user_message.chat_id,
-            session_chat_id=user_message.session_chat_id,
+            session_id=user_message.session_id,
         )
 
 
@@ -54,7 +54,7 @@ def test_message_queue_routes_response_to_explicit_channel_handler():
     received, seen_messages = asyncio.run(_run_queue_once(agent_channel="slack", inbound_channel="telegram"))
 
     assert received == [("slack", "slack", "chat-1", "pong")]
-    assert seen_messages[0].session_chat_id == "telegram:chat-1"
+    assert seen_messages[0].session_id == "telegram:chat-1"
 
 
 def test_message_queue_falls_back_to_inbound_channel_when_response_channel_unknown():
@@ -79,7 +79,7 @@ def test_message_queue_accepts_empty_text_media_message():
         event = asyncio.Event()
 
         async def handler(message, channel, chat_id):
-            responses.append((message.session_chat_id, message.text))
+            responses.append((message.session_id, message.text))
             event.set()
 
         queue.register_response_handler("telegram", handler)
@@ -108,7 +108,7 @@ def test_message_queue_can_bypass_immediate_commands_for_internal_messages():
         event = asyncio.Event()
 
         async def handler(message, channel, chat_id):
-            responses.append((message.session_chat_id, message.text))
+            responses.append((message.session_id, message.text))
             event.set()
 
         queue.register_response_handler("telegram", handler)
@@ -151,7 +151,7 @@ def test_message_queue_can_suppress_final_outbound_for_internal_messages():
         responses = []
 
         async def handler(message, channel, chat_id):
-            responses.append((message.session_chat_id, message.text))
+            responses.append((message.session_id, message.text))
 
         queue.register_response_handler("telegram", handler)
         processor = asyncio.create_task(queue.process_queue())
@@ -197,7 +197,7 @@ class SequencingAgent:
         self._same_session_running = False
 
     async def process(self, user_message):
-        session_id = user_message.session_chat_id
+        session_id = user_message.session_id
         if session_id == "telegram:same-chat":
             assert self._same_session_running is False
             self._same_session_running = True
@@ -217,7 +217,7 @@ class SequencingAgent:
             text=f"done:{user_message.text}",
             channel=user_message.channel,
             chat_id=user_message.chat_id,
-            session_chat_id=user_message.session_chat_id,
+            session_id=user_message.session_id,
         )
 
 
@@ -228,7 +228,7 @@ async def _run_queue_for_serialization(enqueue_actions):
     event = asyncio.Event()
 
     async def handler(message, channel, chat_id):
-        responses.append((message.session_chat_id, message.text))
+        responses.append((message.session_id, message.text))
         if len(responses) == len(enqueue_actions):
             event.set()
 
@@ -300,7 +300,7 @@ class StoppableAgent:
             text="should-not-happen",
             channel=user_message.channel,
             chat_id=user_message.chat_id,
-            session_chat_id=user_message.session_chat_id,
+            session_id=user_message.session_id,
         )
 
 
@@ -312,7 +312,7 @@ def test_stop_command_cancels_running_session_and_replies_immediately():
         event = asyncio.Event()
 
         async def handler(message, channel, chat_id):
-            responses.append((message.session_chat_id, message.text))
+            responses.append((message.session_id, message.text))
             event.set()
 
         queue.register_response_handler("telegram", handler)
@@ -341,7 +341,7 @@ def test_stop_command_reports_when_nothing_is_running():
         event = asyncio.Event()
 
         async def handler(message, channel, chat_id):
-            responses.append((message.session_chat_id, message.text))
+            responses.append((message.session_id, message.text))
             event.set()
 
         queue.register_response_handler("telegram", handler)
@@ -369,7 +369,7 @@ def test_stop_command_uses_configured_idle_message():
         event = asyncio.Event()
 
         async def handler(message, channel, chat_id):
-            responses.append((message.session_chat_id, message.text))
+            responses.append((message.session_id, message.text))
             event.set()
 
         queue.register_response_handler("telegram", handler)
@@ -404,7 +404,7 @@ def test_reset_command_clears_session_history_and_replies_immediately():
         event = asyncio.Event()
 
         async def handler(message, channel, chat_id):
-            responses.append((message.session_chat_id, message.text))
+            responses.append((message.session_id, message.text))
             event.set()
 
         queue.register_response_handler("telegram", handler)
@@ -441,7 +441,7 @@ def test_reset_command_cancels_running_session_before_clearing_history():
         event = asyncio.Event()
 
         async def handler(message, channel, chat_id):
-            responses.append((message.session_chat_id, message.text))
+            responses.append((message.session_id, message.text))
             event.set()
 
         queue.register_response_handler("telegram", handler)
@@ -470,7 +470,7 @@ def test_cron_command_lists_jobs_for_current_session(tmp_path):
             super().__init__()
             self.cron_manager = None
 
-    async def on_job(session_chat_id: str, job: CronJob):
+    async def on_job(session_id: str, job: CronJob):
         return "ok"
 
     async def scenario():
@@ -491,7 +491,7 @@ def test_cron_command_lists_jobs_for_current_session(tmp_path):
         event = asyncio.Event()
 
         async def handler(message, channel, chat_id):
-            responses.append((message.session_chat_id, message.text))
+            responses.append((message.session_id, message.text))
             event.set()
 
         queue.register_response_handler("telegram", handler)
@@ -523,7 +523,7 @@ def test_cron_help_uses_configured_messages():
         event = asyncio.Event()
 
         async def handler(message, channel, chat_id):
-            responses.append((message.session_chat_id, message.text))
+            responses.append((message.session_id, message.text))
             event.set()
 
         queue.register_response_handler("telegram", handler)
@@ -548,7 +548,7 @@ def test_cron_command_adds_interval_job_for_current_session(tmp_path):
             super().__init__()
             self.cron_manager = None
 
-    async def on_job(session_chat_id: str, job: CronJob):
+    async def on_job(session_id: str, job: CronJob):
         return "ok"
 
     async def scenario():
@@ -559,7 +559,7 @@ def test_cron_command_adds_interval_job_for_current_session(tmp_path):
         event = asyncio.Event()
 
         async def handler(message, channel, chat_id):
-            responses.append((message.session_chat_id, message.text))
+            responses.append((message.session_id, message.text))
             event.set()
 
         queue.register_response_handler("telegram", handler)
@@ -596,7 +596,7 @@ def test_cron_command_adds_one_time_job_without_delivery_when_requested(tmp_path
             super().__init__()
             self.cron_manager = None
 
-    async def on_job(session_chat_id: str, job: CronJob):
+    async def on_job(session_id: str, job: CronJob):
         return "ok"
 
     async def scenario():
@@ -607,7 +607,7 @@ def test_cron_command_adds_one_time_job_without_delivery_when_requested(tmp_path
         event = asyncio.Event()
 
         async def handler(message, channel, chat_id):
-            responses.append((message.session_chat_id, message.text))
+            responses.append((message.session_id, message.text))
             event.set()
 
         queue.register_response_handler("telegram", handler)
@@ -644,7 +644,7 @@ def test_cron_command_removes_job_for_current_session(tmp_path):
             super().__init__()
             self.cron_manager = None
 
-    async def on_job(session_chat_id: str, job: CronJob):
+    async def on_job(session_id: str, job: CronJob):
         return "ok"
 
     async def scenario():
@@ -665,7 +665,7 @@ def test_cron_command_removes_job_for_current_session(tmp_path):
         event = asyncio.Event()
 
         async def handler(message, channel, chat_id):
-            responses.append((message.session_chat_id, message.text))
+            responses.append((message.session_id, message.text))
             event.set()
 
         queue.register_response_handler("telegram", handler)
@@ -693,7 +693,7 @@ def test_cron_command_can_pause_and_enable_job_for_current_session(tmp_path):
             super().__init__()
             self.cron_manager = None
 
-    async def on_job(session_chat_id: str, job: CronJob):
+    async def on_job(session_id: str, job: CronJob):
         return "ok"
 
     async def scenario():
@@ -714,7 +714,7 @@ def test_cron_command_can_pause_and_enable_job_for_current_session(tmp_path):
         event = asyncio.Event()
 
         async def handler(message, channel, chat_id):
-            responses.append((message.session_chat_id, message.text))
+            responses.append((message.session_id, message.text))
             if len(responses) == 2:
                 event.set()
 
@@ -751,8 +751,8 @@ def test_cron_command_can_run_job_for_current_session(tmp_path):
 
     executions = []
 
-    async def on_job(session_chat_id: str, job: CronJob):
-        executions.append((session_chat_id, job.id))
+    async def on_job(session_id: str, job: CronJob):
+        executions.append((session_id, job.id))
         return "ok"
 
     async def scenario():
@@ -773,7 +773,7 @@ def test_cron_command_can_run_job_for_current_session(tmp_path):
         event = asyncio.Event()
 
         async def handler(message, channel, chat_id):
-            responses.append((message.session_chat_id, message.text))
+            responses.append((message.session_id, message.text))
             event.set()
 
         queue.register_response_handler("telegram", handler)
@@ -806,7 +806,7 @@ def test_cron_command_help_is_immediate():
         event = asyncio.Event()
 
         async def handler(message, channel, chat_id):
-            responses.append((message.session_chat_id, message.text))
+            responses.append((message.session_id, message.text))
             event.set()
 
         queue.register_response_handler("telegram", handler)
@@ -836,7 +836,7 @@ def test_cron_command_reports_invalid_add_usage(tmp_path):
             super().__init__()
             self.cron_manager = None
 
-    async def on_job(session_chat_id: str, job: CronJob):
+    async def on_job(session_id: str, job: CronJob):
         return "ok"
 
     async def scenario():
@@ -847,7 +847,7 @@ def test_cron_command_reports_invalid_add_usage(tmp_path):
         event = asyncio.Event()
 
         async def handler(message, channel, chat_id):
-            responses.append((message.session_chat_id, message.text))
+            responses.append((message.session_id, message.text))
             event.set()
 
         queue.register_response_handler("telegram", handler)
@@ -936,7 +936,7 @@ def test_task_set_command_replies_immediately_without_running_agent_loop():
         event = asyncio.Event()
 
         async def handler(message, channel, chat_id):
-            responses.append((message.session_chat_id, message.text))
+            responses.append((message.session_id, message.text))
             event.set()
 
         queue.register_response_handler("telegram", handler)
@@ -1023,7 +1023,7 @@ def test_task_show_and_done_commands_use_current_task_state_immediately():
         event = asyncio.Event()
 
         async def handler(message, channel, chat_id):
-            responses.append((message.session_chat_id, message.text))
+            responses.append((message.session_id, message.text))
             if len(responses) == 2:
                 event.set()
 
@@ -1102,7 +1102,7 @@ def test_task_show_full_returns_full_task_block():
         event = asyncio.Event()
 
         async def handler(message, channel, chat_id):
-            responses.append((message.session_chat_id, message.text))
+            responses.append((message.session_id, message.text))
             event.set()
 
         queue.register_response_handler("telegram", handler)
@@ -1225,7 +1225,7 @@ def test_task_show_reports_no_active_task_when_empty():
         event = asyncio.Event()
 
         async def handler(message, channel, chat_id):
-            responses.append((message.session_chat_id, message.text))
+            responses.append((message.session_id, message.text))
             event.set()
 
         queue.register_response_handler("telegram", handler)
@@ -1296,7 +1296,7 @@ def test_task_history_returns_recent_task_events_immediately():
         event = asyncio.Event()
 
         async def handler(message, channel, chat_id):
-            responses.append((message.session_chat_id, message.text))
+            responses.append((message.session_id, message.text))
             event.set()
 
         queue.register_response_handler("telegram", handler)
@@ -1365,7 +1365,7 @@ def test_task_history_respects_optional_limit_argument():
         event = asyncio.Event()
 
         async def handler(message, channel, chat_id):
-            responses.append((message.session_chat_id, message.text))
+            responses.append((message.session_id, message.text))
             event.set()
 
         queue.register_response_handler("telegram", handler)
@@ -1482,7 +1482,7 @@ def test_task_block_command_marks_task_blocked_immediately():
         event = asyncio.Event()
 
         async def handler(message, channel, chat_id):
-            responses.append((message.session_chat_id, message.text))
+            responses.append((message.session_id, message.text))
             event.set()
 
         queue.register_response_handler("telegram", handler)
@@ -1560,7 +1560,7 @@ def test_task_next_without_argument_advances_existing_next_step():
         event = asyncio.Event()
 
         async def handler(message, channel, chat_id):
-            responses.append((message.session_chat_id, message.text))
+            responses.append((message.session_id, message.text))
             event.set()
 
         queue.register_response_handler("telegram", handler)
@@ -1637,7 +1637,7 @@ def test_task_complete_marks_current_step_complete_immediately():
         event = asyncio.Event()
 
         async def handler(message, channel, chat_id):
-            responses.append((message.session_chat_id, message.text))
+            responses.append((message.session_id, message.text))
             event.set()
 
         queue.register_response_handler("telegram", handler)
@@ -1714,7 +1714,7 @@ def test_task_reopen_reactivates_terminal_task():
         event = asyncio.Event()
 
         async def handler(message, channel, chat_id):
-            responses.append((message.session_chat_id, message.text))
+            responses.append((message.session_id, message.text))
             event.set()
 
         queue.register_response_handler("telegram", handler)

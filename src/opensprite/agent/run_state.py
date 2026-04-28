@@ -11,7 +11,7 @@ from dataclasses import dataclass
 class ActiveRunState:
     """In-memory state for one currently active user-facing run."""
 
-    session_chat_id: str
+    session_id: str
     run_id: str
     started_at: float
     cancel_requested: bool = False
@@ -32,30 +32,30 @@ class AgentRunStateService:
     def __init__(self):
         self._active_by_session: dict[str, ActiveRunState] = {}
 
-    def start(self, session_chat_id: str, run_id: str) -> ActiveRunState:
-        existing = self._active_by_session.get(session_chat_id)
+    def start(self, session_id: str, run_id: str) -> ActiveRunState:
+        existing = self._active_by_session.get(session_id)
         if existing is not None and existing.run_id != run_id:
             raise RunBusyError(
-                f"Session '{session_chat_id}' is already processing run '{existing.run_id}'."
+                f"Session '{session_id}' is already processing run '{existing.run_id}'."
             )
-        active = ActiveRunState(session_chat_id=session_chat_id, run_id=run_id, started_at=time.time())
-        self._active_by_session[session_chat_id] = active
+        active = ActiveRunState(session_id=session_id, run_id=run_id, started_at=time.time())
+        self._active_by_session[session_id] = active
         return active
 
-    def finish(self, session_chat_id: str, run_id: str) -> None:
-        existing = self._active_by_session.get(session_chat_id)
+    def finish(self, session_id: str, run_id: str) -> None:
+        existing = self._active_by_session.get(session_id)
         if existing is not None and existing.run_id == run_id:
-            self._active_by_session.pop(session_chat_id, None)
+            self._active_by_session.pop(session_id, None)
 
-    def get_active(self, session_chat_id: str) -> ActiveRunState | None:
-        return self._active_by_session.get(session_chat_id)
+    def get_active(self, session_id: str) -> ActiveRunState | None:
+        return self._active_by_session.get(session_id)
 
-    def is_active(self, session_chat_id: str, run_id: str) -> bool:
-        active = self._active_by_session.get(session_chat_id)
+    def is_active(self, session_id: str, run_id: str) -> bool:
+        active = self._active_by_session.get(session_id)
         return active is not None and active.run_id == run_id
 
-    def request_cancel(self, session_chat_id: str, run_id: str) -> ActiveRunState | None:
-        active = self._active_by_session.get(session_chat_id)
+    def request_cancel(self, session_id: str, run_id: str) -> ActiveRunState | None:
+        active = self._active_by_session.get(session_id)
         if active is None or active.run_id != run_id:
             return None
         if not active.cancel_requested:
@@ -63,6 +63,6 @@ class AgentRunStateService:
             active.cancel_requested_at = time.time()
         return active
 
-    def is_cancel_requested(self, session_chat_id: str, run_id: str) -> bool:
-        active = self._active_by_session.get(session_chat_id)
+    def is_cancel_requested(self, session_id: str, run_id: str) -> bool:
+        active = self._active_by_session.get(session_id)
         return bool(active is not None and active.run_id == run_id and active.cancel_requested)

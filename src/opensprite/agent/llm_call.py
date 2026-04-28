@@ -78,7 +78,7 @@ class LlmCallService:
         user_audio_files: list[str] | None = None,
         user_video_files: list[str] | None = None,
         *,
-        transport_chat_id: str | None = None,
+        external_chat_id: str | None = None,
         emit_tool_progress: bool = False,
         task_intent: TaskIntent | None = None,
     ) -> ExecutionResult:
@@ -188,22 +188,22 @@ class LlmCallService:
         run_id = self._get_current_run_id()
         on_tool_before_execute = self._make_tool_progress_hook(
             channel=channel,
-            transport_chat_id=transport_chat_id,
-            session_chat_id=chat_id,
+            external_chat_id=external_chat_id,
+            session_id=chat_id,
             run_id=run_id,
             enabled=emit_tool_progress,
         )
         on_tool_after_execute = self._make_tool_result_hook(
             channel=channel,
-            transport_chat_id=transport_chat_id,
-            session_chat_id=chat_id,
+            external_chat_id=external_chat_id,
+            session_id=chat_id,
             run_id=run_id,
             enabled=emit_tool_progress,
         )
         on_llm_status = self._make_llm_status_hook(
             channel=channel,
-            transport_chat_id=transport_chat_id,
-            session_chat_id=chat_id,
+            external_chat_id=external_chat_id,
+            session_id=chat_id,
             run_id=run_id,
             enabled=emit_tool_progress,
         )

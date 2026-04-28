@@ -25,7 +25,7 @@ class PermissionRequest:
     chat_id: str | None = None
     run_id: str | None = None
     channel: str | None = None
-    transport_chat_id: str | None = None
+    external_chat_id: str | None = None
     status: str = "pending"
     resolved_at: float | None = None
     resolution_reason: str = ""
@@ -66,7 +66,7 @@ class PermissionRequestManager:
         chat_id: str | None = None,
         run_id: str | None = None,
         channel: str | None = None,
-        transport_chat_id: str | None = None,
+        external_chat_id: str | None = None,
     ) -> PermissionApprovalResult:
         """Create a pending request and wait until it is approved, denied, or timed out."""
         created_at = time.time()
@@ -78,7 +78,7 @@ class PermissionRequestManager:
             chat_id=chat_id,
             run_id=run_id,
             channel=channel,
-            transport_chat_id=transport_chat_id,
+            external_chat_id=external_chat_id,
             created_at=created_at,
             expires_at=created_at + self.timeout_seconds,
         )

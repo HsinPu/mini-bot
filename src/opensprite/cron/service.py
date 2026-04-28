@@ -65,11 +65,11 @@ class CronService:
         self,
         store_path: Path,
         *,
-        session_chat_id: str = "",
+        session_id: str = "",
         on_job: Callable[[CronJob], Awaitable[str | None]] | None = None,
     ):
         self.store_path = Path(store_path)
-        self.session_chat_id = session_chat_id
+        self.session_id = session_id
         self.on_job = on_job
         self._store: CronStore | None = None
         self._last_mtime: float = 0.0
@@ -130,17 +130,17 @@ class CronService:
                         )
                     )
                 self._store = CronStore(
-                    session_chat_id=data.get("sessionChatId", self.session_chat_id),
+                    session_id=data.get("sessionId", self.session_id),
                     jobs=jobs,
                 )
             except Exception as exc:
                 logger.warning("Failed to load cron store '{}': {}", self.store_path, exc)
-                self._store = CronStore(session_chat_id=self.session_chat_id)
+                self._store = CronStore(session_id=self.session_id)
         else:
-            self._store = CronStore(session_chat_id=self.session_chat_id)
+            self._store = CronStore(session_id=self.session_id)
 
-        if not self._store.session_chat_id:
-            self._store.session_chat_id = self.session_chat_id
+        if not self._store.session_id:
+            self._store.session_id = self.session_id
 
         return self._store
 
@@ -152,7 +152,7 @@ class CronService:
         self.store_path.parent.mkdir(parents=True, exist_ok=True)
         data: dict[str, Any] = {
             "version": self._store.version,
-            "sessionChatId": self._store.session_chat_id,
+            "sessionId": self._store.session_id,
             "jobs": [
                 {
                     "id": job.id,

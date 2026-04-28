@@ -145,16 +145,16 @@ class AgentLoop:
         self,
         *,
         channel: str | None,
-        transport_chat_id: str | None,
-        session_chat_id: str,
+        external_chat_id: str | None,
+        session_id: str,
         run_id: str | None,
         enabled: bool,
     ) -> Callable[[str, dict[str, Any]], Awaitable[None]] | None:
         """Publish run telemetry and a brief outbound status before selected tools run."""
         return self.run_hooks.make_tool_progress_hook(
             channel=channel,
-            transport_chat_id=transport_chat_id,
-            session_chat_id=session_chat_id,
+            external_chat_id=external_chat_id,
+            session_id=session_id,
             run_id=run_id,
             enabled=enabled,
         )
@@ -163,16 +163,16 @@ class AgentLoop:
         self,
         *,
         channel: str | None,
-        transport_chat_id: str | None,
-        session_chat_id: str,
+        external_chat_id: str | None,
+        session_id: str,
         run_id: str | None,
         enabled: bool,
     ) -> Callable[[str, dict[str, Any], str], Awaitable[None]] | None:
         """Publish structured run telemetry after a tool finishes."""
         return self.run_hooks.make_tool_result_hook(
             channel=channel,
-            transport_chat_id=transport_chat_id,
-            session_chat_id=session_chat_id,
+            external_chat_id=external_chat_id,
+            session_id=session_id,
             run_id=run_id,
             enabled=enabled,
         )
@@ -181,16 +181,16 @@ class AgentLoop:
         self,
         *,
         channel: str | None,
-        transport_chat_id: str | None,
-        session_chat_id: str,
+        external_chat_id: str | None,
+        session_id: str,
         run_id: str | None,
         enabled: bool,
     ) -> Callable[[str], Awaitable[None]] | None:
         """在 LLM 長時間等待或重試前，對使用者發送短暫狀態（與工具進度相同走 MessageBus）。"""
         return self.run_hooks.make_llm_status_hook(
             channel=channel,
-            transport_chat_id=transport_chat_id,
-            session_chat_id=session_chat_id,
+            external_chat_id=external_chat_id,
+            session_id=session_id,
             run_id=run_id,
             enabled=enabled,
         )
@@ -252,7 +252,7 @@ class AgentLoop:
             chat_id=self.turn_context.current_chat_id(),
             run_id=self.turn_context.current_run_id(),
             channel=self.turn_context.current_channel(),
-            transport_chat_id=self.turn_context.current_transport_chat_id(),
+            external_chat_id=self.turn_context.current_external_chat_id(),
         )
 
     async def _emit_run_event(
@@ -263,7 +263,7 @@ class AgentLoop:
         payload: dict[str, Any] | None = None,
         *,
         channel: str | None = None,
-        transport_chat_id: str | None = None,
+        external_chat_id: str | None = None,
     ) -> None:
         """Persist and publish one structured run event."""
         await self.run_trace.emit_event(
@@ -272,7 +272,7 @@ class AgentLoop:
             event_type,
             payload,
             channel=channel,
-            transport_chat_id=transport_chat_id,
+            external_chat_id=external_chat_id,
         )
 
     def pending_permission_requests(self) -> list[PermissionRequest]:
@@ -317,8 +317,8 @@ class AgentLoop:
         """Build an outbound notifier for managed background session completion."""
         return self.background_notifications.make_exit_notifier(
             channel=self.turn_context.current_channel(),
-            transport_chat_id=self.turn_context.current_transport_chat_id(),
-            session_chat_id=self._get_current_chat_id(),
+            external_chat_id=self.turn_context.current_external_chat_id(),
+            session_id=self._get_current_chat_id(),
         )
 
     def __init__(
@@ -382,8 +382,8 @@ class AgentLoop:
         self.provider = provider
         self._current_chat_id: ContextVar[str | None] = ContextVar("current_chat_id", default=None)
         self._current_channel: ContextVar[str | None] = ContextVar("current_channel", default=None)
-        self._current_transport_chat_id: ContextVar[str | None] = ContextVar(
-            "current_transport_chat_id", default=None
+        self._current_external_chat_id: ContextVar[str | None] = ContextVar(
+            "current_external_chat_id", default=None
         )
         self._current_images: ContextVar[list[str] | None] = ContextVar("current_images", default=None)
         self._current_audios: ContextVar[list[str] | None] = ContextVar("current_audios", default=None)
@@ -401,7 +401,7 @@ class AgentLoop:
         self.turn_context = TurnContextService(
             current_chat_id=self._current_chat_id,
             current_channel=self._current_channel,
-            current_transport_chat_id=self._current_transport_chat_id,
+            current_external_chat_id=self._current_external_chat_id,
             current_images=self._current_images,
             current_audios=self._current_audios,
             current_videos=self._current_videos,
@@ -500,7 +500,7 @@ class AgentLoop:
             current_chat_id=self.turn_context.current_chat_id,
             current_run_id=self.turn_context.current_run_id,
             current_channel=self.turn_context.current_channel,
-            current_transport_chat_id=self.turn_context.current_transport_chat_id,
+            current_external_chat_id=self.turn_context.current_external_chat_id,
         )
         self.run_hooks = RunHookService(
             message_bus_getter=lambda: self._message_bus,
@@ -945,14 +945,14 @@ class AgentLoop:
         chat_id = self.turn_context.current_chat_id()
         run_id = self.turn_context.current_run_id()
         channel = self.turn_context.current_channel()
-        transport_chat_id = self.turn_context.current_transport_chat_id()
+        external_chat_id = self.turn_context.current_external_chat_id()
         if chat_id is None and run_id is None:
             return None
         return {
-            "session_chat_id": chat_id,
+            "session_id": chat_id,
             "run_id": run_id,
             "channel": channel,
-            "transport_chat_id": transport_chat_id,
+            "external_chat_id": external_chat_id,
         }
 
     def _set_background_process_manager(self, manager: BackgroundProcessManager) -> None:
@@ -1211,7 +1211,7 @@ class AgentLoop:
         user_audio_files: list[str] | None = None,
         user_video_files: list[str] | None = None,
         *,
-        transport_chat_id: str | None = None,
+        external_chat_id: str | None = None,
         emit_tool_progress: bool = False,
         task_intent: TaskIntent | None = None,
     ) -> ExecutionResult:
@@ -1249,7 +1249,7 @@ class AgentLoop:
             user_image_files=user_image_files,
             user_audio_files=user_audio_files,
             user_video_files=user_video_files,
-            transport_chat_id=transport_chat_id,
+            external_chat_id=external_chat_id,
             emit_tool_progress=emit_tool_progress,
             task_intent=task_intent,
         )
@@ -1390,7 +1390,7 @@ class AgentLoop:
         run_id: str,
         *,
         channel: str | None = None,
-        transport_chat_id: str | None = None,
+        external_chat_id: str | None = None,
     ) -> bool:
         """Request cooperative cancellation for one active run."""
         active = self.run_state.request_cancel(chat_id, run_id)
@@ -1407,7 +1407,7 @@ class AgentLoop:
                 "owned_background_session_ids": [session.session_id for session in killed_sessions],
             },
             channel=channel,
-            transport_chat_id=transport_chat_id,
+            external_chat_id=external_chat_id,
         )
         return True
 

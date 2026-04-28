@@ -8,7 +8,7 @@ from opensprite.cron.types import CronJob, CronSchedule
 
 def test_cron_service_persists_session_and_jobs(tmp_path):
     store_path = tmp_path / "cron" / "jobs.json"
-    service = CronService(store_path, session_chat_id="telegram:user-a")
+    service = CronService(store_path, session_id="telegram:user-a")
 
     service.add_job(
         name="reminder",
@@ -21,7 +21,7 @@ def test_cron_service_persists_session_and_jobs(tmp_path):
 
     data = json.loads(store_path.read_text(encoding="utf-8"))
 
-    assert data["sessionChatId"] == "telegram:user-a"
+    assert data["sessionId"] == "telegram:user-a"
     assert data["jobs"][0]["payload"]["message"] == "ping"
     assert data["jobs"][0]["payload"]["chatId"] == "user-a"
 
@@ -34,7 +34,7 @@ def test_cron_service_runs_one_shot_job_and_removes_it(tmp_path):
         return "ok"
 
     async def scenario():
-        service = CronService(tmp_path / "cron" / "jobs.json", session_chat_id="telegram:user-a", on_job=on_job)
+        service = CronService(tmp_path / "cron" / "jobs.json", session_id="telegram:user-a", on_job=on_job)
         job = service.add_job(
             name="once",
             schedule=CronSchedule(kind="at", at_ms=1),
@@ -51,8 +51,8 @@ def test_cron_service_runs_one_shot_job_and_removes_it(tmp_path):
 
 
 def test_cron_manager_keeps_jobs_in_separate_session_files(tmp_path):
-    async def on_job(session_chat_id: str, job: CronJob):
-        return f"{session_chat_id}:{job.id}"
+    async def on_job(session_id: str, job: CronJob):
+        return f"{session_id}:{job.id}"
 
     async def scenario():
         manager = CronManager(workspace_root=tmp_path / "workspace", on_job=on_job)
@@ -68,5 +68,5 @@ def test_cron_manager_keeps_jobs_in_separate_session_files(tmp_path):
     assert path_a != path_b
     assert path_a.exists()
     assert path_b.exists()
-    assert json.loads(path_a.read_text(encoding="utf-8"))["sessionChatId"] == "telegram:user-a"
-    assert json.loads(path_b.read_text(encoding="utf-8"))["sessionChatId"] == "telegram:user-b"
+    assert json.loads(path_a.read_text(encoding="utf-8"))["sessionId"] == "telegram:user-a"
+    assert json.loads(path_b.read_text(encoding="utf-8"))["sessionId"] == "telegram:user-b"

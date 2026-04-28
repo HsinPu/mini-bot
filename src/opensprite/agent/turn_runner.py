@@ -93,12 +93,12 @@ class AgentTurnRunner:
     ) -> AssistantMessage:
         """Start run telemetry and dispatch one prepared user turn."""
         run_id = f"run_{uuid4().hex}"
-        self.run_state.start(turn.session_chat_id, run_id)
+        self.run_state.start(turn.session_id, run_id)
         await self.run_trace.start_turn_run(
-            turn.session_chat_id,
+            turn.session_id,
             run_id,
             channel=turn.channel,
-            transport_chat_id=turn.transport_chat_id,
+            external_chat_id=turn.external_chat_id,
             sender_id=user_message.sender_id,
             sender_name=user_message.sender_name,
             text=user_message.text,
@@ -113,19 +113,19 @@ class AgentTurnRunner:
             videos=user_message.videos,
             metadata=user_message.metadata,
         )
-        existing_work_state = await self._get_work_state(turn.session_chat_id)
+        existing_work_state = await self._get_work_state(turn.session_id)
         task_intent = self.work_progress.resolve_intent(task_intent, existing_work_state)
         await self._emit_run_event(
-            turn.session_chat_id,
+            turn.session_id,
             run_id,
             "task_intent.detected",
             task_intent.to_metadata(),
             channel=turn.channel,
-            transport_chat_id=turn.transport_chat_id,
+            external_chat_id=turn.external_chat_id,
         )
         work_plan = self.work_progress.create_plan(task_intent)
         current_work_state = self.work_progress.build_initial_state(
-            chat_id=turn.session_chat_id,
+            chat_id=turn.session_id,
             task_intent=task_intent,
             work_plan=work_plan,
             existing_state=existing_work_state,
@@ -133,12 +133,12 @@ class AgentTurnRunner:
         await self._save_work_state(current_work_state)
         if work_plan is not None:
             await self._emit_run_event(
-                turn.session_chat_id,
+                turn.session_id,
                 run_id,
                 "work_plan.created",
                 work_plan.to_metadata(),
                 channel=turn.channel,
-                transport_chat_id=turn.transport_chat_id,
+                external_chat_id=turn.external_chat_id,
             )
 
         try:
@@ -150,9 +150,9 @@ class AgentTurnRunner:
                 )
 
             with self.turn_context.activate(
-                chat_id=turn.session_chat_id,
+                chat_id=turn.session_id,
                 channel=turn.channel,
-                transport_chat_id=turn.transport_chat_id,
+                external_chat_id=turn.external_chat_id,
                 images=user_message.images,
                 audios=user_message.audios,
                 videos=user_message.videos,
@@ -176,21 +176,21 @@ class AgentTurnRunner:
                     )
                 except asyncio.CancelledError:
                     await self.run_trace.fail_run(
-                        turn.session_chat_id,
+                        turn.session_id,
                         run_id,
                         status="cancelled",
                         event_payload={"status": "cancelled", "error": "cancelled"},
                         channel=turn.channel,
-                        transport_chat_id=turn.transport_chat_id,
+                        external_chat_id=turn.external_chat_id,
                     )
                     raise
                 except Exception as exc:
                     logger.exception(
-                        f"[{turn.session_chat_id}] Agent.process failed: channel={turn.channel}, "
+                        f"[{turn.session_id}] Agent.process failed: channel={turn.channel}, "
                         f"text_len={len(user_message.text or '')}, images={len(user_message.images or [])}, audios={len(user_message.audios or [])}, videos={len(user_message.videos or [])}"
                     )
                     await self.run_trace.fail_run(
-                        turn.session_chat_id,
+                        turn.session_id,
                         run_id,
                         status="failed",
                         event_payload={
@@ -198,11 +198,11 @@ class AgentTurnRunner:
                             "error": self._format_log_preview(f"{type(exc).__name__}: {exc}", max_chars=240),
                         },
                         channel=turn.channel,
-                        transport_chat_id=turn.transport_chat_id,
+                        external_chat_id=turn.external_chat_id,
                     )
                     raise
         finally:
-            self.run_state.finish(turn.session_chat_id, run_id)
+            self.run_state.finish(turn.session_id, run_id)
 
     async def run_media_only_turn(
         self,
@@ -217,15 +217,15 @@ class AgentTurnRunner:
             audio_files=turn.audio_files,
             video_files=turn.video_files,
         )
-        await self._save_message(turn.session_chat_id, "user", media_history_content, metadata=turn.user_metadata)
+        await self._save_message(turn.session_id, "user", media_history_content, metadata=turn.user_metadata)
         response = self._media_saved_ack()
         return await self.response_finalizer.finalize(
-            session_chat_id=turn.session_chat_id,
+            session_id=turn.session_id,
             run_id=run_id,
             response=response,
             channel=turn.channel,
             chat_id=user_message.chat_id,
-            transport_chat_id=turn.transport_chat_id,
+            external_chat_id=turn.external_chat_id,
             assistant_metadata=turn.assistant_metadata,
             run_part_metadata={"reason": "media_only", "response_len": len(response or "")},
             run_event_payload={
@@ -245,16 +245,16 @@ class AgentTurnRunner:
         run_id: str,
     ) -> AssistantMessage:
         """Persist a turn and return the configured setup hint when no LLM is available."""
-        logger.warning("[{}] agent.skip | reason=llm-not-configured", turn.session_chat_id)
-        await self._save_message(turn.session_chat_id, "user", user_message.text, metadata=turn.user_metadata)
+        logger.warning("[{}] agent.skip | reason=llm-not-configured", turn.session_id)
+        await self._save_message(turn.session_id, "user", user_message.text, metadata=turn.user_metadata)
         response = self._llm_not_configured_message()
         return await self.response_finalizer.finalize(
-            session_chat_id=turn.session_chat_id,
+            session_id=turn.session_id,
             run_id=run_id,
             response=response,
             channel=turn.channel,
             chat_id=user_message.chat_id,
-            transport_chat_id=turn.transport_chat_id,
+            external_chat_id=turn.external_chat_id,
             assistant_metadata=turn.assistant_metadata,
             run_part_metadata={"reason": "llm_not_configured", "response_len": len(response or "")},
             run_event_payload={
@@ -279,16 +279,16 @@ class AgentTurnRunner:
         await self._connect_mcp()
 
         # The current user message is persisted before building the prompt so history/search stay current.
-        await self._save_message(turn.session_chat_id, "user", user_message.text, metadata=turn.user_metadata)
+        await self._save_message(turn.session_id, "user", user_message.text, metadata=turn.user_metadata)
 
-        logger.info(f"[{turn.session_chat_id}] agent.run | status=processing")
+        logger.info(f"[{turn.session_id}] agent.run | status=processing")
         await self._emit_run_event(
-            turn.session_chat_id,
+            turn.session_id,
             run_id,
             "llm_status",
             {"message": "processing"},
             channel=turn.channel,
-            transport_chat_id=turn.transport_chat_id,
+            external_chat_id=turn.external_chat_id,
         )
         execution_results: list[ExecutionResult] = []
         auto_continue_attempts = 0
@@ -297,14 +297,14 @@ class AgentTurnRunner:
         while True:
             self.turn_context.reset_work_progress()
             exec_result = await self._call_llm(
-                turn.session_chat_id,
+                turn.session_id,
                 current_message=current_message,
                 channel=turn.channel,
                 user_images=user_message.images,
                 user_image_files=turn.image_files,
                 user_audio_files=turn.audio_files,
                 user_video_files=turn.video_files,
-                transport_chat_id=turn.transport_chat_id,
+                external_chat_id=turn.external_chat_id,
                 emit_tool_progress=True,
                 task_intent=task_intent,
             )
@@ -313,7 +313,7 @@ class AgentTurnRunner:
             execution_results.append(exec_result)
 
             await self.run_trace.record_context_compaction_parts(
-                turn.session_chat_id,
+                turn.session_id,
                 run_id,
                 exec_result.context_compaction_events,
             )
@@ -326,12 +326,12 @@ class AgentTurnRunner:
             completion_metadata = completion_result.to_metadata()
             completion_metadata["auto_continue_attempts"] = auto_continue_attempts
             await self._emit_run_event(
-                turn.session_chat_id,
+                turn.session_id,
                 run_id,
                 "completion_gate.evaluated",
                 completion_metadata,
                 channel=turn.channel,
-                transport_chat_id=turn.transport_chat_id,
+                external_chat_id=turn.external_chat_id,
             )
             work_progress = self.work_progress.evaluate(
                 task_intent=task_intent,
@@ -341,16 +341,16 @@ class AgentTurnRunner:
                 pass_index=len(execution_results),
             )
             await self._emit_run_event(
-                turn.session_chat_id,
+                turn.session_id,
                 run_id,
                 "work_progress.updated",
                 work_progress.to_metadata(),
                 channel=turn.channel,
-                transport_chat_id=turn.transport_chat_id,
+                external_chat_id=turn.external_chat_id,
             )
             if auto_continue_attempts > 0:
                 await self._emit_run_event(
-                    turn.session_chat_id,
+                    turn.session_id,
                     run_id,
                     "auto_continue.completed",
                     {
@@ -359,7 +359,7 @@ class AgentTurnRunner:
                         "completion_reason": completion_result.reason,
                     },
                     channel=turn.channel,
-                    transport_chat_id=turn.transport_chat_id,
+                    external_chat_id=turn.external_chat_id,
                 )
 
             decision = self.auto_continue.decide(
@@ -372,7 +372,7 @@ class AgentTurnRunner:
             )
             if decision.should_continue and decision.prompt:
                 await self._emit_run_event(
-                    turn.session_chat_id,
+                    turn.session_id,
                     run_id,
                     "auto_continue.scheduled",
                     {
@@ -381,7 +381,7 @@ class AgentTurnRunner:
                         "completion_reason": completion_result.reason,
                     },
                     channel=turn.channel,
-                    transport_chat_id=turn.transport_chat_id,
+                    external_chat_id=turn.external_chat_id,
                 )
                 auto_continue_attempts += 1
                 current_message = decision.prompt
@@ -389,7 +389,7 @@ class AgentTurnRunner:
 
             if decision.emit_skipped_event:
                 await self._emit_run_event(
-                    turn.session_chat_id,
+                    turn.session_id,
                     run_id,
                     "auto_continue.skipped",
                     {
@@ -398,7 +398,7 @@ class AgentTurnRunner:
                         "completion_reason": completion_result.reason,
                     },
                     channel=turn.channel,
-                    transport_chat_id=turn.transport_chat_id,
+                    external_chat_id=turn.external_chat_id,
                 )
             break
 
@@ -430,7 +430,7 @@ class AgentTurnRunner:
         response_metadata["active_delegate_prompt_type"] = aggregate_result.active_delegate_prompt_type
 
         updated_work_state = self.work_progress.update_state(
-            chat_id=turn.session_chat_id,
+            chat_id=turn.session_id,
             state=current_work_state,
             task_intent=task_intent,
             work_plan=work_plan,
@@ -442,18 +442,18 @@ class AgentTurnRunner:
 
         async def after_response_saved() -> None:
             await self._save_work_state(updated_work_state)
-            await self._apply_work_progress(turn.session_chat_id, work_progress, updated_work_state)
-            await self._apply_completion_gate_result(turn.session_chat_id, completion_result)
-            self._schedule_post_response_maintenance(turn.session_chat_id)
-            self._maybe_schedule_skill_review(turn.session_chat_id, aggregate_result)
+            await self._apply_work_progress(turn.session_id, work_progress, updated_work_state)
+            await self._apply_completion_gate_result(turn.session_id, completion_result)
+            self._schedule_post_response_maintenance(turn.session_id)
+            self._maybe_schedule_skill_review(turn.session_id, aggregate_result)
 
         return await self.response_finalizer.finalize(
-            session_chat_id=turn.session_chat_id,
+            session_id=turn.session_id,
             run_id=run_id,
             response=response,
             channel=turn.channel,
             chat_id=user_message.chat_id,
-            transport_chat_id=turn.transport_chat_id,
+            external_chat_id=turn.external_chat_id,
             assistant_metadata=turn.assistant_metadata,
             run_part_metadata=response_metadata,
             run_event_payload={"status": "completed", **response_metadata},

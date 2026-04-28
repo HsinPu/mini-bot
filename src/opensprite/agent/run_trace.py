@@ -115,7 +115,7 @@ class RunTraceRecorder:
         payload: dict[str, Any] | None = None,
         *,
         channel: str | None = None,
-        transport_chat_id: str | None = None,
+        external_chat_id: str | None = None,
     ) -> None:
         """Persist and publish one structured run event."""
         created_at = time.time()
@@ -128,14 +128,14 @@ class RunTraceRecorder:
                 logger.warning("[{}] run.event.persist.failed | run_id={} type={} error={}", chat_id, run_id, event_type, e)
 
         message_bus = self._message_bus_getter()
-        if message_bus is None or not channel or transport_chat_id is None:
+        if message_bus is None or not channel or external_chat_id is None:
             return
         try:
             await message_bus.publish_run_event(
                 RunEvent(
                     channel=channel,
-                    chat_id=str(transport_chat_id),
-                    session_chat_id=chat_id,
+                    chat_id=str(external_chat_id),
+                    session_id=chat_id,
                     run_id=run_id,
                     event_type=event_type,
                     payload=safe_payload,
@@ -151,7 +151,7 @@ class RunTraceRecorder:
         run_id: str,
         *,
         channel: str | None,
-        transport_chat_id: str | None,
+        external_chat_id: str | None,
         sender_id: str | None,
         sender_name: str | None,
         text: str | None,
@@ -162,7 +162,7 @@ class RunTraceRecorder:
         """Create a run and emit the initial user-turn run_started event."""
         run_metadata = {
             "channel": channel,
-            "transport_chat_id": transport_chat_id,
+            "external_chat_id": external_chat_id,
             "sender_id": sender_id,
             "sender_name": sender_name,
         }
@@ -180,7 +180,7 @@ class RunTraceRecorder:
                 "videos_count": len(videos or []),
             },
             channel=channel,
-            transport_chat_id=transport_chat_id,
+            external_chat_id=external_chat_id,
         )
 
     async def record_assistant_message_part(
@@ -229,7 +229,7 @@ class RunTraceRecorder:
         event_payload: dict[str, Any],
         status_metadata: dict[str, Any] | None = None,
         channel: str | None = None,
-        transport_chat_id: str | None = None,
+        external_chat_id: str | None = None,
     ) -> None:
         """Emit run_finished and mark the durable run completed."""
         finished_at = time.time()
@@ -239,7 +239,7 @@ class RunTraceRecorder:
             "run_finished",
             event_payload,
             channel=channel,
-            transport_chat_id=transport_chat_id,
+            external_chat_id=external_chat_id,
         )
         await self.update_run_status(
             chat_id,
@@ -257,7 +257,7 @@ class RunTraceRecorder:
         status: str,
         event_payload: dict[str, Any],
         channel: str | None = None,
-        transport_chat_id: str | None = None,
+        external_chat_id: str | None = None,
     ) -> None:
         """Emit a terminal run event and mark the durable run with the supplied status."""
         finished_at = time.time()
@@ -268,6 +268,6 @@ class RunTraceRecorder:
             event_type,
             event_payload,
             channel=channel,
-            transport_chat_id=transport_chat_id,
+            external_chat_id=external_chat_id,
         )
         await self.update_run_status(chat_id, run_id, status, finished_at=finished_at)

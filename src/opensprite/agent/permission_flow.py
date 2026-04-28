@@ -20,14 +20,14 @@ class AgentPermissionService:
         current_chat_id: Callable[[], str | None],
         current_run_id: Callable[[], str | None],
         current_channel: Callable[[], str | None],
-        current_transport_chat_id: Callable[[], str | None],
+        current_external_chat_id: Callable[[], str | None],
     ):
         self.requests = requests
         self.events = events
         self._current_chat_id = current_chat_id
         self._current_run_id = current_run_id
         self._current_channel = current_channel
-        self._current_transport_chat_id = current_transport_chat_id
+        self._current_external_chat_id = current_external_chat_id
 
     def pending_requests(self) -> list[PermissionRequest]:
         """Return permission requests waiting for an external decision."""
@@ -59,7 +59,7 @@ class AgentPermissionService:
             chat_id=self._current_chat_id(),
             run_id=self._current_run_id(),
             channel=self._current_channel(),
-            transport_chat_id=self._current_transport_chat_id(),
+            external_chat_id=self._current_external_chat_id(),
         )
 
     async def emit_request_event(self, event_type: str, request: PermissionRequest) -> None:

@@ -112,18 +112,18 @@ class MessageQueue:
         return self.conversations[chat_id]
 
     @staticmethod
-    def build_session_chat_id(channel: str | None, chat_id: str | None) -> str:
+    def build_session_id(channel: str | None, chat_id: str | None) -> str:
         """Build an internal session ID namespaced by channel."""
         normalized_channel = MessageQueue.normalize_channel(channel)
         normalized_chat_id = (chat_id or "default").strip() or "default"
         return f"{normalized_channel}:{normalized_chat_id}"
 
     @classmethod
-    def resolve_session_chat_id(cls, chat_id: str, channel: str | None = None) -> str:
+    def resolve_session_id(cls, chat_id: str, channel: str | None = None) -> str:
         """Resolve external or already-namespaced chat IDs to internal session IDs."""
         if ":" in chat_id:
             return chat_id
-        return cls.build_session_chat_id(channel or "cli", chat_id)
+        return cls.build_session_id(channel or "cli", chat_id)
 
     def register_response_handler(self, channel: str, handler: ResponseHandler) -> None:
         """Register the outbound response handler for a channel."""
@@ -268,7 +268,7 @@ class MessageQueue:
 
         raise ValueError("error_unknown_schedule_mode")
 
-    async def _handle_cron_command(self, session_chat_id: str, text: str | None) -> str:
+    async def _handle_cron_command(self, session_id: str, text: str | None) -> str:
         """Handle immediate cron management commands for the active session."""
         action, args = self._parse_cron_command(text)
         if action == "error":
@@ -280,7 +280,7 @@ class MessageQueue:
         if cron_manager is None:
             return self.messages.cron.unavailable
 
-        service = await cron_manager.get_or_create_service(session_chat_id)
+        service = await cron_manager.get_or_create_service(session_id)
 
         if action == "add":
             try:
@@ -290,10 +290,10 @@ class MessageQueue:
                 details = getattr(self.messages.cron, key, key)
                 return self.messages.cron.error_prefix.format(message=details)
 
-            if ":" in session_chat_id:
-                channel, chat_id = session_chat_id.split(":", 1)
+            if ":" in session_id:
+                channel, chat_id = session_id.split(":", 1)
             else:
-                channel, chat_id = "default", session_chat_id
+                channel, chat_id = "default", session_id
 
             delete_after = schedule.kind == "at"
             try:
@@ -362,7 +362,7 @@ class MessageQueue:
             return "help", []
         return args[0].lower(), args[1:]
 
-    async def _handle_task_command(self, session_chat_id: str, text: str | None) -> str:
+    async def _handle_task_command(self, session_id: str, text: str | None) -> str:
         """Handle immediate task management commands for the active session."""
         action, args = self._parse_task_command(text)
         if action == "error":
@@ -391,9 +391,9 @@ class MessageQueue:
             if args and args[0].lower() in {"full", "raw"}:
                 if not callable(show_task_full):
                     return self.messages.task.unavailable
-                rendered = await show_task_full(session_chat_id)
+                rendered = await show_task_full(session_id)
             else:
-                rendered = await show_task(session_chat_id)
+                rendered = await show_task(session_id)
             return rendered or self.messages.task.no_active_task
 
         if action in {"history", "log"}:
@@ -407,22 +407,22 @@ class MessageQueue:
                     return self.messages.task.error_history_limit
                 if limit <= 0:
                     return self.messages.task.error_history_limit
-            rendered = await show_history(session_chat_id, limit=limit)
+            rendered = await show_history(session_id, limit=limit)
             return rendered or self.messages.task.no_history
 
         if action in {"reset", "clear"}:
             if not callable(show_task) or not callable(reset_task):
                 return self.messages.task.unavailable
-            rendered = await show_task(session_chat_id)
+            rendered = await show_task(session_id)
             if not rendered:
                 return self.messages.task.no_active_task
-            await reset_task(session_chat_id)
+            await reset_task(session_id)
             return self.messages.task.reset_done
 
         if action == "done":
             if not callable(mark_status):
                 return self.messages.task.unavailable
-            rendered = await mark_status(session_chat_id, "done")
+            rendered = await mark_status(session_id, "done")
             if not rendered:
                 return self.messages.task.no_active_task
             return f"{self.messages.task.marked_done}\n\n{rendered}"
@@ -430,7 +430,7 @@ class MessageQueue:
         if action in {"activate", "resume"}:
             if not callable(activate_task):
                 return self.messages.task.unavailable
-            rendered = await activate_task(session_chat_id)
+            rendered = await activate_task(session_id)
             if not rendered:
                 return self.messages.task.no_active_task
             return f"{self.messages.task.marked_active}\n\n{rendered}"
@@ -438,7 +438,7 @@ class MessageQueue:
         if action == "reopen":
             if not callable(reopen_task):
                 return self.messages.task.unavailable
-            rendered = await reopen_task(session_chat_id)
+            rendered = await reopen_task(session_id)
             if not rendered:
                 return self.messages.task.no_active_task
             return f"{self.messages.task.reopened}\n\n{rendered}"
@@ -446,7 +446,7 @@ class MessageQueue:
         if action in {"cancel", "cancelled"}:
             if not callable(mark_status):
                 return self.messages.task.unavailable
-            rendered = await mark_status(session_chat_id, "cancelled")
+            rendered = await mark_status(session_id, "cancelled")
             if not rendered:
                 return self.messages.task.no_active_task
             return f"{self.messages.task.marked_cancelled}\n\n{rendered}"
@@ -457,7 +457,7 @@ class MessageQueue:
             reason = " ".join(args).strip()
             if not reason:
                 return self.messages.task.error_block_usage
-            rendered = await block_task(session_chat_id, reason)
+            rendered = await block_task(session_id, reason)
             if not rendered:
                 return self.messages.task.no_active_task
             return f"{self.messages.task.marked_blocked}\n\n{rendered}"
@@ -468,7 +468,7 @@ class MessageQueue:
             question = " ".join(args).strip()
             if not question:
                 return self.messages.task.error_wait_usage
-            rendered = await wait_task(session_chat_id, question)
+            rendered = await wait_task(session_id, question)
             if not rendered:
                 return self.messages.task.no_active_task
             return f"{self.messages.task.marked_waiting}\n\n{rendered}"
@@ -479,7 +479,7 @@ class MessageQueue:
             step_text = " ".join(args).strip()
             if not step_text:
                 return self.messages.task.error_step_usage
-            rendered = await current_step_task(session_chat_id, step_text)
+            rendered = await current_step_task(session_id, step_text)
             if not rendered:
                 return self.messages.task.no_active_task
             return f"{self.messages.task.updated_current_step}\n\n{rendered}"
@@ -488,7 +488,7 @@ class MessageQueue:
             if not callable(complete_step_task):
                 return self.messages.task.unavailable
             next_step_override = " ".join(args).strip() or None
-            rendered = await complete_step_task(session_chat_id, next_step_override)
+            rendered = await complete_step_task(session_id, next_step_override)
             if rendered is None:
                 return self.messages.task.no_active_task
             return f"{self.messages.task.completed_current_step}\n\n{rendered}"
@@ -498,17 +498,17 @@ class MessageQueue:
                 if not callable(next_step_task):
                     return self.messages.task.unavailable
                 step_text = " ".join(args).strip()
-                rendered = await next_step_task(session_chat_id, step_text)
+                rendered = await next_step_task(session_id, step_text)
                 if not rendered:
                     return self.messages.task.no_active_task
                 return f"{self.messages.task.updated_next_step}\n\n{rendered}"
             if not callable(advance_task):
                 return self.messages.task.unavailable
-            rendered = await advance_task(session_chat_id)
+            rendered = await advance_task(session_id)
             if rendered is None:
                 if not callable(show_task):
                     return self.messages.task.unavailable
-                current = await show_task(session_chat_id)
+                current = await show_task(session_id)
                 if current is None:
                     return self.messages.task.no_active_task
                 return self.messages.task.no_next_step
@@ -520,7 +520,7 @@ class MessageQueue:
             task_text = " ".join(args).strip()
             if not task_text:
                 return self.messages.task.error_set_usage
-            rendered = await set_task(session_chat_id, task_text)
+            rendered = await set_task(session_id, task_text)
             if not rendered:
                 return self.messages.task.error_set_usage
             return f"{self.messages.task.set_done}\n\n{rendered}"
@@ -531,8 +531,8 @@ class MessageQueue:
         self,
         *,
         channel: str,
-        transport_chat_id: str,
-        session_chat_id: str,
+        external_chat_id: str,
+        session_id: str,
         cancelled: int,
     ) -> None:
         """Publish the acknowledgement for an immediate stop command."""
@@ -540,8 +540,8 @@ class MessageQueue:
         await self.bus.publish_outbound(
             OutboundMessage(
                 channel=channel,
-                chat_id=transport_chat_id,
-                session_chat_id=session_chat_id,
+                chat_id=external_chat_id,
+                session_id=session_id,
                 content=content,
             )
         )
@@ -550,8 +550,8 @@ class MessageQueue:
         self,
         *,
         channel: str,
-        transport_chat_id: str,
-        session_chat_id: str,
+        external_chat_id: str,
+        session_id: str,
         cancelled: int,
     ) -> None:
         """Publish the acknowledgement for an immediate reset command."""
@@ -563,8 +563,8 @@ class MessageQueue:
         await self.bus.publish_outbound(
             OutboundMessage(
                 channel=channel,
-                chat_id=transport_chat_id,
-                session_chat_id=session_chat_id,
+                chat_id=external_chat_id,
+                session_id=session_id,
                 content=content,
             )
         )
@@ -573,16 +573,16 @@ class MessageQueue:
         self,
         *,
         channel: str,
-        transport_chat_id: str,
-        session_chat_id: str,
+        external_chat_id: str,
+        session_id: str,
         content: str,
     ) -> None:
         """Publish the acknowledgement for an immediate cron command."""
         await self.bus.publish_outbound(
             OutboundMessage(
                 channel=channel,
-                chat_id=transport_chat_id,
-                session_chat_id=session_chat_id,
+                chat_id=external_chat_id,
+                session_id=session_id,
                 content=content,
             )
         )
@@ -591,16 +591,16 @@ class MessageQueue:
         self,
         *,
         channel: str,
-        transport_chat_id: str,
-        session_chat_id: str,
+        external_chat_id: str,
+        session_id: str,
         content: str,
     ) -> None:
         """Publish the acknowledgement for an immediate task command."""
         await self.bus.publish_outbound(
             OutboundMessage(
                 channel=channel,
-                chat_id=transport_chat_id,
-                session_chat_id=session_chat_id,
+                chat_id=external_chat_id,
+                session_id=session_id,
                 content=content,
             )
         )
@@ -628,48 +628,48 @@ class MessageQueue:
             user_message: 統一格式的訊息
         """
         channel = self.normalize_channel(user_message.channel)
-        transport_chat_id = (user_message.chat_id or "default").strip() or "default"
-        session_chat_id = user_message.session_chat_id or self.build_session_chat_id(channel, transport_chat_id)
+        external_chat_id = (user_message.chat_id or "default").strip() or "default"
+        session_id = user_message.session_id or self.build_session_id(channel, external_chat_id)
         metadata = dict(user_message.metadata or {})
         bypass_commands = bool(metadata.pop("_bypass_commands", False))
 
         if not bypass_commands and self.is_stop_command(user_message.text):
-            cancelled = await self.cancel_chat(session_chat_id)
+            cancelled = await self.cancel_chat(session_id)
             await self._publish_stop_response(
                 channel=channel,
-                transport_chat_id=transport_chat_id,
-                session_chat_id=session_chat_id,
+                external_chat_id=external_chat_id,
+                session_id=session_id,
                 cancelled=cancelled,
             )
             return
 
         if not bypass_commands and self.is_reset_command(user_message.text):
-            cancelled = await self.cancel_chat(session_chat_id)
-            await self.agent.reset_history(session_chat_id)
+            cancelled = await self.cancel_chat(session_id)
+            await self.agent.reset_history(session_id)
             await self._publish_reset_response(
                 channel=channel,
-                transport_chat_id=transport_chat_id,
-                session_chat_id=session_chat_id,
+                external_chat_id=external_chat_id,
+                session_id=session_id,
                 cancelled=cancelled,
             )
             return
 
         if not bypass_commands and self.is_cron_command(user_message.text):
-            response_text = await self._handle_cron_command(session_chat_id, user_message.text)
+            response_text = await self._handle_cron_command(session_id, user_message.text)
             await self._publish_cron_response(
                 channel=channel,
-                transport_chat_id=transport_chat_id,
-                session_chat_id=session_chat_id,
+                external_chat_id=external_chat_id,
+                session_id=session_id,
                 content=response_text,
             )
             return
 
         if not bypass_commands and self.is_task_command(user_message.text):
-            response_text = await self._handle_task_command(session_chat_id, user_message.text)
+            response_text = await self._handle_task_command(session_id, user_message.text)
             await self._publish_task_response(
                 channel=channel,
-                transport_chat_id=transport_chat_id,
-                session_chat_id=session_chat_id,
+                external_chat_id=external_chat_id,
+                session_id=session_id,
                 content=response_text,
             )
             return
@@ -678,8 +678,8 @@ class MessageQueue:
             channel=channel,
             sender_id=user_message.sender_id or user_message.sender or "unknown",
             sender_name=user_message.sender_name,
-            chat_id=transport_chat_id,
-            session_chat_id=session_chat_id,
+            chat_id=external_chat_id,
+            session_id=session_id,
             content=user_message.text,
             images=list(user_message.images or []),
             audios=list(user_message.audios or []),
@@ -701,7 +701,7 @@ class MessageQueue:
         videos: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         raw: Any = None,
-        session_chat_id: str | None = None,
+        session_id: str | None = None,
     ) -> None:
         """
         直接發送原始訊息到 inbound queue（不需 UserMessage 格式）
@@ -718,7 +718,7 @@ class MessageQueue:
                 text=content,
                 channel=channel,
                 chat_id=chat_id,
-                session_chat_id=session_chat_id,
+                session_id=session_id,
                 sender_id=sender_id,
                 sender_name=sender_name,
                 images=images,
@@ -736,21 +736,21 @@ class MessageQueue:
         參數：
             inbound: InboundMessage
         """
-        transport_chat_id = inbound.chat_id
-        session_chat_id = inbound.session_chat_id or self.build_session_chat_id(inbound.channel, transport_chat_id)
+        external_chat_id = inbound.chat_id
+        session_id = inbound.session_id or self.build_session_id(inbound.channel, external_chat_id)
         metadata = dict(inbound.metadata)
         suppress_outbound = bool(metadata.pop("_suppress_outbound", False))
         
         try:
             # 取得或建立對話
-            self.get_or_create_conversation(session_chat_id)
+            self.get_or_create_conversation(session_id)
             
             # 轉換成 UserMessage 給 Agent
             user_message = UserMessage(
                 text=inbound.content,
                 channel=inbound.channel,
-                chat_id=transport_chat_id,
-                session_chat_id=session_chat_id,
+                chat_id=external_chat_id,
+                session_id=session_id,
                 sender_id=inbound.sender_id,
                 sender_name=inbound.sender_name,
                 images=inbound.images or None,
@@ -768,8 +768,8 @@ class MessageQueue:
             if not suppress_outbound:
                 outbound = OutboundMessage(
                     channel=response_channel,
-                    chat_id=response.chat_id or transport_chat_id,
-                    session_chat_id=response.session_chat_id or session_chat_id,
+                    chat_id=response.chat_id or external_chat_id,
+                    session_id=response.session_id or session_id,
                     content=response.text,
                     metadata=dict(response.metadata or {}),
                     raw=response.raw,
@@ -780,25 +780,25 @@ class MessageQueue:
             # Task 被取消時優雅退出
             pass
         except Exception as e:
-            logger.exception(f"[{session_chat_id}] 處理訊息時發生錯誤: {e}")
+            logger.exception(f"[{session_id}] 處理訊息時發生錯誤: {e}")
             # 發送錯誤訊息到 outbound
             outbound = OutboundMessage(
                 channel=inbound.channel,
-                chat_id=transport_chat_id,
-                session_chat_id=session_chat_id,
+                chat_id=external_chat_id,
+                session_id=session_id,
                 content=f"抱歉，處理您的訊息時發生錯誤: {str(e)[:100]}"
             )
             await self.bus.publish_outbound(outbound)
             error_handler = self._error_handlers.get(self.normalize_channel(inbound.channel))
             if error_handler is not None:
-                await error_handler(session_chat_id, str(e))
+                await error_handler(session_id, str(e))
             elif hasattr(self, 'on_error'):
-                await self.on_error(session_chat_id, str(e))
+                await self.on_error(session_id, str(e))
 
     async def _run_session_message(
         self,
         inbound: InboundMessage,
-        session_chat_id: str,
+        session_id: str,
         previous_task: asyncio.Task | None,
     ) -> None:
         """Serialize processing within one session while keeping sessions concurrent."""
@@ -829,7 +829,7 @@ class MessageQueue:
                     text=outbound.content,
                     channel=normalized_channel,
                     chat_id=outbound.chat_id,
-                    session_chat_id=outbound.session_chat_id,
+                    session_id=outbound.session_id,
                     metadata=dict(outbound.metadata),
                     raw=outbound.raw,
                 )
@@ -892,7 +892,7 @@ class MessageQueue:
                 except asyncio.TimeoutError:
                     continue
                 
-                chat_id = inbound.session_chat_id or self.build_session_chat_id(inbound.channel, inbound.chat_id)
+                chat_id = inbound.session_id or self.build_session_id(inbound.channel, inbound.chat_id)
                 
                 previous_task = self._session_tails.get(chat_id)
                 task = asyncio.create_task(self._run_session_message(inbound, chat_id, previous_task))
@@ -929,8 +929,8 @@ class MessageQueue:
         回傳：
             int: 被取消的任務數量
         """
-        session_chat_id = self.resolve_session_chat_id(chat_id, channel)
-        tasks = self._active_tasks.pop(session_chat_id, [])
+        session_id = self.resolve_session_id(chat_id, channel)
+        tasks = self._active_tasks.pop(session_id, [])
         cancelled = 0
         for task in tasks:
             if not task.done():
@@ -985,10 +985,10 @@ class MessageQueue:
             chat_id: 聊天室 ID
         """
         # 先取消這個chat正在處理的任務
-        session_chat_id = self.resolve_session_chat_id(chat_id, channel)
-        await self.cancel_chat(session_chat_id)
+        session_id = self.resolve_session_id(chat_id, channel)
+        await self.cancel_chat(session_id)
         # 讓 Agent 去清除 Storage 裡的歷史
-        await self.agent.reset_history(session_chat_id)
+        await self.agent.reset_history(session_id)
     
     @property
     def queue_sizes(self) -> tuple[int, int]:

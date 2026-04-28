@@ -55,8 +55,8 @@ class RunHookService:
         self,
         *,
         channel: str | None,
-        transport_chat_id: str | None,
-        session_chat_id: str,
+        external_chat_id: str | None,
+        session_id: str,
         run_id: str | None,
         enabled: bool,
     ) -> Callable[[str, dict[str, Any]], Awaitable[None]] | None:
@@ -65,8 +65,8 @@ class RunHookService:
             return None
         bus = self._message_bus_getter()
         ch = channel
-        tid = str(transport_chat_id) if transport_chat_id is not None else None
-        sid = session_chat_id
+        tid = str(external_chat_id) if external_chat_id is not None else None
+        sid = session_id
         rid = run_id
 
         async def _hook(tool_name: str, tool_args: dict[str, Any], tool_call_id: str | None = None, iteration: int | None = None) -> None:
@@ -100,7 +100,7 @@ class RunHookService:
                     "iteration": iteration,
                 },
                 channel=ch,
-                transport_chat_id=tid,
+                external_chat_id=tid,
             )
             if tool_name == "verify":
                 await self._emit_run_event(
@@ -112,7 +112,7 @@ class RunHookService:
                         "path": (tool_args or {}).get("path", "."),
                     },
                     channel=ch,
-                    transport_chat_id=tid,
+                    external_chat_id=tid,
                 )
             if bus is None or not ch or tid is None or not self.tool_warrants_progress_notice(tool_name):
                 return
@@ -121,7 +121,7 @@ class RunHookService:
                 OutboundMessage(
                     channel=ch,
                     chat_id=tid,
-                    session_chat_id=sid,
+                    session_id=sid,
                     content=text,
                     metadata={"interim": True, "kind": "tool_progress", "tool_name": tool_name},
                 )
@@ -133,15 +133,15 @@ class RunHookService:
         self,
         *,
         channel: str | None,
-        transport_chat_id: str | None,
-        session_chat_id: str,
+        external_chat_id: str | None,
+        session_id: str,
         run_id: str | None,
         enabled: bool,
     ) -> Callable[[str, dict[str, Any], str], Awaitable[None]] | None:
         """Publish structured run telemetry after a tool finishes."""
         if not enabled or run_id is None:
             return None
-        tid = str(transport_chat_id) if transport_chat_id is not None else None
+        tid = str(external_chat_id) if external_chat_id is not None else None
         rid = run_id
 
         async def _hook(
@@ -177,7 +177,7 @@ class RunHookService:
             if delegate_prompt_type:
                 metadata["delegate_prompt_type"] = delegate_prompt_type
             await self._add_run_part(
-                session_chat_id,
+                session_id,
                 rid,
                 "tool_result",
                 content=result_text,
@@ -185,7 +185,7 @@ class RunHookService:
                 metadata=metadata,
             )
             await self._emit_run_event(
-                session_chat_id,
+                session_id,
                 rid,
                 "tool_result",
                 {
@@ -201,12 +201,12 @@ class RunHookService:
                     "interrupted": interrupted,
                 },
                 channel=channel,
-                transport_chat_id=tid,
+                external_chat_id=tid,
             )
             if tool_name == "verify":
                 verification = classify_verification_result(result_text)
                 await self._emit_run_event(
-                    session_chat_id,
+                    session_id,
                     rid,
                     "verification_result",
                     {
@@ -218,7 +218,7 @@ class RunHookService:
                         "result_preview": result_preview,
                     },
                     channel=channel,
-                    transport_chat_id=tid,
+                    external_chat_id=tid,
                 )
 
         return _hook
@@ -227,8 +227,8 @@ class RunHookService:
         self,
         *,
         channel: str | None,
-        transport_chat_id: str | None,
-        session_chat_id: str,
+        external_chat_id: str | None,
+        session_id: str,
         run_id: str | None,
         enabled: bool,
     ) -> Callable[[str], Awaitable[None]] | None:
@@ -237,8 +237,8 @@ class RunHookService:
             return None
         bus = self._message_bus_getter()
         ch = channel
-        tid = str(transport_chat_id) if transport_chat_id is not None else None
-        sid = session_chat_id
+        tid = str(external_chat_id) if external_chat_id is not None else None
+        sid = session_id
         rid = run_id
 
         async def _hook(text: str) -> None:
@@ -248,7 +248,7 @@ class RunHookService:
                 "llm_status",
                 {"message": text},
                 channel=ch,
-                transport_chat_id=tid,
+                external_chat_id=tid,
             )
             if bus is None or not ch or tid is None:
                 return
@@ -256,7 +256,7 @@ class RunHookService:
                 OutboundMessage(
                     channel=ch,
                     chat_id=tid,
-                    session_chat_id=sid,
+                    session_id=sid,
                     content=text,
                     metadata={"interim": True, "kind": "llm_wait"},
                 )

@@ -124,7 +124,7 @@ def test_runtime_cron_jobs_are_enqueued_through_message_queue(tmp_path):
     assert message.text == "/cron help should reach the agent"
     assert message.channel == "telegram"
     assert message.chat_id == "same-chat"
-    assert message.session_chat_id == "telegram:same-chat"
+    assert message.session_id == "telegram:same-chat"
     assert message.sender_id == "system:cron"
     assert message.metadata == {
         "source": "cron",

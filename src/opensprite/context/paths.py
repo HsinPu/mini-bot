@@ -158,9 +158,9 @@ def get_workspace_path(workspace: str | Path | None = None) -> Path:
     return get_tool_workspace()
 
 
-def split_session_chat_id(session_chat_id: str | None) -> tuple[str, str]:
+def split_session_id(session_id: str | None) -> tuple[str, str]:
     """Split a session chat id into channel and raw chat id."""
-    value = (session_chat_id or "default").strip() or "default"
+    value = (session_id or "default").strip() or "default"
     if ":" in value:
         channel, chat_id = value.split(":", 1)
         return channel.strip() or "default", chat_id.strip() or "default"
@@ -190,7 +190,7 @@ def get_chat_workspace(
 ) -> Path:
     """Get the isolated workspace directory for a chat session."""
     root = ensure_dir(Path(workspace_root).expanduser()) if workspace_root is not None else get_tool_workspace(app_home)
-    channel, raw_chat_id = split_session_chat_id(chat_id)
+    channel, raw_chat_id = split_session_id(chat_id)
     safe_channel = _sanitize_path_segment(channel, default="default", max_length=32)
     safe_chat_id = _sanitize_path_segment(raw_chat_id, default="default")
     return ensure_dir(root / WORKSPACE_CHATS_DIRNAME / safe_channel / safe_chat_id)

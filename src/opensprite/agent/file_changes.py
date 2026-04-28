@@ -56,7 +56,7 @@ class RunFileChangeService:
         chat_id: str | None,
         run_id: str | None,
         channel: str | None = None,
-        transport_chat_id: str | None = None,
+        external_chat_id: str | None = None,
     ) -> None:
         """Persist file mutations for the active run when available."""
         if not chat_id or not run_id or not changes:
@@ -115,7 +115,7 @@ class RunFileChangeService:
                     "diff_preview": self._format_log_preview(diff, 240),
                 },
                 channel=channel,
-                transport_chat_id=transport_chat_id,
+                external_chat_id=external_chat_id,
             )
             if self._note_file_change is not None:
                 try:

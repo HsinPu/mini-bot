@@ -14,9 +14,9 @@ from .media import AgentMediaService
 class PreparedTurnInput:
     """Resolved user turn data used by process orchestration."""
 
-    session_chat_id: str
+    session_id: str
     channel: str | None
-    transport_chat_id: str | None
+    external_chat_id: str | None
     image_files: list[str]
     audio_files: list[str]
     video_files: list[str]
@@ -38,28 +38,28 @@ class TurnInputPreparer:
 
     def prepare(self, user_message: UserMessage) -> PreparedTurnInput:
         """Prepare all process input fields derived directly from the inbound message."""
-        session_chat_id = user_message.session_chat_id or user_message.chat_id or "default"
+        session_id = user_message.session_id or user_message.chat_id or "default"
         channel = user_message.channel or None
 
-        if ":" not in session_chat_id:
+        if ":" not in session_id:
             logger.warning(
                 "Received non-namespaced chat_id '{}' in Agent.process; this may mix sessions if MessageQueue is bypassed",
-                session_chat_id,
+                session_id,
             )
 
         sender = user_message.sender_name or user_message.sender_id or "-"
         logger.info(
-            f"[{session_chat_id}] inbound | channel={channel or '-'} sender={sender} images={len(user_message.images or [])} "
+            f"[{session_id}] inbound | channel={channel or '-'} sender={sender} images={len(user_message.images or [])} "
             f"text={self._format_log_preview(user_message.text, max_chars=200)}"
         )
-        image_files = self.media_service.persist_inbound_images(session_chat_id, user_message.images)
-        audio_files = self.media_service.persist_inbound_audios(session_chat_id, user_message.audios)
-        video_files = self.media_service.persist_inbound_videos(session_chat_id, user_message.videos)
+        image_files = self.media_service.persist_inbound_images(session_id, user_message.images)
+        audio_files = self.media_service.persist_inbound_audios(session_id, user_message.audios)
+        video_files = self.media_service.persist_inbound_videos(session_id, user_message.videos)
 
         user_metadata = {
             **dict(user_message.metadata or {}),
             "channel": channel,
-            "transport_chat_id": user_message.chat_id,
+            "external_chat_id": user_message.chat_id,
             "sender_id": user_message.sender_id,
             "sender_name": user_message.sender_name,
             "images_count": len(user_message.images or []),
@@ -75,15 +75,15 @@ class TurnInputPreparer:
         user_metadata = {key: value for key, value in user_metadata.items() if value is not None}
         assistant_metadata = {
             "channel": channel,
-            "transport_chat_id": user_message.chat_id,
+            "external_chat_id": user_message.chat_id,
         }
         assistant_metadata = {key: value for key, value in assistant_metadata.items() if value is not None}
-        transport_chat_id = str(user_message.chat_id) if user_message.chat_id is not None else None
+        external_chat_id = str(user_message.chat_id) if user_message.chat_id is not None else None
 
         return PreparedTurnInput(
-            session_chat_id=session_chat_id,
+            session_id=session_id,
             channel=channel,
-            transport_chat_id=transport_chat_id,
+            external_chat_id=external_chat_id,
             image_files=image_files,
             audio_files=audio_files,
             video_files=video_files,

@@ -36,7 +36,7 @@ def test_typing_indicator_starts_and_stops_on_response():
                 text="done",
                 channel="telegram",
                 chat_id="user-a",
-                session_chat_id="telegram:user-a",
+                session_id="telegram:user-a",
             ),
             "telegram",
             "user-a",
@@ -66,7 +66,7 @@ def test_typing_indicator_keeps_running_after_interim_tool_progress():
                 text="正在委派子代理（writer）…",
                 channel="telegram",
                 chat_id="user-a",
-                session_chat_id="telegram:user-a",
+                session_id="telegram:user-a",
                 metadata={"interim": True, "kind": "tool_progress", "tool_name": "delegate"},
             ),
             "telegram",
@@ -80,7 +80,7 @@ def test_typing_indicator_keeps_running_after_interim_tool_progress():
                 text="final",
                 channel="telegram",
                 chat_id="user-a",
-                session_chat_id="telegram:user-a",
+                session_id="telegram:user-a",
             ),
             "telegram",
             "user-a",
@@ -119,7 +119,7 @@ def test_send_uses_configured_empty_message_fallback():
                 text="",
                 channel="telegram",
                 chat_id="user-a",
-                session_chat_id="telegram:user-a",
+                session_id="telegram:user-a",
             )
         )
 
@@ -130,7 +130,7 @@ def test_send_uses_configured_empty_message_fallback():
     assert adapter.app.bot.message_calls == [("user-a", "請稍後再試", "HTML")]
 
 
-def test_to_user_message_sets_session_chat_id_for_typing():
+def test_to_user_message_sets_session_id_for_typing():
     async def scenario():
         adapter = TelegramAdapter("token")
         update = Update.de_json(
@@ -151,7 +151,7 @@ def test_to_user_message_sets_session_chat_id_for_typing():
     user_message = asyncio.run(scenario())
 
     assert user_message.chat_id == "12345"
-    assert user_message.session_chat_id == "telegram:12345"
+    assert user_message.session_id == "telegram:12345"
 
 
 def test_to_user_message_uses_channel_instance_id_for_session():
@@ -176,7 +176,7 @@ def test_to_user_message_uses_channel_instance_id_for_session():
 
     assert user_message.channel == "telegram_work"
     assert user_message.chat_id == "12345"
-    assert user_message.session_chat_id == "telegram_work:12345"
+    assert user_message.session_id == "telegram_work:12345"
     assert user_message.metadata["channel_type"] == "telegram"
     assert user_message.metadata["channel_instance_id"] == "telegram_work"
 
