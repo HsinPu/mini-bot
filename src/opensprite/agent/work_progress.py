@@ -14,7 +14,6 @@ from .task_intent import TaskIntent
 
 _CODING_KINDS = {"debug", "implementation", "refactor", "review"}
 _TERMINAL_STATUSES = {"blocked", "complete", "waiting_user"}
-_WORKBOARD_METADATA_KEY = "workboard"
 _FOLLOW_UP_OBJECTIVES = {
     "continue",
     "keep going",
@@ -95,6 +94,29 @@ class WorkProgressUpdate:
             "completion_reason": self.completion_reason,
             "next_action": self.next_action,
             "continuation_budget": self.continuation_budget,
+        }
+
+
+@dataclass(frozen=True)
+class WorkboardState:
+    """Typed durable view of remaining work for one task."""
+
+    pending_steps: tuple[str, ...] = ()
+    completed_steps: tuple[str, ...] = ()
+    blockers: tuple[str, ...] = ()
+    verification_targets: tuple[str, ...] = ()
+    resume_hint: str = ""
+    last_progress_signals: tuple[str, ...] = ()
+
+    def to_metadata(self) -> dict[str, Any]:
+        return {
+            "schema_version": 1,
+            "pending_steps": list(self.pending_steps),
+            "completed_steps": list(self.completed_steps),
+            "blockers": list(self.blockers),
+            "verification_targets": list(self.verification_targets),
+            "resume_hint": self.resume_hint,
+            "last_progress_signals": list(self.last_progress_signals),
         }
 
 
@@ -201,77 +223,66 @@ class WorkProgressService:
             current_step=numbered_steps[0] if numbered_steps else "not set",
             next_step=numbered_steps[1] if len(numbered_steps) > 1 else "not set",
             completed_steps=(),
+            pending_steps=pending_steps,
+            blockers=(),
+            verification_targets=_derive_verification_targets(
+                work_plan.done_criteria,
+                expects_verification=work_plan.expects_verification,
+            ),
+            resume_hint=_build_resume_hint(
+                status="active",
+                current_step=numbered_steps[0] if numbered_steps else "not set",
+                next_step=numbered_steps[1] if len(numbered_steps) > 1 else "not set",
+                blockers=(),
+                next_action="continue_work",
+            ),
+            last_progress_signals=(),
             file_change_count=0,
             touched_paths=(),
             verification_attempted=False,
             verification_passed=False,
             last_next_action="continue_work",
-            metadata={
-                "source": "work_progress",
-                "schema_version": 1,
-                _WORKBOARD_METADATA_KEY: {
-                    "schema_version": 1,
-                    "pending_steps": list(pending_steps),
-                    "completed_steps": [],
-                    "blockers": [],
-                    "verification_targets": list(_derive_verification_targets(work_plan.done_criteria, expects_verification=work_plan.expects_verification)),
-                    "resume_hint": _build_resume_hint(
-                        status="active",
-                        current_step=numbered_steps[0] if numbered_steps else "not set",
-                        next_step=numbered_steps[1] if len(numbered_steps) > 1 else "not set",
-                        blockers=(),
-                        next_action="continue_work",
-                    ),
-                    "last_progress_signals": [],
-                },
-            },
+            metadata={"source": "work_progress", "schema_version": 1},
             created_at=now,
             updated_at=now,
         )
 
     @staticmethod
-    def extract_workboard(state: StoredWorkState | None) -> dict[str, Any]:
+    def extract_workboard(state: StoredWorkState | None) -> WorkboardState:
         """Return the normalized structured workboard metadata for one state."""
         if state is None:
-            return {
-                "schema_version": 1,
-                "pending_steps": [],
-                "completed_steps": [],
-                "blockers": [],
-                "verification_targets": [],
-                "resume_hint": "",
-                "last_progress_signals": [],
-            }
-        raw = state.metadata.get(_WORKBOARD_METADATA_KEY) if isinstance(state.metadata, dict) else None
-        if not isinstance(raw, dict):
-            pending_steps = [step for step in state.steps if step not in state.completed_steps and step != "not set"]
-            blockers = [state.last_next_action] if state.status in {"blocked", "waiting_user"} and state.last_next_action else []
-            return {
-                "schema_version": 1,
-                "pending_steps": pending_steps,
-                "completed_steps": list(state.completed_steps),
-                "blockers": blockers,
-                "verification_targets": list(
-                    _derive_verification_targets(state.done_criteria, expects_verification=state.expects_verification)
-                ),
-                "resume_hint": _build_resume_hint(
-                    status=state.status,
-                    current_step=state.current_step,
-                    next_step=state.next_step,
-                    blockers=tuple(blockers),
-                    next_action=state.last_next_action,
-                ),
-                "last_progress_signals": [],
-            }
-        return {
-            "schema_version": 1,
-            "pending_steps": _string_list(raw.get("pending_steps")),
-            "completed_steps": _string_list(raw.get("completed_steps")),
-            "blockers": _string_list(raw.get("blockers")),
-            "verification_targets": _string_list(raw.get("verification_targets")),
-            "resume_hint": str(raw.get("resume_hint") or ""),
-            "last_progress_signals": _string_list(raw.get("last_progress_signals")),
-        }
+            return WorkboardState()
+        legacy = _legacy_workboard(state)
+        pending_steps = tuple(state.pending_steps) or tuple(_string_list(legacy.get("pending_steps")))
+        blockers = tuple(state.blockers) or tuple(_string_list(legacy.get("blockers")))
+        verification_targets = tuple(state.verification_targets) or tuple(_string_list(legacy.get("verification_targets")))
+        resume_hint = state.resume_hint or str(legacy.get("resume_hint") or "")
+        last_progress_signals = tuple(state.last_progress_signals) or tuple(_string_list(legacy.get("last_progress_signals")))
+        if not pending_steps:
+            pending_steps = tuple(step for step in state.steps if step not in state.completed_steps and step != "not set")
+        if not blockers and state.status in {"blocked", "waiting_user"} and state.last_next_action:
+            blockers = (state.last_next_action,)
+        if not verification_targets:
+            verification_targets = _derive_verification_targets(
+                state.done_criteria,
+                expects_verification=state.expects_verification,
+            )
+        if not resume_hint:
+            resume_hint = _build_resume_hint(
+                status=state.status,
+                current_step=state.current_step,
+                next_step=state.next_step,
+                blockers=blockers,
+                next_action=state.last_next_action,
+            )
+        return WorkboardState(
+            pending_steps=pending_steps,
+            completed_steps=tuple(state.completed_steps),
+            blockers=blockers,
+            verification_targets=verification_targets,
+            resume_hint=resume_hint,
+            last_progress_signals=last_progress_signals,
+        )
 
     def update_state(
         self,
@@ -322,6 +333,7 @@ class WorkProgressService:
             active_delegate_prompt_type = None
 
         metadata = dict(current.metadata or {})
+        metadata.pop("workboard", None)
         workboard = self._build_workboard(
             steps=steps,
             completed_steps=completed_steps,
@@ -333,7 +345,6 @@ class WorkProgressService:
             progress=progress,
             completion_result=completion_result,
         )
-        metadata[_WORKBOARD_METADATA_KEY] = workboard
 
         return StoredWorkState(
             chat_id=current.chat_id,
@@ -350,6 +361,11 @@ class WorkProgressService:
             current_step=current_step,
             next_step=next_step,
             completed_steps=completed_steps,
+            pending_steps=workboard.pending_steps,
+            blockers=workboard.blockers,
+            verification_targets=workboard.verification_targets,
+            resume_hint=workboard.resume_hint,
+            last_progress_signals=workboard.last_progress_signals,
             file_change_count=file_change_count,
             touched_paths=touched_paths,
             verification_attempted=verification_attempted,
@@ -384,14 +400,14 @@ class WorkProgressService:
         if state.completed_steps:
             lines.extend(["- Completed steps:", *[f"  - {step}" for step in state.completed_steps]])
         workboard = WorkProgressService.extract_workboard(state)
-        if workboard["pending_steps"]:
-            lines.extend(["- Pending steps:", *[f"  - {step}" for step in workboard["pending_steps"]]])
-        if workboard["verification_targets"]:
-            lines.extend(["- Verification targets:", *[f"  - {item}" for item in workboard["verification_targets"]]])
-        if workboard["blockers"]:
-            lines.extend(["- Blockers:", *[f"  - {item}" for item in workboard["blockers"]]])
-        if workboard["resume_hint"]:
-            lines.append(f"- Resume hint: {workboard['resume_hint']}")
+        if workboard.pending_steps:
+            lines.extend(["- Pending steps:", *[f"  - {step}" for step in workboard.pending_steps]])
+        if workboard.verification_targets:
+            lines.extend(["- Verification targets:", *[f"  - {item}" for item in workboard.verification_targets]])
+        if workboard.blockers:
+            lines.extend(["- Blockers:", *[f"  - {item}" for item in workboard.blockers]])
+        if workboard.resume_hint:
+            lines.append(f"- Resume hint: {workboard.resume_hint}")
         if state.touched_paths:
             lines.extend(["- Touched paths:", *[f"  - {path}" for path in state.touched_paths[:12]]])
         if state.active_delegate_task_id:
@@ -461,27 +477,8 @@ class WorkProgressService:
     ) -> StoredWorkState:
         steps = tuple(existing_state.steps) or _numbered_steps(work_plan.steps)
         metadata = dict(existing_state.metadata or {})
-        if _WORKBOARD_METADATA_KEY not in metadata:
-            metadata[_WORKBOARD_METADATA_KEY] = {
-                "schema_version": 1,
-                "pending_steps": [step for step in steps if step not in existing_state.completed_steps and step != "not set"],
-                "completed_steps": list(existing_state.completed_steps),
-                "blockers": [],
-                "verification_targets": list(
-                    _derive_verification_targets(
-                        existing_state.done_criteria or work_plan.done_criteria,
-                        expects_verification=existing_state.expects_verification or work_plan.expects_verification,
-                    )
-                ),
-                "resume_hint": _build_resume_hint(
-                    status=existing_state.status,
-                    current_step=existing_state.current_step,
-                    next_step=existing_state.next_step,
-                    blockers=(),
-                    next_action=existing_state.last_next_action or "continue_work",
-                ),
-                "last_progress_signals": [],
-            }
+        metadata.pop("workboard", None)
+        existing_workboard = self.extract_workboard(existing_state)
         return StoredWorkState(
             chat_id=existing_state.chat_id,
             objective=existing_state.objective or work_plan.objective,
@@ -497,6 +494,11 @@ class WorkProgressService:
             current_step=existing_state.current_step,
             next_step=existing_state.next_step,
             completed_steps=tuple(existing_state.completed_steps),
+            pending_steps=tuple(existing_state.pending_steps) or existing_workboard.pending_steps,
+            blockers=tuple(existing_state.blockers) or existing_workboard.blockers,
+            verification_targets=tuple(existing_state.verification_targets) or existing_workboard.verification_targets,
+            resume_hint=existing_state.resume_hint or existing_workboard.resume_hint,
+            last_progress_signals=tuple(existing_state.last_progress_signals) or existing_workboard.last_progress_signals,
             file_change_count=int(existing_state.file_change_count),
             touched_paths=tuple(existing_state.touched_paths),
             verification_attempted=bool(existing_state.verification_attempted),
@@ -521,28 +523,28 @@ class WorkProgressService:
         expects_verification: bool,
         progress: WorkProgressUpdate,
         completion_result: CompletionGateResult,
-    ) -> dict[str, Any]:
+    ) -> WorkboardState:
         pending_steps = [step for step in steps if step not in completed_steps and step != "not set"]
         if current_step != "not set" and current_step not in completed_steps and current_step not in pending_steps:
             pending_steps.insert(0, current_step)
         blockers = _derive_blockers(completion_result)
-        return {
-            "schema_version": 1,
-            "pending_steps": pending_steps,
-            "completed_steps": list(completed_steps),
-            "blockers": list(blockers),
-            "verification_targets": list(
-                _derive_verification_targets(done_criteria, expects_verification=expects_verification)
+        return WorkboardState(
+            pending_steps=tuple(pending_steps),
+            completed_steps=completed_steps,
+            blockers=blockers,
+            verification_targets=_derive_verification_targets(
+                done_criteria,
+                expects_verification=expects_verification,
             ),
-            "resume_hint": _build_resume_hint(
+            resume_hint=_build_resume_hint(
                 status=status,
                 current_step=current_step,
                 next_step=next_step,
                 blockers=blockers,
                 next_action=progress.next_action,
             ),
-            "last_progress_signals": list(progress.progress_signals),
-        }
+            last_progress_signals=progress.progress_signals,
+        )
 
     @staticmethod
     def _progress_signals(execution_result: ExecutionResult) -> tuple[str, ...]:
@@ -598,6 +600,12 @@ def _string_list(value: Any) -> list[str]:
     if not isinstance(value, (list, tuple)):
         return []
     return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _legacy_workboard(state: StoredWorkState) -> dict[str, Any]:
+    metadata = state.metadata if isinstance(state.metadata, dict) else {}
+    payload = metadata.get("workboard")
+    return payload if isinstance(payload, dict) else {}
 
 
 def _derive_verification_targets(

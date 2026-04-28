@@ -6,7 +6,7 @@ from typing import Any, Awaitable, Callable
 
 from ..config import AgentConfig
 from ..llms import ChatMessage
-from ..planning_mode import is_explicit_planning_mode_request
+from ..planning_mode import resolve_planning_mode
 from ..tools import ToolRegistry
 from ..utils.log import logger
 from .execution import ExecutionResult
@@ -35,7 +35,7 @@ class LlmCallService:
         build_system_prompt: Callable[[str], str],
         log_prepared_messages: Callable[[str, list[dict[str, Any]]], None],
         get_work_state_summary: Callable[[str], Awaitable[str]],
-        get_planning_tool_registry: Callable[[], ToolRegistry],
+        get_tool_registry: Callable[[], ToolRegistry],
         get_current_run_id: Callable[[], str | None],
         should_cancel_run: Callable[[str, str | None], bool],
         make_tool_progress_hook: Callable[..., Callable[[str, dict[str, Any]], Awaitable[None]] | None],
@@ -59,7 +59,7 @@ class LlmCallService:
         self._build_system_prompt = build_system_prompt
         self._log_prepared_messages = log_prepared_messages
         self._get_work_state_summary = get_work_state_summary
-        self._get_planning_tool_registry = get_planning_tool_registry
+        self._get_tool_registry = get_tool_registry
         self._get_current_run_id = get_current_run_id
         self._should_cancel_run = should_cancel_run
         self._make_tool_progress_hook = make_tool_progress_hook
@@ -142,9 +142,9 @@ class LlmCallService:
             user_audio_files=user_audio_files,
             user_video_files=user_video_files,
         )
-        planning_mode = is_explicit_planning_mode_request(current_message)
-        selected_tool_registry = self._get_planning_tool_registry() if planning_mode else None
-        if planning_mode:
+        planning_mode = resolve_planning_mode(current_message, base_registry=self._get_tool_registry())
+        selected_tool_registry = planning_mode.tool_registry
+        if planning_mode.enabled and selected_tool_registry is not None:
             logger.info(
                 f"[{chat_id}] prompt.mode | planning_mode=true allowed_tools={','.join(selected_tool_registry.tool_names)}"
             )

@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import re
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .tools import ToolRegistry
 
 
 PLANNING_ALLOWED_TOOLS = frozenset(
@@ -72,6 +77,15 @@ _NO_EXECUTION_MARKERS = (
 )
 
 
+@dataclass(frozen=True)
+class PlanningModeState:
+    """Resolved planning-mode state for one user turn."""
+
+    enabled: bool = False
+    overlay: str = ""
+    tool_registry: "ToolRegistry | None" = None
+
+
 def is_explicit_planning_mode_request(text: str | None) -> bool:
     """Return whether the user explicitly asked for planning before implementation."""
     compact = re.sub(r"\s+", " ", str(text or "")).strip().lower()
@@ -98,3 +112,49 @@ The user explicitly asked for planning before implementation. This turn is read-
 
 This planning-mode restriction overrides normal workspace autonomy for this turn.
 """
+
+
+def resolve_planning_mode(
+    text: str | None,
+    *,
+    base_registry: "ToolRegistry | None" = None,
+) -> PlanningModeState:
+    """Resolve the full planning-mode state for one user turn."""
+    if not is_explicit_planning_mode_request(text):
+        return PlanningModeState()
+    return PlanningModeState(
+        enabled=True,
+        overlay=build_planning_mode_overlay(),
+        tool_registry=(
+            build_planning_mode_tool_registry(base_registry)
+            if base_registry is not None
+            else None
+        ),
+    )
+
+
+def build_planning_mode_tool_registry(base_registry: "ToolRegistry") -> "ToolRegistry":
+    """Return a read-only registry used for explicit plan-only turns."""
+    from .tools import BatchTool
+    from .tools.permissions import CompositeToolPermissionPolicy, ToolPermissionPolicy
+
+    planning_policy = ToolPermissionPolicy(
+        allowed_tools=list(PLANNING_ALLOWED_TOOLS),
+        allowed_risk_levels=["read", "network"],
+        denied_risk_levels=[
+            "write",
+            "execute",
+            "external_side_effect",
+            "configuration",
+            "delegation",
+            "memory",
+            "mcp",
+        ],
+    )
+    registry = base_registry.filtered(
+        include_names=PLANNING_ALLOWED_TOOLS,
+        permission_policy=CompositeToolPermissionPolicy(base_registry.permission_policy, planning_policy),
+    )
+    if "batch" in registry.tool_names:
+        registry.register(BatchTool(registry_resolver=lambda: registry))
+    return registry

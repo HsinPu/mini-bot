@@ -233,6 +233,11 @@ def test_sqlite_storage_persists_runs_and_events(tmp_path):
                 current_step="2. change",
                 next_step="3. verify",
                 completed_steps=("1. inspect",),
+                pending_steps=("2. change", "3. verify"),
+                blockers=(),
+                verification_targets=("tests pass",),
+                resume_hint="Resume at current step: 2. change",
+                last_progress_signals=("file_changes",),
                 file_change_count=1,
                 touched_paths=("src/app.py",),
                 verification_attempted=False,
@@ -301,6 +306,9 @@ def test_sqlite_storage_persists_runs_and_events(tmp_path):
     assert loaded_work_state.constraints == ("Keep the API stable",)
     assert loaded_work_state.touched_paths == ("src/app.py",)
     assert loaded_work_state.active_delegate_prompt_type == "implementer"
+    assert loaded_work_state.pending_steps == ("2. change", "3. verify")
+    assert loaded_work_state.verification_targets == ("tests pass",)
+    assert loaded_work_state.resume_hint == "Resume at current step: 2. change"
     assert loaded_work_state.metadata == {"source": "test"}
     assert cleared_work_state is None
     assert chats == ["chat-1"]

@@ -22,7 +22,7 @@ from ..utils.json_safe import json_safe_value as json_safe
 from ..utils.log import logger
 from .base import StorageProvider, StoredMessage, StoredRun, StoredRunEvent, StoredRunFileChange, StoredRunPart, StoredWorkState
 
-SQLITE_SCHEMA_VERSION = 9
+SQLITE_SCHEMA_VERSION = 10
 
 SCHEMA_SCRIPT = """
 CREATE TABLE IF NOT EXISTS chats (
@@ -135,6 +135,11 @@ CREATE TABLE IF NOT EXISTS work_states (
     current_step TEXT NOT NULL DEFAULT 'not set',
     next_step TEXT NOT NULL DEFAULT 'not set',
     completed_steps_json TEXT NOT NULL DEFAULT '[]',
+    pending_steps_json TEXT NOT NULL DEFAULT '[]',
+    blockers_json TEXT NOT NULL DEFAULT '[]',
+    verification_targets_json TEXT NOT NULL DEFAULT '[]',
+    resume_hint TEXT NOT NULL DEFAULT '',
+    last_progress_signals_json TEXT NOT NULL DEFAULT '[]',
     file_change_count INTEGER NOT NULL DEFAULT 0,
     touched_paths_json TEXT NOT NULL DEFAULT '[]',
     verification_attempted INTEGER NOT NULL DEFAULT 0,
@@ -309,6 +314,23 @@ def ensure_schema_upgrades(conn: sqlite3.Connection) -> None:
             if column_name in file_change_columns:
                 continue
             conn.execute(f"ALTER TABLE run_file_changes ADD COLUMN {column_name} TEXT")
+
+    if table_exists(conn, "work_states"):
+        work_state_columns = {
+            str(row[1])
+            for row in conn.execute("PRAGMA table_info(work_states)").fetchall()
+        }
+        required_work_state_columns = {
+            "pending_steps_json": "TEXT NOT NULL DEFAULT '[]'",
+            "blockers_json": "TEXT NOT NULL DEFAULT '[]'",
+            "verification_targets_json": "TEXT NOT NULL DEFAULT '[]'",
+            "resume_hint": "TEXT NOT NULL DEFAULT ''",
+            "last_progress_signals_json": "TEXT NOT NULL DEFAULT '[]'",
+        }
+        for column_name, column_type in required_work_state_columns.items():
+            if column_name in work_state_columns:
+                continue
+            conn.execute(f"ALTER TABLE work_states ADD COLUMN {column_name} {column_type}")
 
 
 def ensure_chat_row(
@@ -761,6 +783,8 @@ class SQLiteStorage(StorageProvider):
         """Convert one work-state row into a StoredWorkState object."""
         if row is None:
             return None
+        metadata = _load_metadata(row["metadata_json"])
+        legacy_workboard = _load_legacy_workboard(metadata)
         return StoredWorkState(
             chat_id=str(row["chat_id"]),
             objective=str(row["objective"] or ""),
@@ -776,6 +800,15 @@ class SQLiteStorage(StorageProvider):
             current_step=str(row["current_step"] or "not set"),
             next_step=str(row["next_step"] or "not set"),
             completed_steps=tuple(_load_string_list(row["completed_steps_json"])),
+            pending_steps=tuple(_load_string_list_or_fallback(row, "pending_steps_json", legacy_workboard.get("pending_steps"))),
+            blockers=tuple(_load_string_list_or_fallback(row, "blockers_json", legacy_workboard.get("blockers"))),
+            verification_targets=tuple(
+                _load_string_list_or_fallback(row, "verification_targets_json", legacy_workboard.get("verification_targets"))
+            ),
+            resume_hint=_load_string_or_fallback(row, "resume_hint", legacy_workboard.get("resume_hint")),
+            last_progress_signals=tuple(
+                _load_string_list_or_fallback(row, "last_progress_signals_json", legacy_workboard.get("last_progress_signals"))
+            ),
             file_change_count=int(row["file_change_count"] or 0),
             touched_paths=tuple(_load_string_list(row["touched_paths_json"])),
             verification_attempted=bool(row["verification_attempted"]),
@@ -783,7 +816,7 @@ class SQLiteStorage(StorageProvider):
             last_next_action=str(row["last_next_action"] or ""),
             active_delegate_task_id=row["active_delegate_task_id"],
             active_delegate_prompt_type=row["active_delegate_prompt_type"],
-            metadata=_load_metadata(row["metadata_json"]),
+            metadata=metadata,
             created_at=float(row["created_at"] or 0),
             updated_at=float(row["updated_at"] or 0),
         )
@@ -1085,6 +1118,11 @@ class SQLiteStorage(StorageProvider):
                         current_step,
                         next_step,
                         completed_steps_json,
+                        pending_steps_json,
+                        blockers_json,
+                        verification_targets_json,
+                        resume_hint,
+                        last_progress_signals_json,
                         file_change_count,
                         touched_paths_json,
                         verification_attempted,
@@ -1096,7 +1134,7 @@ class SQLiteStorage(StorageProvider):
                         created_at,
                         updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(chat_id) DO UPDATE SET
                         objective = excluded.objective,
                         kind = excluded.kind,
@@ -1111,6 +1149,11 @@ class SQLiteStorage(StorageProvider):
                         current_step = excluded.current_step,
                         next_step = excluded.next_step,
                         completed_steps_json = excluded.completed_steps_json,
+                        pending_steps_json = excluded.pending_steps_json,
+                        blockers_json = excluded.blockers_json,
+                        verification_targets_json = excluded.verification_targets_json,
+                        resume_hint = excluded.resume_hint,
+                        last_progress_signals_json = excluded.last_progress_signals_json,
                         file_change_count = excluded.file_change_count,
                         touched_paths_json = excluded.touched_paths_json,
                         verification_attempted = excluded.verification_attempted,
@@ -1136,6 +1179,11 @@ class SQLiteStorage(StorageProvider):
                         state.current_step,
                         state.next_step,
                         json.dumps(json_safe(list(state.completed_steps)), ensure_ascii=False),
+                        json.dumps(json_safe(list(state.pending_steps)), ensure_ascii=False),
+                        json.dumps(json_safe(list(state.blockers)), ensure_ascii=False),
+                        json.dumps(json_safe(list(state.verification_targets)), ensure_ascii=False),
+                        state.resume_hint,
+                        json.dumps(json_safe(list(state.last_progress_signals)), ensure_ascii=False),
                         int(state.file_change_count),
                         json.dumps(json_safe(list(state.touched_paths)), ensure_ascii=False),
                         int(bool(state.verification_attempted)),
@@ -1424,6 +1472,34 @@ def _load_metadata(raw: str | None) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _load_legacy_workboard(metadata: dict[str, Any]) -> dict[str, Any]:
+    """Return legacy workboard content still stored under metadata for old rows."""
+    payload = metadata.get("workboard") if isinstance(metadata, dict) else None
+    return payload if isinstance(payload, dict) else {}
+
+
+def _load_string_or_fallback(row: sqlite3.Row, key: str, fallback: Any = None) -> str:
+    """Read one optional text column, using fallback when the column is absent or empty."""
+    keys = row.keys() if hasattr(row, "keys") else []
+    if key in keys:
+        value = str(row[key] or "")
+        if value:
+            return value
+    return str(fallback or "")
+
+
+def _load_string_list_or_fallback(row: sqlite3.Row, key: str, fallback: Any = None) -> list[str]:
+    """Read one optional JSON string-list column, using fallback when absent or empty."""
+    keys = row.keys() if hasattr(row, "keys") else []
+    if key in keys:
+        value = _load_string_list(row[key])
+        if value:
+            return value
+    if isinstance(fallback, list):
+        return [str(item) for item in fallback if str(item).strip()]
+    return []
 
 
 def _load_string_list(raw: str | None) -> list[str]:

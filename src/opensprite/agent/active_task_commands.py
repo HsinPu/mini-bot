@@ -151,8 +151,8 @@ class ActiveTaskCommandService:
 
         workboard = WorkProgressService.extract_workboard(state)
         open_questions: list[str] | None = None
-        if workboard["blockers"]:
-            open_questions = list(workboard["blockers"])
+        if workboard.blockers:
+            open_questions = list(workboard.blockers)
         elif state is not None and state.status in {"active", "done"}:
             open_questions = ["none"]
         elif progress.status in {"blocked", "waiting_user"}:

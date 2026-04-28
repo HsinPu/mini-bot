@@ -112,6 +112,11 @@ class StoredWorkState:
     current_step: str = "not set"
     next_step: str = "not set"
     completed_steps: tuple[str, ...] = ()
+    pending_steps: tuple[str, ...] = ()
+    blockers: tuple[str, ...] = ()
+    verification_targets: tuple[str, ...] = ()
+    resume_hint: str = ""
+    last_progress_signals: tuple[str, ...] = ()
     file_change_count: int = 0
     touched_paths: tuple[str, ...] = ()
     verification_attempted: bool = False

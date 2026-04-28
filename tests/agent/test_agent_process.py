@@ -1104,7 +1104,7 @@ def test_agent_process_persists_work_state_with_delegate_task(tmp_path):
     assert work_state.objective == "Finish the refactor"
     assert work_state.active_delegate_task_id == "task_abc12345"
     assert work_state.active_delegate_prompt_type == "implementer"
-    assert work_state.metadata["workboard"]["resume_hint"] == "Resume at current step: 2. change"
+    assert work_state.resume_hint == "Resume at current step: 2. change"
 
 
 def test_agent_call_llm_uses_read_only_registry_for_explicit_planning_mode(tmp_path):
@@ -1151,6 +1151,61 @@ def test_agent_call_llm_uses_read_only_registry_for_explicit_planning_mode(tmp_p
     assert "exec" not in tool_names
     assert "verify" not in tool_names
     assert "delegate" not in tool_names
+
+
+def test_agent_call_llm_returns_to_normal_registry_without_explicit_build_reminder(tmp_path):
+    async def scenario():
+        storage = MemoryStorage()
+        agent = AgentLoop(
+            config=Config.load_agent_template_config(),
+            provider=FakeProvider(),
+            storage=storage,
+            context_builder=FakeContextBuilder(tmp_path / "workspace"),
+            memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
+            tools_config=ToolsConfig(),
+            log_config=LogConfig(),
+            search_config=SearchConfig(),
+            user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+            recent_summary_config=RecentSummaryConfig(**{**Config.load_template_data()["recent_summary"], "enabled": False}),
+            **Config.packaged_agent_llm_chat_kwargs(),
+        )
+        captured: list[set[str]] = []
+
+        async def fake_execute_messages(*args, **kwargs):
+            registry = kwargs.get("tool_registry")
+            if registry is None:
+                captured.append(set(agent.tools.tool_names))
+            else:
+                captured.append(set(registry.tool_names))
+            return ExecutionResult(content="reply", executed_tool_calls=0)
+
+        agent._execute_messages = fake_execute_messages
+        await agent.call_llm(
+            "web:browser-1",
+            "先規劃不要動手，幫我整理修復方案",
+            channel="web",
+            allow_tools=True,
+        )
+        await agent.call_llm(
+            "web:browser-1",
+            "好，現在請直接修掉 tests/test_app.py 的問題",
+            channel="web",
+            allow_tools=True,
+        )
+        return captured
+
+    captured = asyncio.run(scenario())
+
+    assert len(captured) == 2
+    planning_tools, normal_tools = captured
+    assert "write_file" not in planning_tools
+    assert "exec" not in planning_tools
+    assert "verify" not in planning_tools
+    assert "write_file" in normal_tools
+    assert "edit_file" in normal_tools
+    assert "apply_patch" in normal_tools
+    assert "exec" in normal_tools
+    assert "verify" in normal_tools
 
 
 def test_agent_process_rejects_overlapping_runs_for_same_session(tmp_path):

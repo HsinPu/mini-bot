@@ -117,16 +117,10 @@ def test_work_progress_resume_existing_state_preserves_progress_for_continue():
             completed_steps=("1. inspect",),
             file_change_count=2,
             touched_paths=("src/agent.py",),
-            metadata={
-                "workboard": {
-                    "pending_steps": ["2. change", "3. verify"],
-                    "completed_steps": ["1. inspect"],
-                    "blockers": [],
-                    "verification_targets": ["tests pass"],
-                    "resume_hint": "Resume at current step: 2. change",
-                    "last_progress_signals": ["file_changes"],
-                }
-            },
+            pending_steps=("2. change", "3. verify"),
+            verification_targets=("tests pass",),
+            resume_hint="Resume at current step: 2. change",
+            last_progress_signals=("file_changes",),
         ),
     )
     plan = service.create_plan(resolved)
@@ -147,16 +141,10 @@ def test_work_progress_resume_existing_state_preserves_progress_for_continue():
         completed_steps=("1. inspect",),
         file_change_count=2,
         touched_paths=("src/agent.py",),
-        metadata={
-            "workboard": {
-                "pending_steps": ["2. change", "3. verify"],
-                "completed_steps": ["1. inspect"],
-                "blockers": [],
-                "verification_targets": ["tests pass"],
-                "resume_hint": "Resume at current step: 2. change",
-                "last_progress_signals": ["file_changes"],
-            }
-        },
+        pending_steps=("2. change", "3. verify"),
+        verification_targets=("tests pass",),
+        resume_hint="Resume at current step: 2. change",
+        last_progress_signals=("file_changes",),
     )
 
     resumed = service.build_initial_state(
@@ -171,7 +159,35 @@ def test_work_progress_resume_existing_state_preserves_progress_for_continue():
     assert resumed.next_step == "3. verify"
     assert resumed.completed_steps == ("1. inspect",)
     assert resumed.file_change_count == 2
-    assert resumed.metadata["workboard"]["resume_hint"] == "Resume at current step: 2. change"
+    assert resumed.resume_hint == "Resume at current step: 2. change"
+
+
+def test_work_progress_extract_workboard_falls_back_to_legacy_metadata():
+    state = StoredWorkState(
+        chat_id="web:browser-1",
+        objective="Finish the refactor",
+        kind="refactor",
+        status="active",
+        steps=("1. inspect", "2. change", "3. verify"),
+        completed_steps=("1. inspect",),
+        metadata={
+            "workboard": {
+                "pending_steps": ["2. change", "3. verify"],
+                "blockers": ["Need user decision"],
+                "verification_targets": ["tests pass"],
+                "resume_hint": "Resume at current step: 2. change",
+                "last_progress_signals": ["file_changes"],
+            }
+        },
+    )
+
+    workboard = WorkProgressService.extract_workboard(state)
+
+    assert workboard.pending_steps == ("2. change", "3. verify")
+    assert workboard.blockers == ("Need user decision",)
+    assert workboard.verification_targets == ("tests pass",)
+    assert workboard.resume_hint == "Resume at current step: 2. change"
+    assert workboard.last_progress_signals == ("file_changes",)
 
 
 def test_work_progress_updates_state_and_renders_summary():
@@ -216,12 +232,14 @@ def test_work_progress_updates_state_and_renders_summary():
     assert updated.file_change_count == 2
     assert updated.current_step == "3. verify the result"
     assert updated.active_delegate_task_id == "task_abc12345"
-    workboard = updated.metadata["workboard"]
-    assert workboard["pending_steps"] == ["3. verify the result"]
-    assert workboard["verification_targets"] == [
-        "relevant tests or checks pass, or the verification gap is stated"
-    ]
-    assert workboard["resume_hint"] == "Resume by running or fixing the required verification."
+    workboard = WorkProgressService.extract_workboard(updated)
+    assert workboard.pending_steps == ("3. verify the result",)
+    assert workboard.verification_targets == (
+        "relevant tests or checks pass, or the verification gap is stated",
+    )
+    assert workboard.resume_hint == "Resume by running or fixing the required verification."
+    assert updated.pending_steps == ("3. verify the result",)
+    assert updated.resume_hint == "Resume by running or fixing the required verification."
     summary = service.render_state_summary(updated)
     assert "Structured Work State" in summary
     assert "Active delegate: implementer (task_abc12345)" in summary

@@ -27,7 +27,7 @@ from .paths import (
     load_bootstrap_files,
 )
 from .runtime import RUNTIME_CONTEXT_TAG, build_runtime_context
-from ..planning_mode import build_planning_mode_overlay, is_explicit_planning_mode_request
+from ..planning_mode import resolve_planning_mode
 from ..documents.memory import MemoryStore
 from ..documents.recent_summary import RecentSummaryStore
 from ..documents.user_profile import create_user_profile_store
@@ -240,13 +240,6 @@ Ids and descriptions below are **merged**: this chat's `subagent_prompts/<id>.md
 This request appears to be a workspace or project task. Use the active workspace autonomously: inspect relevant files and search results first, edit directly when the path forward is clear, run focused verification when feasible, then summarize the changes, verification result, and any remaining risk.
 """
 
-    @staticmethod
-    def _build_planning_mode_guidance(current_message: str) -> str:
-        """Return a temporary read-only planning overlay when explicitly requested."""
-        if not is_explicit_planning_mode_request(current_message):
-            return ""
-        return build_planning_mode_overlay()
-
     def build_system_prompt(self, chat_id: str = "default") -> str:
         """Build the system prompt from bootstrap files, skills, and memory."""
         parts = [self._build_session_context(chat_id)]
@@ -363,7 +356,7 @@ Be conservative only for actions with external side effects or boundaries outsid
         workspace_task_guidance = self._build_workspace_task_guidance(current_message)
         if workspace_task_guidance:
             messages.append({"role": "system", "content": workspace_task_guidance})
-        planning_mode_guidance = self._build_planning_mode_guidance(current_message)
+        planning_mode_guidance = resolve_planning_mode(current_message).overlay
         if planning_mode_guidance:
             messages.append({"role": "system", "content": planning_mode_guidance})
         messages.extend(history)
