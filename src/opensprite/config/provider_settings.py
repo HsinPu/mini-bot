@@ -1,4 +1,4 @@
-"""Shared provider/model settings helpers for CLI onboarding and Web settings."""
+"""Shared provider/model settings helpers for Web settings."""
 
 from __future__ import annotations
 

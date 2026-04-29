@@ -85,6 +85,22 @@ def test_config_load_reads_llm_providers_from_external_file(tmp_path):
     assert config.llm.providers_file == "llm.providers.json"
 
 
+def test_config_load_creates_default_config_and_split_files(monkeypatch, tmp_path):
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+
+    config = Config.load()
+
+    app_home = tmp_path / ".opensprite"
+    assert config.source_path == app_home / "opensprite.json"
+    assert (app_home / "opensprite.json").exists()
+    assert (app_home / "channels.json").exists()
+    assert (app_home / "search.json").exists()
+    assert (app_home / "media.json").exists()
+    assert (app_home / "messages.json").exists()
+    assert (app_home / "mcp_servers.json").exists()
+    assert (app_home / "llm.providers.json").exists()
+
+
 def test_llm_context_window_falls_back_to_top_level_setting():
     llm = LLMsConfig(
         **{

@@ -1,4 +1,4 @@
-"""Load packaged LLM provider presets (base URLs, model pick lists) for onboarding."""
+"""Load packaged LLM provider presets for Web settings."""
 
 from __future__ import annotations
 

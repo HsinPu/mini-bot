@@ -2,6 +2,7 @@ import json
 
 from typer.testing import CliRunner
 
+from opensprite.cli import commands
 from opensprite.cli.commands import app
 
 
@@ -94,7 +95,7 @@ def _write_split_config(root):
             {
                 "agent": {
                     "empty_response_fallback": "抱歉，我剛剛沒有產生可顯示的回覆，請再試一次。",
-                    "llm_not_configured": "尚未設定 LLM，請先設定後再試。可執行 opensprite onboard，或在 llm.providers.json 設定預設 provider 的 api_key。",
+                    "llm_not_configured": "尚未設定 LLM，請在 OpenSprite Web UI 的 Settings > Providers / Models 設定後再試。",
                 },
                 "queue": {
                     "stop_cancelled": "已停止目前這段對話。",
@@ -184,3 +185,27 @@ def test_config_validate_json_output_includes_error_details(tmp_path):
     assert payload["config_exists"] is True
     assert any(entry["name"] == "search" and entry["valid_json"] is False for entry in payload["files"])
     assert "JSON root must be an object" in payload["error"]
+
+
+def test_status_missing_config_points_to_gateway_and_web_settings(monkeypatch, tmp_path):
+    monkeypatch.setattr(commands.Path, "home", classmethod(lambda cls: tmp_path))
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert "opensprite gateway" in result.stdout
+    assert "Web UI Settings" in result.stdout
+    assert "opensprite onboard" not in result.stdout
+
+
+def test_cli_help_does_not_promote_onboard():
+    result = runner.invoke(app, ["--help"])
+
+    assert result.exit_code == 0
+    assert "onboard" not in result.stdout
+
+
+def test_onboard_command_is_removed():
+    result = runner.invoke(app, ["onboard"])
+
+    assert result.exit_code != 0

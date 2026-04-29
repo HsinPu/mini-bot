@@ -29,7 +29,7 @@ FileChangeRecorder = Callable[[str, list[dict[str, Any]]], Awaitable[None]]
 
 _CONFIG_WRITE_GUARD_MSG = (
     "Error: Cannot modify OpenSprite configuration files with write_file, edit_file, or apply_patch. "
-    "Edit them outside the agent or use `opensprite onboard`."
+    "Use the OpenSprite Web UI Settings or edit them outside the agent."
 )
 _DEFAULT_READ_LIMIT = 2000
 _MAX_READ_LIMIT = 2000
@@ -1034,7 +1034,7 @@ class WriteFileTool(Tool):
             "Returns a unified diff after writing. "
             "Cannot write under ~/.opensprite/skills/ (read-only bundled skills); use session workspace skills/ or configure_skill. "
             "Cannot write opensprite.json, split JSON config files (channels, search, MCP, media, LLM providers), "
-            "or the active config paths (edit outside the agent or use onboard)."
+            "or the active config paths (edit outside the agent or use Web UI Settings)."
         )
 
     @property

@@ -19,7 +19,6 @@ from ..runtime import gateway as run_gateway
 from ..search.base import SearchHit
 from ..storage.base import StoredMessage
 from . import service_linux
-from .onboard import run_onboard
 
 app = typer.Typer(
     name="opensprite",
@@ -273,81 +272,6 @@ def _emit_config_validate(payload: dict[str, object], json_output: bool) -> None
         typer.echo(f"Error: {error}")
 
 
-def _run_onboard(
-    config: str | None = None,
-    *,
-    force: bool = False,
-    no_input: bool = False,
-) -> None:
-    """Run the OpenSprite onboarding workflow and print next steps."""
-    try:
-        result = run_onboard(config_path=config, force=force, interactive=not no_input)
-    except (FileNotFoundError, ValueError, RuntimeError, json.JSONDecodeError) as exc:
-        typer.secho(f"Error: {exc}", fg=typer.colors.RED, err=True)
-        raise typer.Exit(code=1) from exc
-
-    typer.echo("OpenSprite onboarding complete.")
-    typer.echo(f"Config: {result.config_path}")
-    typer.echo(f"App Home: {result.app_home}")
-
-    if result.created_config:
-        typer.echo("Config status: created")
-    elif result.reset_config:
-        typer.echo("Config status: reset to defaults")
-    elif result.refreshed_config:
-        typer.echo("Config status: refreshed with missing defaults")
-    else:
-        typer.echo("Config status: unchanged")
-
-    if result.created_dirs:
-        typer.echo("Created directories:")
-        for path in result.created_dirs:
-            typer.echo(f"- {path}")
-
-    if result.template_files:
-        typer.echo("Added template files:")
-        for relative_path in result.template_files:
-            typer.echo(f"- {relative_path}")
-
-    if result.interactive:
-        typer.echo("Interactive setup:")
-        typer.echo(f"- LLM provider: {result.llm_provider or '<unset>'}")
-        typer.echo(f"- Model: {result.llm_model or '<unset>'}")
-        typer.echo(f"- Channel: {result.channel_name or '<unset>'}")
-
-    typer.echo("Next steps:")
-    if not result.llm_api_key_configured:
-        typer.echo(f"1. Edit {result.config_path} and add your API key")
-        typer.echo("2. Run `opensprite status` to verify the setup")
-        typer.echo("3. Start the service with `opensprite gateway`")
-    else:
-        typer.echo("1. Run `opensprite status` to verify the setup")
-        typer.echo("2. Start the service with `opensprite gateway`")
-
-
-@app.command()
-def onboard(
-    config: str | None = typer.Option(
-        None,
-        "--config",
-        "-c",
-        help="Path to an OpenSprite JSON config file.",
-    ),
-    force: bool = typer.Option(
-        False,
-        "--force",
-        help="Reset the config to the packaged defaults instead of refreshing missing fields.",
-    ),
-    no_input: bool = typer.Option(
-        False,
-        "--no-input",
-        help="Initialize files only and skip interactive prompts.",
-    ),
-) -> None:
-    """Initialize or refresh OpenSprite and prompt for key settings by default."""
-    _run_onboard(config=config, force=force, no_input=no_input)
-
-
 @app.command()
 def status(
     config: str | None = typer.Option(
@@ -382,7 +306,7 @@ def status(
     }
 
     if not config_path.exists():
-        payload["hint"] = "run `opensprite onboard` to create the default config and app directories."
+        payload["hint"] = "run `opensprite gateway`; it creates defaults, then configure OpenSprite from the Web UI Settings."
         _emit_status(payload, json_output)
         return
 

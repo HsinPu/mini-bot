@@ -98,17 +98,12 @@ python -m pip install -e ".[dev,vector]"
 
 ```powershell
 opensprite
-opensprite onboard
 opensprite gateway
 ```
 
-**English:** Non-interactive onboarding (CI / scripts):
+**English:** On first gateway start, OpenSprite creates the default app config under `~/.opensprite`. Configure providers, models, and channels from the Web UI Settings page.
 
-**中文：** 非互動初始化（適合 CI 或腳本）：
-
-```powershell
-opensprite onboard --no-input
-```
+**中文：** 第一次啟動 gateway 時，OpenSprite 會在 `~/.opensprite` 建立預設設定。Provider、模型與頻道請從 Web UI 的 Settings 頁設定。
 
 **English:** Module entrypoint:
 
@@ -137,9 +132,9 @@ opensprite service restart
 
 ## Configuration layout · 設定檔架構（重要）
 
-**English:** `opensprite onboard` creates the app home directory. The main config defaults to `~/.opensprite/opensprite.json`. **Split config files** live next to the main file; paths are relative to the directory that contains `opensprite.json` (keys are customizable).
+**English:** `opensprite gateway` creates the app home directory and default config if they do not exist. The main config defaults to `~/.opensprite/opensprite.json`. **Split config files** live next to the main file; paths are relative to the directory that contains `opensprite.json` (keys are customizable).
 
-**中文：** `opensprite onboard` 會在使用者目錄建立應用程式家目錄，預設主設定為 `~/.opensprite/opensprite.json`。主檔採 **分割設定檔**：路徑為相對於主設定檔所在目錄的檔名（可自訂鍵名）。
+**中文：** `opensprite gateway` 會在缺少設定時建立應用程式家目錄與預設設定，主設定預設為 `~/.opensprite/opensprite.json`。主檔採 **分割設定檔**：路徑為相對於主設定檔所在目錄的檔名（可自訂鍵名）。
 
 | Main file key · 主檔欄位 | Default file · 預設檔名 | Purpose · 用途 |
 | --- | --- | --- |
@@ -434,8 +429,6 @@ src/opensprite/
 python -m pip install .
 python -m pip install -e ".[dev,vector]"
 opensprite
-opensprite onboard
-opensprite onboard --no-input
 opensprite config validate
 opensprite gateway
 opensprite status
