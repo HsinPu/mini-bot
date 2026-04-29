@@ -9,7 +9,8 @@ from opensprite.bus.events import RunEvent
 from opensprite.bus.message import AssistantMessage
 from opensprite.channels.web import WebAdapter
 from opensprite.config import Config
-from opensprite.cron import CronManager
+from opensprite.context.paths import get_session_workspace
+from opensprite.cron import CronManager, CronSchedule, CronService
 from opensprite.storage import MemoryStorage, StoredMessage
 
 
@@ -864,6 +865,20 @@ def test_web_adapter_schedule_settings_create_default_config(tmp_path, monkeypat
 async def _run_web_cron_jobs_api(tmp_path: Path):
     config_path = tmp_path / "opensprite.json"
     Config.copy_template(config_path)
+    workspace_root = tmp_path / "workspace"
+    seeded_session_id = "telegram:user-1"
+    seeded_service = CronService(
+        get_session_workspace(seeded_session_id, workspace_root=workspace_root) / "cron" / "jobs.json",
+        session_id=seeded_session_id,
+    )
+    seeded_job = seeded_service.add_job(
+        name="seeded telegram job",
+        schedule=CronSchedule(kind="every", every_ms=120_000),
+        message="seeded status",
+        deliver=True,
+        channel="telegram",
+        external_chat_id="user-1",
+    )
     triggered: list[tuple[str, str]] = []
 
     async def on_job(session_id, job):
@@ -874,7 +889,7 @@ async def _run_web_cron_jobs_api(tmp_path: Path):
         def __init__(self):
             super().__init__()
             self.config_path = config_path
-            self.cron_manager = CronManager(workspace_root=tmp_path / "workspace", on_job=on_job)
+            self.cron_manager = CronManager(workspace_root=workspace_root, on_job=on_job)
 
     agent = CronAgent()
     queue = MessageQueue(agent)
@@ -899,13 +914,12 @@ async def _run_web_cron_jobs_api(tmp_path: Path):
         async with ClientSession() as session:
             async with session.get(
                 f"http://127.0.0.1:{port}/api/cron/jobs",
-                params={"session_id": session_id},
             ) as resp:
                 assert resp.status == 200
                 payload = await resp.json()
 
-            assert payload["session_id"] == session_id
-            assert payload["jobs"] == []
+            assert payload["session_id"] is None
+            assert [(job["session_id"], job["id"]) for job in payload["jobs"]] == [(seeded_session_id, seeded_job.id)]
 
             async with session.post(
                 f"http://127.0.0.1:{port}/api/cron/jobs",
@@ -922,8 +936,15 @@ async def _run_web_cron_jobs_api(tmp_path: Path):
 
             job_id = created["job"]["id"]
             assert created["job"]["schedule"]["kind"] == "every"
+            assert created["job"]["session_id"] == session_id
             assert created["job"]["payload"]["channel"] == "web"
             assert created["job"]["payload"]["external_chat_id"] == "browser-1"
+
+            async with session.get(f"http://127.0.0.1:{port}/api/cron/jobs") as resp:
+                assert resp.status == 200
+                all_jobs = await resp.json()
+
+            assert {job["session_id"] for job in all_jobs["jobs"]} == {session_id, seeded_session_id}
 
             async with session.put(
                 f"http://127.0.0.1:{port}/api/cron/jobs/{job_id}",
@@ -977,12 +998,11 @@ async def _run_web_cron_jobs_api(tmp_path: Path):
 
             async with session.get(
                 f"http://127.0.0.1:{port}/api/cron/jobs",
-                params={"session_id": session_id},
             ) as resp:
                 assert resp.status == 200
                 final_payload = await resp.json()
 
-            assert final_payload["jobs"] == []
+            assert [(job["session_id"], job["id"]) for job in final_payload["jobs"]] == [(seeded_session_id, seeded_job.id)]
     finally:
         adapter_task.cancel()
         try:

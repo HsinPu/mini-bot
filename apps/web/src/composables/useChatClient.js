@@ -383,6 +383,7 @@ export function useChatClient() {
     cronJobsNotice: "",
     cronJobs: [],
     cronJobForm: {
+      sessionId: "",
       jobId: "",
       mode: "cron",
       name: "",
@@ -830,6 +831,7 @@ export function useChatClient() {
   }
 
   function resetCronJobForm() {
+    settingsState.cronJobForm.sessionId = "";
     settingsState.cronJobForm.jobId = "";
     settingsState.cronJobForm.mode = "cron";
     settingsState.cronJobForm.name = "";
@@ -844,7 +846,7 @@ export function useChatClient() {
   function buildCronJobPayload() {
     const form = settingsState.cronJobForm;
     const payload = {
-      session_id: getActiveCronSessionId(),
+      session_id: form.sessionId || getActiveCronSessionId(),
       kind: form.mode,
       name: String(form.name || "").trim(),
       message: String(form.message || "").trim(),
@@ -1030,17 +1032,10 @@ export function useChatClient() {
   }
 
   async function loadCronJobs() {
-    const sessionId = getActiveCronSessionId();
-    if (!sessionId) {
-      settingsState.cronJobs = [];
-      settingsState.cronJobsError = copy.value.notices.sessionNotReady;
-      return;
-    }
-
     settingsState.cronJobsLoading = true;
     settingsState.cronJobsError = "";
     try {
-      const payload = await requestSettingsJson(`/api/cron/jobs?session_id=${encodeURIComponent(sessionId)}`);
+      const payload = await requestSettingsJson("/api/cron/jobs");
       settingsState.cronJobs = Array.isArray(payload.jobs) ? payload.jobs : [];
     } catch (error) {
       settingsState.cronJobsError = error?.message || copy.value.notices.cronJobsLoadFailed;
@@ -1246,6 +1241,7 @@ export function useChatClient() {
     const payload = job?.payload || {};
     settingsState.cronJobsNotice = "";
     settingsState.cronJobsError = "";
+    settingsState.cronJobForm.sessionId = job?.session_id || "";
     settingsState.cronJobForm.jobId = job?.id || "";
     settingsState.cronJobForm.mode = schedule.kind || "cron";
     settingsState.cronJobForm.name = job?.name || "";
@@ -1292,7 +1288,7 @@ export function useChatClient() {
   }
 
   async function runCronJobAction(job, action) {
-    const sessionId = getActiveCronSessionId();
+    const sessionId = job?.session_id || getActiveCronSessionId();
     if (!sessionId) {
       settingsState.cronJobsError = copy.value.notices.sessionNotReady;
       return;

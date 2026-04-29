@@ -578,6 +578,7 @@
                   </span>
                 </div>
                 <span>{{ job.schedule.display }}</span>
+                <span v-if="job.session_id">{{ copy.settings.schedule.sessionLabel(job.session_id) }}</span>
                 <span v-if="job.state.next_run_display">{{ copy.settings.schedule.nextRun(job.state.next_run_display) }}</span>
                 <p>{{ job.payload.message }}</p>
               </div>

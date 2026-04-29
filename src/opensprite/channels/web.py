@@ -509,12 +509,13 @@ class WebAdapter(MessageAdapter):
 
         raise web.HTTPBadRequest(text="kind must be one of every, cron, or at")
 
-    def _serialize_cron_job(self, job: CronJob, *, default_timezone: str) -> dict[str, Any]:
+    def _serialize_cron_job(self, job: CronJob, *, default_timezone: str, session_id: str | None = None) -> dict[str, Any]:
         next_run_display = None
         if job.state.next_run_at_ms:
             next_run_display = format_cron_timestamp(job.state.next_run_at_ms, job.schedule.tz or default_timezone)
         return {
             "id": job.id,
+            "session_id": session_id,
             "name": job.name,
             "enabled": job.enabled,
             "schedule": {
@@ -994,17 +995,26 @@ class WebAdapter(MessageAdapter):
         return web.json_response(payload)
 
     async def _handle_cron_jobs(self, request: web.Request) -> web.Response:
-        session_id = self._require_session_id(request.query.get("session_id"))
-        service = await self._get_cron_service(session_id)
         default_timezone = self._cron_default_timezone()
+        session_id = self._coerce_optional_text(request.query.get("session_id"))
+        if session_id:
+            service = await self._get_cron_service(session_id)
+            jobs = [
+                self._serialize_cron_job(job, default_timezone=default_timezone, session_id=session_id)
+                for job in service.list_jobs(include_disabled=True)
+            ]
+        else:
+            services = await self._require_cron_manager().get_all_services()
+            jobs = [
+                self._serialize_cron_job(job, default_timezone=default_timezone, session_id=job_session_id)
+                for job_session_id, service in sorted(services.items())
+                for job in service.list_jobs(include_disabled=True)
+            ]
         return web.json_response(
             {
                 "session_id": session_id,
                 "default_timezone": default_timezone,
-                "jobs": [
-                    self._serialize_cron_job(job, default_timezone=default_timezone)
-                    for job in service.list_jobs(include_disabled=True)
-                ],
+                "jobs": jobs,
             }
         )
 
@@ -1035,7 +1045,7 @@ class WebAdapter(MessageAdapter):
             {
                 "ok": True,
                 "session_id": session_id,
-                "job": self._serialize_cron_job(job, default_timezone=self._cron_default_timezone()),
+                "job": self._serialize_cron_job(job, default_timezone=self._cron_default_timezone(), session_id=session_id),
             }
         )
 
@@ -1070,7 +1080,7 @@ class WebAdapter(MessageAdapter):
             {
                 "ok": True,
                 "session_id": session_id,
-                "job": self._serialize_cron_job(job, default_timezone=self._cron_default_timezone()),
+                "job": self._serialize_cron_job(job, default_timezone=self._cron_default_timezone(), session_id=session_id),
             }
         )
 
@@ -1106,7 +1116,7 @@ class WebAdapter(MessageAdapter):
                 "ok": True,
                 "session_id": session_id,
                 "job_id": job_id,
-                "job": self._serialize_cron_job(job, default_timezone=self._cron_default_timezone()) if job else None,
+                "job": self._serialize_cron_job(job, default_timezone=self._cron_default_timezone(), session_id=session_id) if job else None,
             }
         )
 
