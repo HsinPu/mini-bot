@@ -45,7 +45,8 @@
 }
 
 :root[data-color-scheme="dark"] .topbar,
-:root[data-color-scheme="dark"] .mobile-nav-toggle {
+:root[data-color-scheme="dark"] .mobile-nav-toggle,
+:root[data-color-scheme="dark"] .sidebar-collapse-button {
   background: rgba(21, 23, 28, 0.9);
 }
 
@@ -304,6 +305,7 @@ button:disabled {
   height: 100dvh;
   min-height: 100vh;
   background: var(--surface);
+  transition: grid-template-columns 180ms ease;
 }
 
 .mobile-nav-toggle {
@@ -329,11 +331,34 @@ button:disabled {
 }
 
 .brand-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   min-height: 44px;
   padding: 6px 8px;
+}
+
+.brand-row__copy {
+  min-width: 0;
+}
+
+.sidebar-collapse-button {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.78);
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.sidebar-collapse-button span {
+  transform: translateY(-1px);
+  font-size: 1.15rem;
+  line-height: 1;
 }
 
 .brand-row strong,
@@ -343,7 +368,7 @@ button:disabled {
   font-weight: 650;
 }
 
-.brand-row span,
+.brand-row__copy span,
 .settings-button small {
   display: block;
   margin-top: 1px;
@@ -389,12 +414,13 @@ button:disabled {
 .new-chat-button:hover,
 .settings-button:hover,
 .session-tile:hover,
+.sidebar-collapse-button:hover,
 .ghost-button:hover,
 .prompt-card:hover {
   background: var(--surface-hover);
 }
 
-.new-chat-button span {
+.new-chat-button > span[aria-hidden="true"] {
   font-size: 1.1rem;
   line-height: 1;
 }
@@ -442,6 +468,10 @@ button:disabled {
   background: transparent;
 }
 
+.session-tile__initial {
+  display: none;
+}
+
 .session-tile strong,
 .session-tile span {
   overflow: hidden;
@@ -479,6 +509,87 @@ button:disabled {
   color: var(--text);
   text-align: left;
   background: transparent;
+}
+
+.settings-button__copy {
+  min-width: 0;
+}
+
+@media (min-width: 861px) {
+  .app-shell--sidebar-collapsed {
+    grid-template-columns: 72px minmax(0, 1fr);
+  }
+
+  .app-shell--sidebar-collapsed .sidebar {
+    padding: 10px 8px;
+  }
+
+  .app-shell--sidebar-collapsed .brand-row {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    gap: 8px;
+    padding-inline: 0;
+  }
+
+  .app-shell--sidebar-collapsed .brand-row__copy,
+  .app-shell--sidebar-collapsed .new-chat-button__label,
+  .app-shell--sidebar-collapsed .sidebar__section-head,
+  .app-shell--sidebar-collapsed .session-tile strong,
+  .app-shell--sidebar-collapsed .session-tile__id,
+  .app-shell--sidebar-collapsed .settings-button__copy {
+    display: none;
+  }
+
+  .app-shell--sidebar-collapsed .sidebar-collapse-button {
+    width: 34px;
+    height: 34px;
+  }
+
+  .app-shell--sidebar-collapsed .new-chat-button,
+  .app-shell--sidebar-collapsed .settings-button {
+    justify-content: center;
+    padding: 0;
+  }
+
+  .app-shell--sidebar-collapsed .new-chat-button {
+    min-height: 42px;
+  }
+
+  .app-shell--sidebar-collapsed .settings-button {
+    min-height: 44px;
+  }
+
+  .app-shell--sidebar-collapsed .session-list {
+    gap: 6px;
+    padding-right: 0;
+  }
+
+  .app-shell--sidebar-collapsed .session-tile {
+    place-items: center;
+    min-height: 42px;
+    padding: 0;
+  }
+
+  .app-shell--sidebar-collapsed .session-tile__initial {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 999px;
+    color: var(--text-muted);
+    background: var(--surface);
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+
+  .app-shell--sidebar-collapsed .session-tile--active .session-tile__initial {
+    color: #ffffff;
+    background: var(--accent);
+  }
+
+  .app-shell--sidebar-collapsed .sidebar__bottom {
+    padding-top: 8px;
+  }
 }
 
 .chat-panel {
@@ -1851,6 +1962,10 @@ textarea:focus-visible {
     color: var(--text);
     background: rgba(255, 255, 255, 0.9);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  }
+
+  .sidebar-collapse-button {
+    display: none;
   }
 
   .sidebar {

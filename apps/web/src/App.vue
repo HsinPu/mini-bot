@@ -1,5 +1,5 @@
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :class="{ 'app-shell--sidebar-collapsed': sidebarCollapsed }">
     <button
       class="mobile-nav-toggle"
       type="button"
@@ -13,10 +13,12 @@
     <SidebarNav
       :copy="copy"
       :state="state"
+      :collapsed="sidebarCollapsed"
       :get-session-display-id="getSessionDisplayId"
       :get-session-title="getSessionTitle"
       @create-new-chat="createNewChat"
       @set-active-session="setActiveSession"
+      @toggle-sidebar-collapsed="toggleSidebarCollapsed"
       @open-settings="openSettings()"
     />
 
@@ -87,6 +89,7 @@ const {
   state,
   messageText,
   sidebarOpen,
+  sidebarCollapsed,
   settingsOpen,
   settingsSection,
   settingsForm,
@@ -122,6 +125,7 @@ const {
   disconnectProvider,
   selectModel,
   toggleSidebar,
+  toggleSidebarCollapsed,
   connectSocket,
   resizeComposer,
   createNewChat,

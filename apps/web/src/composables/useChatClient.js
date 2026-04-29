@@ -9,6 +9,7 @@ const STORAGE_KEYS = {
   showRunTrace: "opensprite:web:showRunTrace",
   language: "opensprite:web:language",
   colorScheme: "opensprite:web:colorScheme",
+  sidebarCollapsed: "opensprite:web:sidebarCollapsed",
 };
 
 const DEFAULT_LANGUAGE = "zh-TW";
@@ -318,6 +319,7 @@ export function useChatClient() {
   const messageInput = ref(null);
   const messageStage = ref(null);
   const sidebarOpen = ref(false);
+  const sidebarCollapsed = ref(readStoredBoolean(STORAGE_KEYS.sidebarCollapsed, false));
   const settingsOpen = ref(false);
   const settingsSection = ref("general");
   const settingsForm = reactive({
@@ -732,6 +734,11 @@ export function useChatClient() {
       return;
     }
     openSidebar();
+  }
+
+  function toggleSidebarCollapsed() {
+    sidebarCollapsed.value = !sidebarCollapsed.value;
+    writeStoredValue(STORAGE_KEYS.sidebarCollapsed, String(sidebarCollapsed.value));
   }
 
   function disconnectSocket(reason, tone = "warning") {
@@ -1377,6 +1384,7 @@ export function useChatClient() {
     messageInput,
     messageStage,
     sidebarOpen,
+    sidebarCollapsed,
     settingsOpen,
     settingsSection,
     settingsForm,
@@ -1415,6 +1423,7 @@ export function useChatClient() {
     disconnectProvider,
     selectModel,
     toggleSidebar,
+    toggleSidebarCollapsed,
     connectSocket,
     resizeComposer,
     createNewChat,
