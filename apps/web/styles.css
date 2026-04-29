@@ -1790,6 +1790,18 @@ button:disabled {
   padding: 16px;
 }
 
+.mcp-editor {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+}
+
+.mcp-editor__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .schedule-editor__header {
   display: flex;
   align-items: center;

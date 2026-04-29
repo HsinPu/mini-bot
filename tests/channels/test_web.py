@@ -821,6 +821,115 @@ def test_web_adapter_exposes_settings_provider_api(tmp_path):
     asyncio.run(_run_web_settings_provider_api(tmp_path))
 
 
+async def _run_web_mcp_settings_api(tmp_path: Path):
+    config_path = tmp_path / "opensprite.json"
+    Config.copy_template(config_path)
+
+    class SettingsAgent(EchoAgent):
+        def __init__(self):
+            super().__init__()
+            self.config_path = config_path
+            self.reloads = 0
+
+        async def reload_mcp_from_config(self):
+            self.reloads += 1
+            return f"reload-{self.reloads}"
+
+    agent = SettingsAgent()
+    queue = MessageQueue(agent)
+    adapter = WebAdapter(
+        mq=queue,
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "path": "/ws",
+            "health_path": "/healthz",
+            "frontend_auto_build": False,
+        },
+    )
+    adapter_task = asyncio.create_task(adapter.run())
+
+    try:
+        await adapter.wait_until_started()
+        port = adapter.bound_port
+        assert port is not None
+
+        async with ClientSession() as session:
+            async with session.get(f"http://127.0.0.1:{port}/api/settings/mcp") as resp:
+                assert resp.status == 200
+                payload = await resp.json()
+
+            assert payload["servers"] == []
+            assert payload["mcp_servers_file"] == str(tmp_path / "mcp_servers.json")
+
+            async with session.post(
+                f"http://127.0.0.1:{port}/api/settings/mcp",
+                json={
+                    "server_id": "filesystem",
+                    "type": "stdio",
+                    "command": "npx",
+                    "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+                    "env": {"TOKEN": "secret-token"},
+                    "tool_timeout": 12,
+                    "enabled_tools": ["*"],
+                },
+            ) as resp:
+                assert resp.status == 200
+                response_text = await resp.text()
+                created = json.loads(response_text)
+
+            assert "secret-token" not in response_text
+            assert created["restart_required"] is False
+            assert created["runtime_reloaded"] is True
+            assert created["reload_message"] == "reload-1"
+            assert created["server"]["id"] == "filesystem"
+            assert created["server"]["env_configured"] is True
+            assert created["server"]["env_keys"] == ["TOKEN"]
+            mcp_file = json.loads((tmp_path / "mcp_servers.json").read_text(encoding="utf-8"))
+            assert mcp_file["filesystem"]["env"] == {"TOKEN": "secret-token"}
+
+            async with session.put(
+                f"http://127.0.0.1:{port}/api/settings/mcp/filesystem",
+                json={
+                    "type": "stdio",
+                    "command": "npx",
+                    "args": ["-y", "demo-mcp"],
+                    "enabled_tools": ["read_file"],
+                },
+            ) as resp:
+                assert resp.status == 200
+                updated = await resp.json()
+
+            assert updated["reload_message"] == "reload-2"
+            assert updated["server"]["enabled_tools"] == ["read_file"]
+            mcp_file = json.loads((tmp_path / "mcp_servers.json").read_text(encoding="utf-8"))
+            assert mcp_file["filesystem"]["env"] == {"TOKEN": "secret-token"}
+
+            async with session.post(f"http://127.0.0.1:{port}/api/settings/mcp/reload") as resp:
+                assert resp.status == 200
+                reloaded = await resp.json()
+
+            assert reloaded["reload_message"] == "reload-3"
+
+            async with session.delete(f"http://127.0.0.1:{port}/api/settings/mcp/filesystem") as resp:
+                assert resp.status == 200
+                removed = await resp.json()
+
+            assert removed["reload_message"] == "reload-4"
+            assert removed["servers"] == []
+            assert json.loads((tmp_path / "mcp_servers.json").read_text(encoding="utf-8")) == {}
+    finally:
+        adapter_task.cancel()
+        try:
+            await adapter_task
+        except asyncio.CancelledError:
+            pass
+
+
+def test_web_adapter_exposes_mcp_settings_api(tmp_path):
+    asyncio.run(_run_web_mcp_settings_api(tmp_path))
+
+
 async def _run_web_schedule_settings_creates_default_config(tmp_path: Path):
     agent = EchoAgent()
     queue = MessageQueue(agent)

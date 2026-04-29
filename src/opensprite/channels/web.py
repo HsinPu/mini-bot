@@ -29,6 +29,12 @@ from ..config.channel_settings import (
     ChannelSettingsService,
     ChannelSettingsValidationError,
 )
+from ..config.mcp_settings import (
+    MCPSettingsError,
+    MCPSettingsNotFound,
+    MCPSettingsService,
+    MCPSettingsValidationError,
+)
 from ..config.provider_settings import (
     ProviderSettingsConflict,
     ProviderSettingsError,
@@ -322,6 +328,9 @@ class WebAdapter(MessageAdapter):
     def _get_schedule_settings(self) -> ScheduleSettingsService:
         return ScheduleSettingsService(self._get_config_path())
 
+    def _get_mcp_settings(self) -> MCPSettingsService:
+        return MCPSettingsService(self._get_config_path())
+
     def _reload_agent_llm_from_config(self, payload: dict[str, Any], *, force: bool = False) -> dict[str, Any]:
         """Hot-apply persisted LLM settings to the running agent when possible."""
         if not force and not payload.get("restart_required"):
@@ -407,6 +416,31 @@ class WebAdapter(MessageAdapter):
         }
         return updated
 
+    async def _reload_mcp_from_config(self, payload: dict[str, Any], *, force: bool = False) -> dict[str, Any]:
+        """Hot-apply persisted MCP settings to the running agent when possible."""
+        if not force and not payload.get("restart_required"):
+            return self._with_mcp_runtime(payload)
+
+        updated = dict(payload)
+        agent = self._get_agent()
+        reload_mcp = getattr(agent, "reload_mcp_from_config", None) if agent is not None else None
+        if not callable(reload_mcp):
+            updated["runtime_reloaded"] = False
+            return self._with_mcp_runtime(updated)
+
+        try:
+            reload_message = await reload_mcp()
+        except Exception as exc:
+            logger.warning("MCP runtime reload failed after settings change: {}", exc)
+            updated["runtime_reloaded"] = False
+            updated["reload_error"] = str(exc)
+            return self._with_mcp_runtime(updated)
+
+        updated["restart_required"] = False
+        updated["runtime_reloaded"] = True
+        updated["reload_message"] = reload_message
+        return self._with_mcp_runtime(updated)
+
     @staticmethod
     async def _read_json_body(request: web.Request) -> dict[str, Any]:
         try:
@@ -442,6 +476,38 @@ class WebAdapter(MessageAdapter):
         if isinstance(exc, ScheduleSettingsNotFound):
             raise web.HTTPNotFound(text=str(exc)) from exc
         raise web.HTTPServiceUnavailable(text=str(exc)) from exc
+
+    @staticmethod
+    def _raise_mcp_settings_error(exc: MCPSettingsError) -> None:
+        if isinstance(exc, MCPSettingsValidationError):
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        if isinstance(exc, MCPSettingsNotFound):
+            raise web.HTTPNotFound(text=str(exc)) from exc
+        raise web.HTTPServiceUnavailable(text=str(exc)) from exc
+
+    def _mcp_runtime_payload(self) -> dict[str, Any]:
+        agent = self._get_agent()
+        lifecycle = getattr(agent, "mcp_lifecycle", None) if agent is not None else None
+        if lifecycle is None:
+            return {
+                "connected": False,
+                "connecting": False,
+                "connect_failures": 0,
+                "retry_after": 0.0,
+                "tool_names": [],
+            }
+        return {
+            "connected": bool(getattr(lifecycle, "connected", False)),
+            "connecting": bool(getattr(lifecycle, "connecting", False)),
+            "connect_failures": int(getattr(lifecycle, "connect_failures", 0) or 0),
+            "retry_after": float(getattr(lifecycle, "retry_after", 0.0) or 0.0),
+            "tool_names": sorted(getattr(lifecycle, "tool_names", set()) or []),
+        }
+
+    def _with_mcp_runtime(self, payload: dict[str, Any]) -> dict[str, Any]:
+        updated = dict(payload)
+        updated["runtime"] = self._mcp_runtime_payload()
+        return updated
 
     def _cron_default_timezone(self) -> str:
         try:
@@ -994,6 +1060,50 @@ class WebAdapter(MessageAdapter):
         payload = self._reload_schedule_from_config(payload)
         return web.json_response(payload)
 
+    async def _handle_settings_mcp(self, request: web.Request) -> web.Response:
+        try:
+            payload = self._get_mcp_settings().list_servers()
+        except MCPSettingsError as exc:
+            self._raise_mcp_settings_error(exc)
+        return web.json_response(self._with_mcp_runtime(payload))
+
+    async def _handle_settings_mcp_create(self, request: web.Request) -> web.Response:
+        body = await self._read_json_body(request)
+        server_id = self._coerce_optional_text(body.get("server_id"), default="") or ""
+        try:
+            payload = self._get_mcp_settings().upsert_server(server_id, body)
+        except MCPSettingsError as exc:
+            self._raise_mcp_settings_error(exc)
+        payload = await self._reload_mcp_from_config(payload)
+        return web.json_response(payload)
+
+    async def _handle_settings_mcp_update(self, request: web.Request) -> web.Response:
+        server_id = self._coerce_optional_text(request.match_info.get("server_id"), default="") or ""
+        body = await self._read_json_body(request)
+        try:
+            payload = self._get_mcp_settings().upsert_server(server_id, body)
+        except MCPSettingsError as exc:
+            self._raise_mcp_settings_error(exc)
+        payload = await self._reload_mcp_from_config(payload)
+        return web.json_response(payload)
+
+    async def _handle_settings_mcp_delete(self, request: web.Request) -> web.Response:
+        server_id = self._coerce_optional_text(request.match_info.get("server_id"), default="") or ""
+        try:
+            payload = self._get_mcp_settings().remove_server(server_id)
+        except MCPSettingsError as exc:
+            self._raise_mcp_settings_error(exc)
+        payload = await self._reload_mcp_from_config(payload)
+        return web.json_response(payload)
+
+    async def _handle_settings_mcp_reload(self, request: web.Request) -> web.Response:
+        try:
+            payload = self._get_mcp_settings().list_servers()
+        except MCPSettingsError as exc:
+            self._raise_mcp_settings_error(exc)
+        payload = await self._reload_mcp_from_config({**payload, "restart_required": True}, force=True)
+        return web.json_response(payload)
+
     async def _handle_cron_jobs(self, request: web.Request) -> web.Response:
         default_timezone = self._cron_default_timezone()
         session_id = self._coerce_optional_text(request.query.get("session_id"))
@@ -1233,6 +1343,11 @@ class WebAdapter(MessageAdapter):
         self.app.router.add_post("/api/settings/models/select", self._handle_settings_model_select)
         self.app.router.add_get("/api/settings/schedule", self._handle_settings_schedule)
         self.app.router.add_put("/api/settings/schedule", self._handle_settings_schedule_update)
+        self.app.router.add_get("/api/settings/mcp", self._handle_settings_mcp)
+        self.app.router.add_post("/api/settings/mcp", self._handle_settings_mcp_create)
+        self.app.router.add_post("/api/settings/mcp/reload", self._handle_settings_mcp_reload)
+        self.app.router.add_put("/api/settings/mcp/{server_id}", self._handle_settings_mcp_update)
+        self.app.router.add_delete("/api/settings/mcp/{server_id}", self._handle_settings_mcp_delete)
         self.app.router.add_get("/api/cron/jobs", self._handle_cron_jobs)
         self.app.router.add_post("/api/cron/jobs", self._handle_cron_job_create)
         self.app.router.add_put("/api/cron/jobs/{job_id}", self._handle_cron_job_update)

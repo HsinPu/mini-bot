@@ -394,6 +394,30 @@ export function useChatClient() {
       timezone: "UTC",
       deliver: true,
     },
+    mcpLoading: false,
+    mcpError: "",
+    mcpNotice: "",
+    mcp: {
+      servers: [],
+      runtime: {
+        connected: false,
+        connecting: false,
+        connect_failures: 0,
+        tool_names: [],
+      },
+    },
+    mcpForm: {
+      editingId: "",
+      serverId: "",
+      type: "stdio",
+      command: "",
+      argsText: "",
+      url: "",
+      envJson: "",
+      headersJson: "",
+      toolTimeout: "30",
+      enabledToolsText: "*",
+    },
   });
 
   let activeSocket = null;
@@ -863,6 +887,98 @@ export function useChatClient() {
     return payload;
   }
 
+  function parseLines(value) {
+    return String(value || "")
+      .split(/\r?\n/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  function parseListText(value, fallback = []) {
+    const items = String(value || "")
+      .replace(/,/g, "\n")
+      .split(/\r?\n/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    return items.length ? items : fallback;
+  }
+
+  function parseOptionalJsonObject(value, fieldLabel) {
+    const text = String(value || "").trim();
+    if (!text) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(text);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("not object");
+      }
+      return parsed;
+    } catch {
+      settingsState.mcpError = copy.value.notices.mcpJsonInvalid(fieldLabel);
+      return undefined;
+    }
+  }
+
+  function normalizeMcpSettings(payload) {
+    return {
+      ...payload,
+      servers: Array.isArray(payload?.servers) ? payload.servers : [],
+      runtime: payload?.runtime && typeof payload.runtime === "object"
+        ? {
+            connected: Boolean(payload.runtime.connected),
+            connecting: Boolean(payload.runtime.connecting),
+            connect_failures: Number(payload.runtime.connect_failures || 0),
+            retry_after: Number(payload.runtime.retry_after || 0),
+            tool_names: Array.isArray(payload.runtime.tool_names) ? payload.runtime.tool_names : [],
+          }
+        : settingsState.mcp.runtime,
+    };
+  }
+
+  function resetMcpForm() {
+    settingsState.mcpForm.editingId = "";
+    settingsState.mcpForm.serverId = "";
+    settingsState.mcpForm.type = "stdio";
+    settingsState.mcpForm.command = "";
+    settingsState.mcpForm.argsText = "";
+    settingsState.mcpForm.url = "";
+    settingsState.mcpForm.envJson = "";
+    settingsState.mcpForm.headersJson = "";
+    settingsState.mcpForm.toolTimeout = "30";
+    settingsState.mcpForm.enabledToolsText = "*";
+  }
+
+  function buildMcpServerPayload() {
+    settingsState.mcpError = "";
+    const form = settingsState.mcpForm;
+    const env = parseOptionalJsonObject(form.envJson, copy.value.settings.mcp.env);
+    if (env === undefined) {
+      return null;
+    }
+    const headers = parseOptionalJsonObject(form.headersJson, copy.value.settings.mcp.headers);
+    if (headers === undefined) {
+      return null;
+    }
+
+    const payload = {
+      server_id: String(form.serverId || "").trim(),
+      type: form.type,
+      command: String(form.command || "").trim(),
+      args: parseLines(form.argsText),
+      url: String(form.url || "").trim(),
+      tool_timeout: Number(form.toolTimeout || 30),
+      enabled_tools: parseListText(form.enabledToolsText, ["*"]),
+    };
+    if (env !== null) {
+      payload.env = env;
+    }
+    if (headers !== null) {
+      payload.headers = headers;
+    }
+    return payload;
+  }
+
   function makeHistoryMessage(message, index) {
     const metadata = message?.metadata && typeof message.metadata === "object" ? message.metadata : {};
     const role = message?.role === "user" ? "user" : "assistant";
@@ -1014,6 +1130,18 @@ export function useChatClient() {
     }
   }
 
+  async function loadMcpSettings() {
+    settingsState.mcpLoading = true;
+    settingsState.mcpError = "";
+    try {
+      settingsState.mcp = normalizeMcpSettings(await requestSettingsJson("/api/settings/mcp"));
+    } catch (error) {
+      settingsState.mcpError = error?.message || copy.value.notices.mcpLoadFailed;
+    } finally {
+      settingsState.mcpLoading = false;
+    }
+  }
+
   async function loadScheduleSettings() {
     settingsState.scheduleLoading = true;
     settingsState.scheduleError = "";
@@ -1055,6 +1183,10 @@ export function useChatClient() {
     }
     if (sectionName === "models") {
       loadModelSettings();
+      return;
+    }
+    if (sectionName === "mcp") {
+      loadMcpSettings();
       return;
     }
     if (sectionName === "schedule") {
@@ -1211,6 +1343,97 @@ export function useChatClient() {
       settingsState.modelsError = error?.message || copy.value.notices.modelSelectFailed;
     } finally {
       settingsState.modelsLoading = false;
+    }
+  }
+
+  function beginMcpEdit(server) {
+    settingsState.mcpNotice = "";
+    settingsState.mcpError = "";
+    settingsState.mcpForm.editingId = server.id;
+    settingsState.mcpForm.serverId = server.id;
+    settingsState.mcpForm.type = server.type || "stdio";
+    settingsState.mcpForm.command = server.command || "";
+    settingsState.mcpForm.argsText = Array.isArray(server.args) ? server.args.join("\n") : "";
+    settingsState.mcpForm.url = server.url || "";
+    settingsState.mcpForm.envJson = "";
+    settingsState.mcpForm.headersJson = "";
+    settingsState.mcpForm.toolTimeout = String(server.tool_timeout || 30);
+    settingsState.mcpForm.enabledToolsText = Array.isArray(server.enabled_tools) ? server.enabled_tools.join("\n") : "*";
+  }
+
+  function cancelMcpEdit() {
+    resetMcpForm();
+  }
+
+  async function saveMcpServer() {
+    const payload = buildMcpServerPayload();
+    if (payload === null) {
+      return;
+    }
+    if (!payload.server_id) {
+      settingsState.mcpError = copy.value.notices.mcpServerIdRequired;
+      return;
+    }
+    if (payload.type === "stdio" && !payload.command) {
+      settingsState.mcpError = copy.value.notices.mcpCommandRequired;
+      return;
+    }
+    if ((payload.type === "sse" || payload.type === "streamableHttp") && !payload.url) {
+      settingsState.mcpError = copy.value.notices.mcpUrlRequired;
+      return;
+    }
+
+    settingsState.mcpLoading = true;
+    settingsState.mcpError = "";
+    settingsState.mcpNotice = "";
+    try {
+      const editingId = settingsState.mcpForm.editingId;
+      const response = await requestSettingsJson(editingId ? `/api/settings/mcp/${encodeURIComponent(editingId)}` : "/api/settings/mcp", {
+        method: editingId ? "PUT" : "POST",
+        body: JSON.stringify(payload),
+      });
+      settingsState.mcp = normalizeMcpSettings(response);
+      settingsState.mcpNotice = response.reload_message || copy.value.notices.mcpSaved;
+      resetMcpForm();
+    } catch (error) {
+      settingsState.mcpError = error?.message || copy.value.notices.mcpSaveFailed;
+    } finally {
+      settingsState.mcpLoading = false;
+    }
+  }
+
+  async function removeMcpServer(server) {
+    settingsState.mcpLoading = true;
+    settingsState.mcpError = "";
+    settingsState.mcpNotice = "";
+    try {
+      const response = await requestSettingsJson(`/api/settings/mcp/${encodeURIComponent(server.id)}`, {
+        method: "DELETE",
+      });
+      settingsState.mcp = normalizeMcpSettings(response);
+      settingsState.mcpNotice = response.reload_message || copy.value.notices.mcpRemoved;
+      if (settingsState.mcpForm.editingId === server.id) {
+        resetMcpForm();
+      }
+    } catch (error) {
+      settingsState.mcpError = error?.message || copy.value.notices.mcpRemoveFailed;
+    } finally {
+      settingsState.mcpLoading = false;
+    }
+  }
+
+  async function reloadMcpSettings() {
+    settingsState.mcpLoading = true;
+    settingsState.mcpError = "";
+    settingsState.mcpNotice = "";
+    try {
+      const response = await requestSettingsJson("/api/settings/mcp/reload", { method: "POST" });
+      settingsState.mcp = normalizeMcpSettings(response);
+      settingsState.mcpNotice = response.reload_message || copy.value.notices.mcpReloaded;
+    } catch (error) {
+      settingsState.mcpError = error?.message || copy.value.notices.mcpReloadFailed;
+    } finally {
+      settingsState.mcpLoading = false;
     }
   }
 
@@ -1640,6 +1863,7 @@ export function useChatClient() {
     loadModelSettings,
     loadChannelSettings,
     loadScheduleSettings,
+    loadMcpSettings,
     loadCronJobs,
     beginChannelConnect,
     cancelChannelConnect,
@@ -1650,6 +1874,11 @@ export function useChatClient() {
     saveProviderConnection,
     disconnectProvider,
     selectModel,
+    beginMcpEdit,
+    cancelMcpEdit,
+    saveMcpServer,
+    removeMcpServer,
+    reloadMcpSettings,
     saveScheduleSettings,
     beginCronJobEdit,
     cancelCronJobEdit,

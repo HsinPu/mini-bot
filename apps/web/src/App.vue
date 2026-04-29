@@ -74,6 +74,11 @@
     @save-provider-connection="saveProviderConnection"
     @disconnect-provider="disconnectProvider"
     @select-model="selectModel"
+    @save-mcp-server="saveMcpServer"
+    @edit-mcp-server="beginMcpEdit"
+    @cancel-mcp-edit="cancelMcpEdit"
+    @remove-mcp-server="removeMcpServer"
+    @reload-mcp-settings="reloadMcpSettings"
     @save-schedule-settings="saveScheduleSettings"
     @save-cron-job="saveCronJob"
     @edit-cron-job="beginCronJobEdit"
@@ -129,6 +134,11 @@ const {
   saveProviderConnection,
   disconnectProvider,
   selectModel,
+  beginMcpEdit,
+  cancelMcpEdit,
+  saveMcpServer,
+  removeMcpServer,
+  reloadMcpSettings,
   saveScheduleSettings,
   beginCronJobEdit,
   cancelCronJobEdit,
