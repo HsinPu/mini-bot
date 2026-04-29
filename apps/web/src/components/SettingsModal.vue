@@ -457,125 +457,10 @@
             </div>
           </div>
 
-          <div v-if="settingsState.mcpForm.showEditor" class="mcp-editor-screen">
-            <div class="mcp-editor-screen__header">
-              <div>
-                <h3>{{ settingsState.mcpForm.editingId ? copy.settings.mcp.editTitle : copy.settings.mcp.addTitle }}</h3>
-                <span>{{ copy.settings.mcp.simpleHint }}</span>
-              </div>
-              <button class="secondary-button" type="button" @click="$emit('cancel-mcp-edit')">
-                {{ copy.settings.mcp.backToList }}
-              </button>
-            </div>
-
-            <div class="settings-card mcp-editor">
-              <div class="schedule-form-grid">
-                <label class="channel-field">
-                  <span>{{ copy.settings.mcp.serverId }}</span>
-                  <input
-                    v-model="settingsState.mcpForm.serverId"
-                    type="text"
-                    :disabled="Boolean(settingsState.mcpForm.editingId)"
-                    spellcheck="false"
-                  />
-                </label>
-
-                <label class="channel-field">
-                  <span>{{ copy.settings.mcp.transport }}</span>
-                  <select v-model="settingsState.mcpForm.type">
-                    <option value="stdio">stdio</option>
-                    <option value="sse">sse</option>
-                    <option value="streamableHttp">streamableHttp</option>
-                  </select>
-                </label>
-
-                <label v-if="settingsState.mcpForm.type === 'stdio'" class="channel-field channel-field--wide">
-                  <span>{{ copy.settings.mcp.command }}</span>
-                  <input v-model="settingsState.mcpForm.command" type="text" spellcheck="false" />
-                </label>
-
-                <label v-if="settingsState.mcpForm.type === 'stdio'" class="channel-field channel-field--wide">
-                  <span>{{ copy.settings.mcp.args }}</span>
-                  <textarea v-model="settingsState.mcpForm.argsText" rows="3" spellcheck="false"></textarea>
-                </label>
-
-                <label v-if="settingsState.mcpForm.type !== 'stdio'" class="channel-field channel-field--wide">
-                  <span>{{ copy.settings.mcp.url }}</span>
-                  <input v-model="settingsState.mcpForm.url" type="text" spellcheck="false" />
-                </label>
-              </div>
-
-              <div class="mcp-editor__toolbar">
-                <button class="secondary-button" type="button" @click="$emit('toggle-mcp-advanced')">
-                  {{ settingsState.mcpForm.showAdvanced ? copy.settings.mcp.hideAdvanced : copy.settings.mcp.showAdvanced }}
-                </button>
-                <button class="secondary-button" type="button" @click="$emit('toggle-mcp-json')">
-                  {{ settingsState.mcpForm.showJsonInput ? copy.settings.mcp.hideJson : copy.settings.mcp.showJson }}
-                </button>
-              </div>
-
-              <div v-if="settingsState.mcpForm.showJsonInput" class="mcp-editor__json">
-                <label class="channel-field channel-field--wide">
-                  <span>{{ copy.settings.mcp.configJson }}</span>
-                  <textarea
-                    v-model="settingsState.mcpForm.jsonText"
-                    rows="7"
-                    spellcheck="false"
-                    :placeholder="copy.settings.mcp.configJsonPlaceholder"
-                  ></textarea>
-                </label>
-                <button class="secondary-button" type="button" @click="$emit('apply-mcp-json')">
-                  {{ copy.settings.mcp.applyJson }}
-                </button>
-              </div>
-
-              <div v-if="settingsState.mcpForm.showAdvanced" class="schedule-form-grid">
-                <div class="mcp-editor__section-title channel-field--wide">
-                  <strong>{{ copy.settings.mcp.advancedTitle }}</strong>
-                  <span>{{ copy.settings.mcp.advancedHint }}</span>
-                </div>
-
-                <label class="channel-field">
-                  <span>{{ copy.settings.mcp.toolTimeout }}</span>
-                  <input v-model="settingsState.mcpForm.toolTimeout" type="number" min="1" step="1" />
-                </label>
-
-                <label class="channel-field">
-                  <span>{{ copy.settings.mcp.enabledTools }}</span>
-                  <textarea v-model="settingsState.mcpForm.enabledToolsText" rows="2" spellcheck="false"></textarea>
-                </label>
-
-                <label class="channel-field channel-field--wide">
-                  <span>{{ copy.settings.mcp.env }}</span>
-                  <textarea v-model="settingsState.mcpForm.envJson" rows="3" spellcheck="false" :placeholder="copy.settings.mcp.jsonPlaceholder"></textarea>
-                </label>
-
-                <label class="channel-field channel-field--wide">
-                  <span>{{ copy.settings.mcp.headers }}</span>
-                  <textarea v-model="settingsState.mcpForm.headersJson" rows="3" spellcheck="false" :placeholder="copy.settings.mcp.jsonPlaceholder"></textarea>
-                </label>
-              </div>
-
-              <div class="mcp-editor__actions">
-                <button
-                  class="primary-button"
-                  type="button"
-                  :disabled="settingsState.mcpLoading"
-                  @click="$emit('save-mcp-server')"
-                >
-                  {{ settingsState.mcpForm.editingId ? copy.settings.mcp.update : copy.settings.mcp.add }}
-                </button>
-                <button class="secondary-button" type="button" @click="$emit('cancel-mcp-edit')">
-                  {{ copy.settings.mcp.cancelEdit }}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div v-else class="mcp-server-list-screen">
+          <div class="mcp-server-list-screen">
             <div class="mcp-server-list-screen__header">
               <h3>{{ copy.settings.mcp.serversTitle }}</h3>
-              <button class="primary-button" type="button" @click="$emit('begin-mcp-create')">
+              <button class="provider-row__action" type="button" @click="$emit('begin-mcp-create')">
                 {{ copy.settings.mcp.openAdd }}
               </button>
             </div>
@@ -944,6 +829,126 @@
 
           <button class="primary-button provider-connect-dialog__submit" type="submit">
             {{ copy.settings.channels.submit }}
+          </button>
+        </form>
+      </div>
+
+      <div v-if="settingsState.mcpForm.showEditor" class="provider-connect-dialog" role="dialog" aria-modal="true">
+        <header class="provider-connect-dialog__top">
+          <button
+            class="provider-connect-dialog__icon-button"
+            type="button"
+            :aria-label="copy.settings.mcp.backToList"
+            @click="$emit('cancel-mcp-edit')"
+          >
+            ←
+          </button>
+          <button
+            class="provider-connect-dialog__icon-button"
+            type="button"
+            :aria-label="copy.settings.closeAria"
+            @click="$emit('cancel-mcp-edit')"
+          >
+            ×
+          </button>
+        </header>
+
+        <form class="provider-connect-dialog__body" @submit.prevent="$emit('save-mcp-server')">
+          <div class="provider-connect-dialog__title">
+            <span class="provider-row__mark" aria-hidden="true">MC</span>
+            <h3>{{ settingsState.mcpForm.editingId ? copy.settings.mcp.editTitle : copy.settings.mcp.addTitle }}</h3>
+          </div>
+
+          <p>{{ copy.settings.mcp.simpleHint }}</p>
+
+          <label class="provider-connect-field">
+            <span>{{ copy.settings.mcp.serverId }}</span>
+            <input
+              v-model="settingsState.mcpForm.serverId"
+              type="text"
+              :disabled="Boolean(settingsState.mcpForm.editingId)"
+              spellcheck="false"
+              autocomplete="off"
+            />
+          </label>
+
+          <label class="provider-connect-field">
+            <span>{{ copy.settings.mcp.transport }}</span>
+            <select v-model="settingsState.mcpForm.type">
+              <option value="stdio">stdio</option>
+              <option value="sse">sse</option>
+              <option value="streamableHttp">streamableHttp</option>
+            </select>
+          </label>
+
+          <label v-if="settingsState.mcpForm.type === 'stdio'" class="provider-connect-field">
+            <span>{{ copy.settings.mcp.command }}</span>
+            <input v-model="settingsState.mcpForm.command" type="text" spellcheck="false" autocomplete="off" />
+          </label>
+
+          <label v-if="settingsState.mcpForm.type === 'stdio'" class="provider-connect-field">
+            <span>{{ copy.settings.mcp.args }}</span>
+            <textarea v-model="settingsState.mcpForm.argsText" rows="3" spellcheck="false"></textarea>
+          </label>
+
+          <label v-if="settingsState.mcpForm.type !== 'stdio'" class="provider-connect-field">
+            <span>{{ copy.settings.mcp.url }}</span>
+            <input v-model="settingsState.mcpForm.url" type="text" spellcheck="false" autocomplete="off" />
+          </label>
+
+          <div class="mcp-editor__toolbar">
+            <button class="provider-connect-dialog__advanced" type="button" @click="$emit('toggle-mcp-advanced')">
+              {{ settingsState.mcpForm.showAdvanced ? copy.settings.mcp.hideAdvanced : copy.settings.mcp.showAdvanced }}
+            </button>
+            <button class="provider-connect-dialog__advanced" type="button" @click="$emit('toggle-mcp-json')">
+              {{ settingsState.mcpForm.showJsonInput ? copy.settings.mcp.hideJson : copy.settings.mcp.showJson }}
+            </button>
+          </div>
+
+          <div v-if="settingsState.mcpForm.showJsonInput" class="mcp-editor__json">
+            <label class="provider-connect-field">
+              <span>{{ copy.settings.mcp.configJson }}</span>
+              <textarea
+                v-model="settingsState.mcpForm.jsonText"
+                rows="7"
+                spellcheck="false"
+                :placeholder="copy.settings.mcp.configJsonPlaceholder"
+              ></textarea>
+            </label>
+            <button class="secondary-button" type="button" @click="$emit('apply-mcp-json')">
+              {{ copy.settings.mcp.applyJson }}
+            </button>
+          </div>
+
+          <div v-if="settingsState.mcpForm.showAdvanced" class="mcp-editor__advanced">
+            <div class="mcp-editor__section-title">
+              <strong>{{ copy.settings.mcp.advancedTitle }}</strong>
+              <span>{{ copy.settings.mcp.advancedHint }}</span>
+            </div>
+
+            <label class="provider-connect-field">
+              <span>{{ copy.settings.mcp.toolTimeout }}</span>
+              <input v-model="settingsState.mcpForm.toolTimeout" type="number" min="1" step="1" />
+            </label>
+
+            <label class="provider-connect-field">
+              <span>{{ copy.settings.mcp.enabledTools }}</span>
+              <textarea v-model="settingsState.mcpForm.enabledToolsText" rows="2" spellcheck="false"></textarea>
+            </label>
+
+            <label class="provider-connect-field">
+              <span>{{ copy.settings.mcp.env }}</span>
+              <textarea v-model="settingsState.mcpForm.envJson" rows="3" spellcheck="false" :placeholder="copy.settings.mcp.jsonPlaceholder"></textarea>
+            </label>
+
+            <label class="provider-connect-field">
+              <span>{{ copy.settings.mcp.headers }}</span>
+              <textarea v-model="settingsState.mcpForm.headersJson" rows="3" spellcheck="false" :placeholder="copy.settings.mcp.jsonPlaceholder"></textarea>
+            </label>
+          </div>
+
+          <button class="primary-button provider-connect-dialog__submit" type="submit" :disabled="settingsState.mcpLoading">
+            {{ settingsState.mcpForm.editingId ? copy.settings.mcp.update : copy.settings.mcp.add }}
           </button>
         </form>
       </div>
