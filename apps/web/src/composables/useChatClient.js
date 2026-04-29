@@ -97,6 +97,15 @@ function generateExternalChatId() {
   return `browser-${Date.now().toString(36)}-${randomToken()}`;
 }
 
+function externalChatIdFromSessionId(sessionId) {
+  const normalized = String(sessionId || "").trim();
+  const separatorIndex = normalized.indexOf(":");
+  if (separatorIndex < 0) {
+    return normalized;
+  }
+  return normalized.slice(separatorIndex + 1).trim();
+}
+
 function summarizeTitle(text) {
   const singleLine = text.trim().replace(/\s+/g, " ");
   if (!singleLine) {
@@ -361,6 +370,7 @@ export function useChatClient() {
 
   let activeSocket = null;
   let colorSchemeMediaQuery = null;
+  let clientDisposed = false;
 
   function applyDocumentPreferences() {
     if (typeof document === "undefined") {
@@ -735,7 +745,10 @@ export function useChatClient() {
   }
 
   async function requestSettingsJson(pathname, options = {}) {
-    const response = await fetch(buildHttpApiUrl(state.wsUrl, pathname).toString(), {
+    const [apiPathname, queryString] = String(pathname).split("?", 2);
+    const url = buildHttpApiUrl(state.wsUrl, apiPathname);
+    url.search = queryString || "";
+    const response = await fetch(url.toString(), {
       ...options,
       headers: {
         ...(options.body ? { "Content-Type": "application/json" } : {}),
@@ -747,6 +760,64 @@ export function useChatClient() {
       throw new Error(text || `HTTP ${response.status}`);
     }
     return response.json();
+  }
+
+  function makeHistoryMessage(message, index) {
+    const metadata = message?.metadata && typeof message.metadata === "object" ? message.metadata : {};
+    const role = message?.role === "user" ? "user" : "assistant";
+    return {
+      id: `history-${normalizeEventTimestamp(message?.created_at)}-${index}-${randomToken()}`,
+      role,
+      text: String(message?.content || ""),
+      meta: metadata.sender_name || metadata.sender_id || (role === "user" ? state.displayName : "OpenSprite"),
+      createdAt: normalizeEventTimestamp(message?.created_at),
+    };
+  }
+
+  function normalizeHistorySession(payload) {
+    const sessionId = String(payload?.session_id || "").trim();
+    const externalChatId = String(payload?.external_chat_id || "").trim()
+      || externalChatIdFromSessionId(sessionId)
+      || generateExternalChatId();
+    const session = createSession(externalChatId);
+    session.sessionId = sessionId || null;
+    session.title = String(payload?.title || "").trim() || "New chat";
+    session.updatedAt = normalizeEventTimestamp(payload?.updated_at);
+    session.messages = Array.isArray(payload?.messages)
+      ? payload.messages.map(makeHistoryMessage).filter((message) => message.text.trim())
+      : [];
+    return session;
+  }
+
+  function mergeHistorySessions(historySessions) {
+    if (!historySessions.length) {
+      return;
+    }
+
+    const sessionsByExternalChatId = new Map(historySessions.map((session) => [session.externalChatId, session]));
+    for (const session of state.sessions) {
+      if (!sessionsByExternalChatId.has(session.externalChatId) && (session.sessionId || session.messages.length > 0)) {
+        sessionsByExternalChatId.set(session.externalChatId, session);
+      }
+    }
+
+    state.sessions = [...sessionsByExternalChatId.values()].sort((left, right) => right.updatedAt - left.updatedAt);
+    if (!state.sessions.some((session) => session.externalChatId === state.activeExternalChatId)) {
+      state.activeExternalChatId = state.sessions[0]?.externalChatId || state.activeExternalChatId;
+      writeStoredValue(STORAGE_KEYS.activeExternalChatId, state.activeExternalChatId);
+    }
+  }
+
+  async function loadSessionHistory() {
+    try {
+      const payload = await requestSettingsJson("/api/sessions?limit=50&messages=50");
+      const historySessions = Array.isArray(payload.sessions)
+        ? payload.sessions.map(normalizeHistorySession)
+        : [];
+      mergeHistorySessions(historySessions);
+    } catch {
+      setNotice(copy.value.notices.historyLoadFailed, "warning");
+    }
   }
 
   async function loadProviderSettings() {
@@ -1248,6 +1319,14 @@ export function useChatClient() {
     });
   }
 
+  async function initializeClient() {
+    await loadSessionHistory();
+    if (clientDisposed) {
+      return;
+    }
+    connectSocket();
+  }
+
   function handleGlobalKeydown(event) {
     const pressedSettingsShortcut = event.key === "," && (event.ctrlKey || event.metaKey);
     if (pressedSettingsShortcut) {
@@ -1268,10 +1347,11 @@ export function useChatClient() {
     document.addEventListener("keydown", handleGlobalKeydown);
     resizeComposer();
     scrollMessagesToBottom();
-    connectSocket();
+    initializeClient();
   });
 
   onBeforeUnmount(() => {
+    clientDisposed = true;
     removeColorSchemeListener();
     document.removeEventListener("keydown", handleGlobalKeydown);
     document.body.classList.remove("settings-open", "sidebar-open");

@@ -398,6 +398,46 @@ class WebAdapter(MessageAdapter):
             "metadata": self._json_safe(dict(run.metadata or {})),
         }
 
+    def _serialize_message(self, message: Any) -> dict[str, Any]:
+        metadata = getattr(message, "metadata", {})
+        return {
+            "role": str(getattr(message, "role", "assistant") or "assistant"),
+            "content": str(getattr(message, "content", "") or ""),
+            "tool_name": getattr(message, "tool_name", None),
+            "metadata": self._json_safe(dict(metadata or {})),
+            "created_at": float(getattr(message, "timestamp", 0) or 0),
+        }
+
+    @staticmethod
+    def _session_title(messages: list[Any], fallback: str) -> str:
+        for message in messages:
+            role = str(getattr(message, "role", "") or "")
+            content = " ".join(str(getattr(message, "content", "") or "").split())
+            if role == "user" and content:
+                return f"{content[:30]}..." if len(content) > 30 else content
+        return fallback
+
+    @staticmethod
+    def _session_updated_at(messages: list[Any], runs: list[Any]) -> float:
+        timestamps = [float(getattr(message, "timestamp", 0) or 0) for message in messages]
+        timestamps.extend(float(getattr(run, "updated_at", 0) or 0) for run in runs)
+        return max(timestamps, default=0.0)
+
+    async def _serialize_session_summary(self, storage: Any, session_id: str, *, message_limit: int) -> dict[str, Any]:
+        messages = await storage.get_messages(session_id, limit=message_limit)
+        display_messages = [message for message in messages if str(getattr(message, "role", "") or "") in {"user", "assistant"}]
+        latest_runs = await storage.get_runs(session_id, limit=1)
+        external_chat_id = self._external_chat_id_from_session(session_id)
+        fallback_title = external_chat_id or session_id
+        return {
+            "session_id": session_id,
+            "external_chat_id": external_chat_id,
+            "title": self._session_title(display_messages, fallback_title),
+            "updated_at": self._session_updated_at(messages, latest_runs),
+            "message_count": await storage.get_message_count(session_id),
+            "messages": [self._serialize_message(message) for message in display_messages],
+        }
+
     def _serialize_run_event(self, event: Any) -> dict[str, Any]:
         return {
             "event_id": event.event_id,
@@ -594,6 +634,20 @@ class WebAdapter(MessageAdapter):
                 "runs": [self._serialize_run(run) for run in runs],
             }
         )
+
+    async def _handle_sessions(self, request: web.Request) -> web.Response:
+        storage = self._require_storage()
+        session_limit = self._coerce_limit(request.query.get("limit"), default=30, maximum=100)
+        message_limit = self._coerce_limit(request.query.get("messages"), default=50, maximum=200)
+        session_prefix = f"{self.channel_instance_id}:"
+        session_ids = [session_id for session_id in await storage.get_all_sessions() if session_id.startswith(session_prefix)]
+
+        sessions = [
+            await self._serialize_session_summary(storage, session_id, message_limit=message_limit)
+            for session_id in session_ids
+        ]
+        sessions.sort(key=lambda item: (item["updated_at"], item["session_id"]), reverse=True)
+        return web.json_response({"sessions": sessions[:session_limit]})
 
     async def _handle_run_trace(self, request: web.Request) -> web.Response:
         storage = self._require_storage()
@@ -861,6 +915,7 @@ class WebAdapter(MessageAdapter):
         self.app = web.Application()
         self.app.router.add_get(ws_path, self._handle_websocket)
         self.app.router.add_get(health_path, self._handle_health)
+        self.app.router.add_get("/api/sessions", self._handle_sessions)
         self.app.router.add_get("/api/runs", self._handle_runs)
         self.app.router.add_get("/api/runs/{run_id}", self._handle_run_trace)
         self.app.router.add_get("/api/runs/{run_id}/events", self._handle_run_events)

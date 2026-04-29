@@ -9,7 +9,7 @@ from opensprite.bus.events import RunEvent
 from opensprite.bus.message import AssistantMessage
 from opensprite.channels.web import WebAdapter
 from opensprite.config import Config
-from opensprite.storage import MemoryStorage
+from opensprite.storage import MemoryStorage, StoredMessage
 
 
 class EchoAgent:
@@ -438,6 +438,78 @@ async def _run_web_run_events_api():
 
 def test_web_adapter_exposes_run_events_api():
     asyncio.run(_run_web_run_events_api())
+
+
+async def _run_web_sessions_api():
+    storage = MemoryStorage()
+    await storage.add_message(
+        "web:browser-old",
+        StoredMessage(role="user", content="old hello", timestamp=100.0, metadata={"sender_name": "Tester"}),
+    )
+    await storage.add_message(
+        "web:browser-old",
+        StoredMessage(role="assistant", content="old reply", timestamp=101.0),
+    )
+    await storage.add_message(
+        "web:browser-new",
+        StoredMessage(role="user", content="new hello", timestamp=200.0, metadata={"sender_name": "Tester"}),
+    )
+    await storage.add_message(
+        "telegram:123",
+        StoredMessage(role="user", content="telegram should not appear", timestamp=300.0),
+    )
+
+    agent = EchoAgent()
+    agent.storage = storage
+    queue = MessageQueue(agent)
+    adapter = WebAdapter(
+        mq=queue,
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "path": "/ws",
+            "health_path": "/healthz",
+            "frontend_auto_build": False,
+        },
+    )
+    adapter_task = asyncio.create_task(adapter.run())
+
+    try:
+        await adapter.wait_until_started()
+        port = adapter.bound_port
+        assert port is not None
+
+        async with ClientSession() as session:
+            async with session.get(
+                f"http://127.0.0.1:{port}/api/sessions",
+                params={"limit": "1", "messages": "1"},
+            ) as resp:
+                assert resp.status == 200
+                payload = await resp.json()
+
+        assert [item["session_id"] for item in payload["sessions"]] == ["web:browser-new"]
+        assert payload["sessions"][0]["external_chat_id"] == "browser-new"
+        assert payload["sessions"][0]["title"] == "new hello"
+        assert payload["sessions"][0]["message_count"] == 1
+        assert payload["sessions"][0]["messages"] == [
+            {
+                "role": "user",
+                "content": "new hello",
+                "tool_name": None,
+                "metadata": {"sender_name": "Tester"},
+                "created_at": 200.0,
+            }
+        ]
+    finally:
+        adapter_task.cancel()
+        try:
+            await adapter_task
+        except asyncio.CancelledError:
+            pass
+
+
+def test_web_adapter_exposes_sessions_api():
+    asyncio.run(_run_web_sessions_api())
 
 
 async def _run_web_run_cancel_api():
