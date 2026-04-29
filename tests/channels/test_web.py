@@ -716,3 +716,75 @@ async def _run_web_settings_provider_api(tmp_path: Path):
 
 def test_web_adapter_exposes_settings_provider_api(tmp_path):
     asyncio.run(_run_web_settings_provider_api(tmp_path))
+
+
+async def _run_web_channel_settings_hot_reload(tmp_path: Path):
+    config_path = tmp_path / "opensprite.json"
+    Config.copy_template(config_path)
+
+    class SettingsAgent(EchoAgent):
+        def __init__(self):
+            super().__init__()
+            self.config_path = config_path
+
+    class FakeChannelManager:
+        def __init__(self):
+            self.calls = []
+
+        async def apply(self, channels_config, *, include_fixed=False):
+            self.calls.append((channels_config, include_fixed))
+            return {
+                "ok": True,
+                "started": ["telegram_work_telegram"],
+                "stopped": [],
+                "restarted": [],
+                "unchanged": [],
+                "failed": [],
+                "running": ["telegram_work_telegram"],
+            }
+
+    agent = SettingsAgent()
+    queue = MessageQueue(agent)
+    channel_manager = FakeChannelManager()
+    queue.channel_manager = channel_manager
+    adapter = WebAdapter(
+        mq=queue,
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "path": "/ws",
+            "health_path": "/healthz",
+            "frontend_auto_build": False,
+        },
+    )
+    adapter_task = asyncio.create_task(adapter.run())
+
+    try:
+        await adapter.wait_until_started()
+        port = adapter.bound_port
+        assert port is not None
+
+        async with ClientSession() as session:
+            async with session.post(
+                f"http://127.0.0.1:{port}/api/settings/channels",
+                json={"type": "telegram", "name": "Work Telegram", "token": "telegram-secret"},
+            ) as resp:
+                assert resp.status == 200
+                payload = await resp.json()
+
+        assert payload["restart_required"] is False
+        assert payload["runtime_reloaded"] is True
+        assert payload["runtime"]["started"] == ["telegram_work_telegram"]
+        assert payload["channel"]["id"] == "telegram_work_telegram"
+        assert len(channel_manager.calls) == 1
+        assert channel_manager.calls[0][1] is False
+    finally:
+        adapter_task.cancel()
+        try:
+            await adapter_task
+        except asyncio.CancelledError:
+            pass
+
+
+def test_web_channel_settings_hot_reload(tmp_path):
+    asyncio.run(_run_web_channel_settings_hot_reload(tmp_path))

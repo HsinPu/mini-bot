@@ -87,6 +87,9 @@ class TelegramAdapter(MessageAdapter):
         self.channel_type = "telegram"
         self.channel_instance_id = normalize_identifier(channel_instance_id, fallback="telegram")
         self._typing_tasks: dict[str, asyncio.Task] = {}
+        self._registered_handlers = False
+        self._used_legacy_error_handler = False
+        self._started_event = asyncio.Event()
 
     def _get_int(self, key: str) -> int:
         """Read an integer config value with sane defaults."""
@@ -125,6 +128,10 @@ class TelegramAdapter(MessageAdapter):
             f"typing_action_interval={self._get_int('typing_action_interval')}",
         ]
         return ", ".join(parts)
+
+    async def wait_until_started(self, timeout: float = 30.0) -> None:
+        """Wait until Telegram polling has started."""
+        await asyncio.wait_for(self._started_event.wait(), timeout=timeout)
 
     async def _send_typing_action(self, external_chat_id: str) -> None:
         """Send one Telegram typing action if the app is available."""
@@ -246,6 +253,24 @@ class TelegramAdapter(MessageAdapter):
             await self.app.shutdown()
         except Exception:
             pass
+
+    async def _shutdown_runtime(self) -> None:
+        """Stop polling and unregister queue handlers for this adapter instance."""
+        for session_id in list(self._typing_tasks):
+            await self._stop_typing_indicator(session_id)
+
+        await self._shutdown_app()
+
+        if self.mq is None or not self._registered_handlers:
+            return
+        self.mq.unregister_response_handler(self.channel_instance_id)
+        unregister_error_handler = getattr(self.mq, "unregister_error_handler", None)
+        if callable(unregister_error_handler):
+            unregister_error_handler(self.channel_instance_id)
+        elif self._used_legacy_error_handler:
+            self.mq.on_error = None
+        self._registered_handlers = False
+        self._used_legacy_error_handler = False
     
     @staticmethod
     def _resolve_update_bot(raw_update: Any, explicit_bot: Any = None) -> Any:
@@ -831,6 +856,8 @@ class TelegramAdapter(MessageAdapter):
             register_error_handler(self.channel_instance_id, self._on_error)
         else:
             self.mq.on_error = self._on_error
+            self._used_legacy_error_handler = True
+        self._registered_handlers = True
         
         # 初始化並啟動
         stage = "initialize"
@@ -859,6 +886,7 @@ class TelegramAdapter(MessageAdapter):
                 bootstrap_retries=self._get_int("bootstrap_retries"),
                 drop_pending_updates=self._get_bool("drop_pending_updates"),
             )
+            self._started_event.set()
             logger.info("Telegram polling started!")
         except (TimedOut, NetworkError) as exc:
             logger.error(
@@ -868,7 +896,7 @@ class TelegramAdapter(MessageAdapter):
                 exc,
                 self._describe_startup_config(),
             )
-            await self._shutdown_app()
+            await self._shutdown_runtime()
             raise RuntimeError(
                 "Telegram startup timed out while contacting the Bot API. "
                 "Check network access to api.telegram.org or increase channels.telegram timeouts in ~/.opensprite/opensprite.json."
@@ -879,11 +907,14 @@ class TelegramAdapter(MessageAdapter):
                 stage,
                 self._describe_startup_config(),
             )
-            await self._shutdown_app()
+            await self._shutdown_runtime()
             raise
-        
+
         # 保持執行
-        await asyncio.Event().wait()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            await self._shutdown_runtime()
 
 
 # ============================================

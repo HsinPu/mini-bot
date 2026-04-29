@@ -334,6 +334,31 @@ class WebAdapter(MessageAdapter):
         updated["runtime"] = self._json_safe(runtime)
         return updated
 
+    async def _reload_channels_from_config(self, payload: dict[str, Any], *, force: bool = False) -> dict[str, Any]:
+        """Hot-apply persisted channel settings to running adapters when possible."""
+        if not force and not payload.get("restart_required"):
+            return payload
+
+        manager = getattr(self.mq, "channel_manager", None)
+        apply_channels = getattr(manager, "apply", None)
+        if not callable(apply_channels):
+            return payload
+
+        updated = dict(payload)
+        try:
+            runtime = await apply_channels(Config.load(self._get_config_path()).channels, include_fixed=False)
+        except Exception as exc:
+            logger.warning("Channel runtime reload failed after settings change: {}", exc)
+            updated["runtime_reloaded"] = False
+            updated["reload_error"] = str(exc)
+            return updated
+
+        runtime_ok = bool(runtime.get("ok"))
+        updated["restart_required"] = not runtime_ok
+        updated["runtime_reloaded"] = runtime_ok
+        updated["runtime"] = self._json_safe(runtime)
+        return updated
+
     @staticmethod
     async def _read_json_body(request: web.Request) -> dict[str, Any]:
         try:
@@ -632,6 +657,7 @@ class WebAdapter(MessageAdapter):
             payload = self._get_channel_settings().list_channels()
         except ChannelSettingsError as exc:
             self._raise_channel_settings_error(exc)
+        payload = await self._reload_channels_from_config(payload)
         return web.json_response(payload)
 
     async def _handle_settings_channel_create(self, request: web.Request) -> web.Response:
@@ -647,6 +673,7 @@ class WebAdapter(MessageAdapter):
             )
         except ChannelSettingsError as exc:
             self._raise_channel_settings_error(exc)
+        payload = await self._reload_channels_from_config(payload)
         return web.json_response(payload)
 
     async def _handle_settings_channel_update(self, request: web.Request) -> web.Response:
@@ -662,6 +689,7 @@ class WebAdapter(MessageAdapter):
             )
         except ChannelSettingsError as exc:
             self._raise_channel_settings_error(exc)
+        payload = await self._reload_channels_from_config(payload)
         return web.json_response(payload)
 
     async def _handle_settings_channel_connect(self, request: web.Request) -> web.Response:
@@ -677,6 +705,7 @@ class WebAdapter(MessageAdapter):
             )
         except ChannelSettingsError as exc:
             self._raise_channel_settings_error(exc)
+        payload = await self._reload_channels_from_config(payload)
         return web.json_response(payload)
 
     async def _handle_settings_channel_disconnect(self, request: web.Request) -> web.Response:
@@ -687,6 +716,7 @@ class WebAdapter(MessageAdapter):
             payload = self._get_channel_settings().disconnect_channel(channel_id)
         except ChannelSettingsError as exc:
             self._raise_channel_settings_error(exc)
+        payload = await self._reload_channels_from_config(payload)
         return web.json_response(payload)
 
     async def _handle_settings_provider_connect(self, request: web.Request) -> web.Response:

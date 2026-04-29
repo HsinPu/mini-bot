@@ -275,12 +275,13 @@ async def run(config_path: str | Path | None = None) -> None:
     
     # 啟動訊息處理迴圈
     processor = asyncio.create_task(mq.process_queue())
+    channel_manager = None
 
     try:
         # 啟動所有頻道
         from .channels import start_channels
 
-        await start_channels(mq, config.channels)
+        channel_manager = await start_channels(mq, config.channels)
 
         logger.info("OpenSprite gateway 啟動完成！")
         logger.info("按 Ctrl+C 停止")
@@ -290,6 +291,8 @@ async def run(config_path: str | Path | None = None) -> None:
     except (KeyboardInterrupt, asyncio.CancelledError):
         logger.info("正在關閉...")
     finally:
+        if channel_manager is not None:
+            await channel_manager.stop_all()
         await mq.stop()
         await stop_background_task(processor, name="message queue processor")
         await stop_background_task(search_queue_worker, name="search embedding queue worker")

@@ -781,6 +781,33 @@ export function useChatClient() {
     };
   }
 
+  function sortChannelList(channels) {
+    return [...channels].sort((left, right) => String(left.name || left.id).localeCompare(String(right.name || right.id)));
+  }
+
+  function upsertConnectedChannel(channel) {
+    const visibleChannel = visibleChannels([channel])[0];
+    if (!visibleChannel) {
+      return;
+    }
+    const connected = settingsState.channels.connected.filter((entry) => entry.id !== visibleChannel.id);
+    const nextConnected = sortChannelList([...connected, visibleChannel]);
+    settingsState.channels = {
+      ...settingsState.channels,
+      connected: nextConnected,
+      channels: nextConnected,
+    };
+  }
+
+  function removeConnectedChannel(channelId) {
+    const nextConnected = settingsState.channels.connected.filter((entry) => entry.id !== channelId);
+    settingsState.channels = {
+      ...settingsState.channels,
+      connected: nextConnected,
+      channels: nextConnected,
+    };
+  }
+
   async function loadChannelSettings() {
     settingsState.channelsLoading = true;
     settingsState.channelsError = "";
@@ -858,6 +885,7 @@ export function useChatClient() {
         }),
       });
       settingsState.channelsNotice = copy.value.notices.channelConnected(payload.channel.name, payload.restart_required);
+      upsertConnectedChannel(payload.channel);
       cancelChannelConnect();
       await loadChannelSettings();
     } catch (error) {
@@ -876,6 +904,7 @@ export function useChatClient() {
         method: "POST",
       });
       settingsState.channelsNotice = copy.value.notices.channelDisconnected(channel.name, payload.restart_required);
+      removeConnectedChannel(channel.id);
       await loadChannelSettings();
     } catch (error) {
       settingsState.channelsError = error?.message || copy.value.notices.channelDisconnectFailed;
