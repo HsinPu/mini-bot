@@ -80,11 +80,11 @@ class UserProfileStore:
     def save_state(self, state: dict[str, int]) -> None:
         self.state.save_state(state)
 
-    def get_processed_index(self, chat_id: str) -> int:
-        return self.state.get_processed_index(chat_id)
+    def get_processed_index(self, session_id: str) -> int:
+        return self.state.get_processed_index(session_id)
 
-    def set_processed_index(self, chat_id: str, index: int) -> None:
-        self.state.set_processed_index(chat_id, index)
+    def set_processed_index(self, session_id: str, index: int) -> None:
+        self.state.set_processed_index(session_id, index)
 
 
 _SAVE_USER_PROFILE_TOOL = [
@@ -150,7 +150,7 @@ def load_user_profile_bootstrap_text(
     *,
     bootstrap_dir: str | Path | None = None,
 ) -> str:
-    """Load the bootstrap USER.md template used to seed a new per-chat profile file."""
+    """Load the bootstrap USER.md template used to seed a new per-session profile file."""
     template_root = Path(bootstrap_dir).expanduser() if bootstrap_dir is not None else get_bootstrap_dir(app_home)
     template_file = template_root / "USER.md"
     if not template_file.exists():
@@ -160,15 +160,15 @@ def load_user_profile_bootstrap_text(
 
 def create_user_profile_store(
     app_home: str | Path | None,
-    chat_id: str | None,
+    session_id: str | None,
     *,
     bootstrap_dir: str | Path | None = None,
     workspace_root: str | Path | None = None,
 ) -> UserProfileStore:
-    """Create the per-chat USER.md store for the given user/session scope."""
+    """Create the per-session USER.md store for the given user/session scope."""
     return UserProfileStore(
-        user_profile_file=get_user_profile_file(app_home, chat_id=chat_id, workspace_root=workspace_root),
-        state_file=get_user_profile_state_file(app_home, chat_id=chat_id, workspace_root=workspace_root),
+        user_profile_file=get_user_profile_file(app_home, chat_id=session_id, workspace_root=workspace_root),
+        state_file=get_user_profile_state_file(app_home, chat_id=session_id, workspace_root=workspace_root),
         bootstrap_text=load_user_profile_bootstrap_text(app_home, bootstrap_dir=bootstrap_dir),
     )
 
@@ -192,7 +192,7 @@ async def consolidate_user_profile(
     *,
     profile_llm: DocumentLlmConfig,
 ) -> bool:
-    """Update this chat's USER.md managed blocks from conversation history."""
+    """Update this session's USER.md managed blocks from conversation history."""
     if not messages:
         return True
 
@@ -275,7 +275,7 @@ Rules:
 
 
 class UserProfileConsolidator(ConversationConsolidator):
-    """Manage incremental USER.md updates from stored chat history (per chat, session workspace file)."""
+    """Manage incremental USER.md updates from stored session history."""
 
     def __init__(
         self,
@@ -307,15 +307,15 @@ class UserProfileConsolidator(ConversationConsolidator):
             "metadata": dict(message.metadata or {}),
         }
 
-    async def maybe_update(self, chat_id: str) -> None:
+    async def maybe_update(self, session_id: str) -> None:
         if not self.enabled:
             return
 
-        profile_store = self.profile_store_factory(chat_id)
-        message_count = await get_storage_message_count(self.storage, chat_id)
-        last_processed = profile_store.get_processed_index(chat_id)
+        profile_store = self.profile_store_factory(session_id)
+        message_count = await get_storage_message_count(self.storage, session_id)
+        last_processed = profile_store.get_processed_index(session_id)
         if last_processed > message_count:
-            profile_store.set_processed_index(chat_id, message_count)
+            profile_store.set_processed_index(session_id, message_count)
             return
 
         pending = message_count - last_processed
@@ -325,14 +325,14 @@ class UserProfileConsolidator(ConversationConsolidator):
         end_index = min(message_count, last_processed + self.lookback_messages)
         chunk = await get_storage_messages_slice(
             self.storage,
-            chat_id,
+            session_id,
             start_index=last_processed,
             end_index=end_index,
         )
         if not chunk:
             return
 
-        logger.info("[{}] Updating USER.md profile from {} messages", chat_id, len(chunk))
+        logger.info("[{}] Updating USER.md profile from {} messages", session_id, len(chunk))
         success = await consolidate_user_profile(
             profile_store=profile_store,
             messages=[self._to_message_dict(message) for message in chunk],
@@ -341,4 +341,4 @@ class UserProfileConsolidator(ConversationConsolidator):
             profile_llm=self.llm,
         )
         if success:
-            profile_store.set_processed_index(chat_id, end_index)
+            profile_store.set_processed_index(session_id, end_index)

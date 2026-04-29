@@ -727,9 +727,9 @@ class AgentLoop:
                 storage=self.storage,
                 provider=self.provider,
                 model=self.provider.get_default_model(),
-                profile_store_factory=lambda chat_id: create_user_profile_store(
+                profile_store_factory=lambda session_id: create_user_profile_store(
                     self.app_home,
-                    chat_id,
+                    session_id,
                     bootstrap_dir=bootstrap_dir,
                     workspace_root=self.tool_workspace,
                 ),
@@ -771,9 +771,9 @@ class AgentLoop:
             storage=self.storage,
             provider=self.provider,
             model=self.provider.get_default_model(),
-            active_task_store_factory=lambda chat_id: create_active_task_store(
+            active_task_store_factory=lambda session_id: create_active_task_store(
                 self.app_home,
-                chat_id,
+                session_id,
                 workspace_root=self.tool_workspace,
             ),
             threshold=self.active_task_config.threshold,
@@ -1379,25 +1379,25 @@ class AgentLoop:
             return False
         return self.run_state.is_cancel_requested(session_id, run_id)
 
-    def get_active_run(self, chat_id: str):
+    def get_active_run(self, session_id: str):
         """Return the active run state for one session, if any."""
-        return self.run_state.get_active(chat_id)
+        return self.run_state.get_active(session_id)
 
     async def request_run_cancel(
         self,
-        chat_id: str,
+        session_id: str,
         run_id: str,
         *,
         channel: str | None = None,
         external_chat_id: str | None = None,
     ) -> bool:
         """Request cooperative cancellation for one active run."""
-        active = self.run_state.request_cancel(chat_id, run_id)
+        active = self.run_state.request_cancel(session_id, run_id)
         if active is None:
             return False
-        killed_sessions = await self._cancel_owned_background_sessions(chat_id, run_id)
+        killed_sessions = await self._cancel_owned_background_sessions(session_id, run_id)
         await self._emit_run_event(
-            chat_id,
+            session_id,
             run_id,
             "run_cancel_requested",
             {
@@ -1414,78 +1414,77 @@ class AgentLoop:
         """Check whether RECENT_SUMMARY.md should be refreshed."""
         await self.recent_summary_update.maybe_update(session_id)
 
-    def _clear_active_task(self, chat_id: str) -> None:
+    def _clear_active_task(self, session_id: str) -> None:
         """Reset ACTIVE_TASK.md for one session."""
-        self.active_task_commands.clear(chat_id)
+        self.active_task_commands.clear(session_id)
 
-    def _get_active_task_store(self, chat_id: str):
-        return self.active_task_commands.get_store(chat_id)
+    def _get_active_task_store(self, session_id: str):
+        return self.active_task_commands.get_store(session_id)
 
-    async def show_active_task(self, chat_id: str) -> str | None:
+    async def show_active_task(self, session_id: str) -> str | None:
         """Return the current ACTIVE_TASK block for user display, if any."""
-        return await self.active_task_commands.show(chat_id)
+        return await self.active_task_commands.show(session_id)
 
-    async def show_active_task_full(self, chat_id: str) -> str | None:
+    async def show_active_task_full(self, session_id: str) -> str | None:
         """Return the full ACTIVE_TASK block for user display, if any."""
-        return await self.active_task_commands.show_full(chat_id)
+        return await self.active_task_commands.show_full(session_id)
 
-    async def show_active_task_history(self, chat_id: str, *, limit: int = 10) -> str | None:
+    async def show_active_task_history(self, session_id: str, *, limit: int = 10) -> str | None:
         """Return recent ACTIVE_TASK events for user display, if any."""
-        return await self.active_task_commands.show_history(chat_id, limit=limit)
+        return await self.active_task_commands.show_history(session_id, limit=limit)
 
-    async def set_active_task_from_text(self, chat_id: str, task_text: str) -> str | None:
+    async def set_active_task_from_text(self, session_id: str, task_text: str) -> str | None:
         """Create or replace the current ACTIVE_TASK from explicit user text."""
-        return await self.active_task_commands.set_from_text(chat_id, task_text)
+        return await self.active_task_commands.set_from_text(session_id, task_text)
 
-    async def activate_active_task(self, chat_id: str) -> str | None:
+    async def activate_active_task(self, session_id: str) -> str | None:
         """Mark the current ACTIVE_TASK as active again."""
-        return await self.active_task_commands.activate(chat_id)
+        return await self.active_task_commands.activate(session_id)
 
-    async def reopen_active_task(self, chat_id: str) -> str | None:
+    async def reopen_active_task(self, session_id: str) -> str | None:
         """Reopen a terminal ACTIVE_TASK and resume it as active."""
-        return await self.active_task_commands.reopen(chat_id)
+        return await self.active_task_commands.reopen(session_id)
 
-    async def block_active_task(self, chat_id: str, reason: str) -> str | None:
+    async def block_active_task(self, session_id: str, reason: str) -> str | None:
         """Mark the current ACTIVE_TASK as blocked with one explicit reason."""
-        return await self.active_task_commands.block(chat_id, reason)
+        return await self.active_task_commands.block(session_id, reason)
 
-    async def wait_on_active_task(self, chat_id: str, question: str) -> str | None:
+    async def wait_on_active_task(self, session_id: str, question: str) -> str | None:
         """Mark the current ACTIVE_TASK as waiting for user input."""
-        return await self.active_task_commands.wait_on(chat_id, question)
+        return await self.active_task_commands.wait_on(session_id, question)
 
-    async def set_active_task_current_step(self, chat_id: str, step_text: str) -> str | None:
+    async def set_active_task_current_step(self, session_id: str, step_text: str) -> str | None:
         """Replace the current step for the active task."""
-        return await self.active_task_commands.set_current_step(chat_id, step_text)
+        return await self.active_task_commands.set_current_step(session_id, step_text)
 
-    async def set_active_task_next_step(self, chat_id: str, step_text: str) -> str | None:
+    async def set_active_task_next_step(self, session_id: str, step_text: str) -> str | None:
         """Replace the planned next step for the active task."""
-        return await self.active_task_commands.set_next_step(chat_id, step_text)
+        return await self.active_task_commands.set_next_step(session_id, step_text)
 
-    async def advance_active_task(self, chat_id: str) -> str | None:
+    async def advance_active_task(self, session_id: str) -> str | None:
         """Promote the next step into the current step and mark the previous step complete."""
-        return await self.active_task_commands.advance(chat_id)
+        return await self.active_task_commands.advance(session_id)
 
-    async def complete_active_task_step(self, chat_id: str, next_step_override: str | None = None) -> str | None:
+    async def complete_active_task_step(self, session_id: str, next_step_override: str | None = None) -> str | None:
         """Complete the current step and either advance or finish the task."""
-        return await self.active_task_commands.complete_step(chat_id, next_step_override=next_step_override)
+        return await self.active_task_commands.complete_step(session_id, next_step_override=next_step_override)
 
-    async def mark_active_task_status(self, chat_id: str, status: str) -> str | None:
+    async def mark_active_task_status(self, session_id: str, status: str) -> str | None:
         """Set the current ACTIVE_TASK status when one exists."""
-        return await self.active_task_commands.mark_status(chat_id, status)
+        return await self.active_task_commands.mark_status(session_id, status)
 
-    async def reset_active_task(self, chat_id: str) -> None:
+    async def reset_active_task(self, session_id: str) -> None:
         """Clear the current ACTIVE_TASK state for one session."""
-        await self.active_task_commands.reset(chat_id)
-        await self._clear_work_state(chat_id)
+        await self.active_task_commands.reset(session_id)
+        await self._clear_work_state(session_id)
 
-    async def reset_history(self, chat_id: str | None = None) -> None:
+    async def reset_history(self, session_id: str | None = None) -> None:
         """
         清除對話歷史。
         
         Clear conversation history.
         
         Args:
-            chat_id: 聊天室 ID。如果為 None 則清除所有聊天室。
-                      The session ID. If None, clears all sessions.
+            session_id: Internal session ID. If None, clears all sessions.
         """
-        await self.history_reset.reset(chat_id)
+        await self.history_reset.reset(session_id)

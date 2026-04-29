@@ -35,7 +35,7 @@ def test_consolidate_recent_summary_uses_structured_prompt(tmp_path):
     result = asyncio.run(
         consolidate_recent_summary(
             summary_store=store,
-            chat_id="chat-1",
+            session_id="chat-1",
             messages=[{"role": "user", "content": "We still need the recent summary layer."}],
             provider=provider,
             model="fake-model",

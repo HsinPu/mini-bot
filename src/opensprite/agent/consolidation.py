@@ -53,17 +53,17 @@ class MemoryConsolidationService:
             })
         return normalized
 
-    async def maybe_consolidate(self, chat_id: str) -> None:
-        """Consolidate pending chat history into long-term memory when needed."""
-        message_count = await get_storage_message_count(self.storage, chat_id)
-        last_consolidated = await self.storage.get_consolidated_index(chat_id)
+    async def maybe_consolidate(self, session_id: str) -> None:
+        """Consolidate pending session history into long-term memory when needed."""
+        message_count = await get_storage_message_count(self.storage, session_id)
+        last_consolidated = await self.storage.get_consolidated_index(session_id)
         if last_consolidated > message_count:
-            await self.storage.set_consolidated_index(chat_id, message_count)
+            await self.storage.set_consolidated_index(session_id, message_count)
             return
         pending_messages = self._to_message_dicts(
             await get_storage_messages_slice(
                 self.storage,
-                chat_id,
+                session_id,
                 start_index=last_consolidated,
             )
         )
@@ -76,23 +76,23 @@ class MemoryConsolidationService:
             return
 
         logger.info(
-            f"[{chat_id}] memory.consolidate | pending_messages={unconsolidated} pending_tokens={pending_tokens} "
+            f"[{session_id}] memory.consolidate | pending_messages={unconsolidated} pending_tokens={pending_tokens} "
             f"threshold={self.threshold} token_threshold={self.token_threshold}"
         )
         try:
             success = await consolidate(
                 memory_store=self.memory_store,
-                chat_id=chat_id,
+                session_id=session_id,
                 messages=pending_messages,
                 provider=self.provider,
                 model=self.provider.get_default_model(),
                 memory_llm=self.memory_llm,
             )
             if success:
-                await self.storage.set_consolidated_index(chat_id, message_count)
-                logger.info(f"[{chat_id}] memory.consolidated | total_messages={message_count}")
+                await self.storage.set_consolidated_index(session_id, message_count)
+                logger.info(f"[{session_id}] memory.consolidated | total_messages={message_count}")
         except Exception as exc:
-            logger.error(f"[{chat_id}] memory.consolidate.error | error={exc}")
+            logger.error(f"[{session_id}] memory.consolidate.error | error={exc}")
 
 
 class UserProfileUpdateService:
@@ -101,15 +101,15 @@ class UserProfileUpdateService:
     def __init__(self, consolidator: UserProfileConsolidator | None = None):
         self.consolidator = consolidator
 
-    async def maybe_update(self, chat_id: str) -> None:
-        """Refresh this chat's USER.md managed block when enough new history exists."""
+    async def maybe_update(self, session_id: str) -> None:
+        """Refresh this session's USER.md managed block when enough new history exists."""
         if self.consolidator is None:
             return
 
         try:
-            await self.consolidator.maybe_update(chat_id)
+            await self.consolidator.maybe_update(session_id)
         except Exception as exc:
-            logger.error(f"[{chat_id}] profile.update.error | error={exc}")
+            logger.error(f"[{session_id}] profile.update.error | error={exc}")
 
 
 class RecentSummaryUpdateService:
@@ -118,14 +118,14 @@ class RecentSummaryUpdateService:
     def __init__(self, consolidator: Any | None = None):
         self.consolidator = consolidator
 
-    async def maybe_update(self, chat_id: str) -> None:
+    async def maybe_update(self, session_id: str) -> None:
         if self.consolidator is None:
             return
 
         try:
-            await self.consolidator.maybe_update(chat_id)
+            await self.consolidator.maybe_update(session_id)
         except Exception as exc:
-            logger.error(f"[{chat_id}] recent_summary.update.error | error={exc}")
+            logger.error(f"[{session_id}] recent_summary.update.error | error={exc}")
 
 
 class ActiveTaskUpdateService:
@@ -134,11 +134,11 @@ class ActiveTaskUpdateService:
     def __init__(self, consolidator: ActiveTaskConsolidator | None = None):
         self.consolidator = consolidator
 
-    async def maybe_update(self, chat_id: str) -> None:
+    async def maybe_update(self, session_id: str) -> None:
         if self.consolidator is None:
             return
 
         try:
-            await self.consolidator.maybe_update(chat_id)
+            await self.consolidator.maybe_update(session_id)
         except Exception as exc:
-            logger.error(f"[{chat_id}] active_task.update.error | error={exc}")
+            logger.error(f"[{session_id}] active_task.update.error | error={exc}")

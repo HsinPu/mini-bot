@@ -1,4 +1,4 @@
-"""Per-chat long-term memory document store and consolidator."""
+"""Per-session long-term memory document store and consolidator."""
 
 from __future__ import annotations
 
@@ -14,34 +14,34 @@ from .base import ConversationDocumentStore
 
 
 class MemoryDocumentStore(ConversationDocumentStore):
-    """File-based per-chat markdown memory stored under the memory directory."""
+    """File-based per-session markdown memory stored under the memory directory."""
 
     def __init__(self, memory_dir: Path):
         base_path = Path(memory_dir).expanduser()
         self.memory_base = base_path if base_path.name == "memory" else base_path / "memory"
         self.memory_base.mkdir(parents=True, exist_ok=True)
 
-    def _get_memory_file(self, chat_id: str) -> Path:
-        memory_file = get_memory_file(self.memory_base, chat_id)
+    def _get_memory_file(self, session_id: str) -> Path:
+        memory_file = get_memory_file(self.memory_base, session_id)
         memory_file.parent.mkdir(parents=True, exist_ok=True)
         return memory_file
 
-    def read(self, chat_id: str) -> str:
-        memory_file = self._get_memory_file(chat_id)
+    def read(self, session_id: str) -> str:
+        memory_file = self._get_memory_file(session_id)
         if memory_file.exists():
             return memory_file.read_text(encoding="utf-8")
-        if chat_id == "default":
+        if session_id == "default":
             legacy_memory_file = self.memory_base / "MEMORY.md"
             if legacy_memory_file.exists():
                 return legacy_memory_file.read_text(encoding="utf-8")
         return ""
 
-    def write(self, chat_id: str, content: str) -> None:
-        memory_file = self._get_memory_file(chat_id)
+    def write(self, session_id: str, content: str) -> None:
+        memory_file = self._get_memory_file(session_id)
         memory_file.write_text(content, encoding="utf-8")
 
-    def get_context(self, chat_id: str) -> str:
-        memory = self.read(chat_id)
+    def get_context(self, session_id: str) -> str:
+        memory = self.read(session_id)
         if memory:
             return f"# Long-term Memory\n\n{memory}"
         return ""
@@ -133,14 +133,14 @@ def _select_consolidation_lines(messages: list[dict[str, Any] | Any], model: str
 
 async def consolidate(
     memory_store: MemoryStore,
-    chat_id: str,
+    session_id: str,
     messages: list[dict[str, Any]],
     provider,
     model: str,
     *,
     memory_llm: DocumentLlmConfig,
 ) -> bool:
-    """Consolidate old messages into per-chat memory via the active LLM."""
+    """Consolidate old messages into per-session memory via the active LLM."""
     if not messages:
         return True
 
@@ -148,10 +148,10 @@ async def consolidate(
     if not lines:
         return True
 
-    current_memory = memory_store.read(chat_id)
+    current_memory = memory_store.read(session_id)
     memory_seed = current_memory or _MEMORY_TEMPLATE
     conversation_block = "\n".join(lines)
-    prompt = f"""Review the new conversation segment and update the chat memory.
+    prompt = f"""Review the new conversation segment and update the session memory.
 
 Current memory:
 {memory_seed}
@@ -202,8 +202,8 @@ Required memory template:
 
         update = args.get("memory_update")
         if update and update != current_memory:
-            memory_store.write(chat_id, update)
-            logger.info("Memory consolidated for chat {}: {} chars", chat_id, len(update))
+            memory_store.write(session_id, update)
+            logger.info("Memory consolidated for session {}: {} chars", session_id, len(update))
 
         return True
     except Exception as exc:

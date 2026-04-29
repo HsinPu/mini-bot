@@ -1,4 +1,4 @@
-"""Per-chat recent summary document store and consolidator."""
+"""Per-session recent summary document store and consolidator."""
 
 from __future__ import annotations
 
@@ -35,37 +35,37 @@ class RecentSummaryStore:
         self.memory_dir.mkdir(parents=True, exist_ok=True)
         self.state = JsonProgressStore(state_file or get_recent_summary_state_file(self.memory_dir))
 
-    def _get_summary_file(self, chat_id: str) -> Path:
-        summary_file = get_recent_summary_file(self.memory_dir, chat_id)
+    def _get_summary_file(self, session_id: str) -> Path:
+        summary_file = get_recent_summary_file(self.memory_dir, session_id)
         summary_file.parent.mkdir(parents=True, exist_ok=True)
         return summary_file
 
-    def read(self, chat_id: str) -> str:
-        summary_file = self._get_summary_file(chat_id)
+    def read(self, session_id: str) -> str:
+        summary_file = self._get_summary_file(session_id)
         if summary_file.exists():
             return summary_file.read_text(encoding="utf-8")
         return ""
 
-    def write(self, chat_id: str, content: str) -> None:
-        self._get_summary_file(chat_id).write_text(content, encoding="utf-8")
+    def write(self, session_id: str, content: str) -> None:
+        self._get_summary_file(session_id).write_text(content, encoding="utf-8")
 
-    def get_context(self, chat_id: str) -> str:
-        summary = self.read(chat_id)
+    def get_context(self, session_id: str) -> str:
+        summary = self.read(session_id)
         if summary:
             return f"# Recent Summary\n\n{summary}"
         return ""
 
-    def get_processed_index(self, chat_id: str) -> int:
-        return self.state.get_processed_index(chat_id)
+    def get_processed_index(self, session_id: str) -> int:
+        return self.state.get_processed_index(session_id)
 
-    def set_processed_index(self, chat_id: str, index: int) -> None:
-        self.state.set_processed_index(chat_id, index)
+    def set_processed_index(self, session_id: str, index: int) -> None:
+        self.state.set_processed_index(session_id, index)
 
-    def clear(self, chat_id: str) -> None:
-        summary_file = self._get_summary_file(chat_id)
+    def clear(self, session_id: str) -> None:
+        summary_file = self._get_summary_file(session_id)
         if summary_file.exists():
             summary_file.unlink()
-        self.state.set_processed_index(chat_id, 0)
+        self.state.set_processed_index(session_id, 0)
 
 
 def _to_message_dict(message: StoredMessage | dict[str, Any]) -> dict[str, Any]:
@@ -99,7 +99,7 @@ def _format_messages(messages: list[dict[str, Any]]) -> str:
 
 async def consolidate_recent_summary(
     summary_store: RecentSummaryStore,
-    chat_id: str,
+    session_id: str,
     messages: list[dict[str, Any]],
     provider,
     model: str,
@@ -110,7 +110,7 @@ async def consolidate_recent_summary(
     if not messages:
         return True
 
-    current_summary = summary_store.read(chat_id)
+    current_summary = summary_store.read(session_id)
     transcript = _format_messages(messages)
     if not transcript:
         return True
@@ -143,7 +143,7 @@ Required template:
     try:
         logger.info(
             "[{}] recent_summary.prompt | current_chars={} current_tokens={} transcript_chars={} transcript_tokens={} messages={}",
-            chat_id,
+            session_id,
             len(current_summary),
             current_summary_tokens,
             len(transcript),
@@ -173,18 +173,18 @@ Required template:
 
         update_tokens = count_text_tokens(update, model=model)
         if update != current_summary:
-            summary_store.write(chat_id, update)
+            summary_store.write(session_id, update)
             logger.info(
-                "Recent summary updated for chat {}: {} chars ({} tokens, delta_chars={})",
-                chat_id,
+                "Recent summary updated for session {}: {} chars ({} tokens, delta_chars={})",
+                session_id,
                 len(update),
                 update_tokens,
                 len(update) - len(current_summary),
             )
         else:
             logger.info(
-                "Recent summary unchanged for chat {}: {} chars ({} tokens)",
-                chat_id,
+                "Recent summary unchanged for session {}: {} chars ({} tokens)",
+                session_id,
                 len(update),
                 update_tokens,
             )
@@ -195,7 +195,7 @@ Required template:
 
 
 class RecentSummaryConsolidator(ConversationConsolidator):
-    """Manage incremental RECENT_SUMMARY.md updates from stored chat history."""
+    """Manage incremental RECENT_SUMMARY.md updates from stored session history."""
 
     def __init__(
         self,
@@ -222,18 +222,18 @@ class RecentSummaryConsolidator(ConversationConsolidator):
         self.enabled = enabled
         self.llm = llm
 
-    async def maybe_update(self, chat_id: str) -> None:
+    async def maybe_update(self, session_id: str) -> None:
         if not self.enabled:
             return
 
-        message_count = await get_storage_message_count(self.storage, chat_id)
+        message_count = await get_storage_message_count(self.storage, session_id)
         cutoff_index = max(0, message_count - self.keep_last_messages)
         if cutoff_index <= 0:
             return
 
-        last_processed = self.summary_store.get_processed_index(chat_id)
+        last_processed = self.summary_store.get_processed_index(session_id)
         if last_processed > cutoff_index:
-            self.summary_store.set_processed_index(chat_id, cutoff_index)
+            self.summary_store.set_processed_index(session_id, cutoff_index)
             return
 
         pending = cutoff_index - last_processed
@@ -245,7 +245,7 @@ class RecentSummaryConsolidator(ConversationConsolidator):
             _to_message_dict(message)
             for message in await get_storage_messages_slice(
                 self.storage,
-                chat_id,
+                session_id,
                 start_index=last_processed,
                 end_index=end_index,
             )
@@ -256,7 +256,7 @@ class RecentSummaryConsolidator(ConversationConsolidator):
         chunk_tokens = count_messages_tokens(chunk, model=self.model)
         logger.info(
             "[{}] recent_summary.check | total_messages={} processed_index={} cutoff_index={} pending_messages={} chunk_messages={} chunk_tokens={} threshold={} token_threshold={} keep_last_messages={}",
-            chat_id,
+            session_id,
             message_count,
             last_processed,
             cutoff_index,
@@ -272,17 +272,17 @@ class RecentSummaryConsolidator(ConversationConsolidator):
 
         logger.info(
             "[{}] Updating RECENT_SUMMARY.md from {} messages ({} tokens)",
-            chat_id,
+            session_id,
             len(chunk),
             chunk_tokens,
         )
         success = await consolidate_recent_summary(
             summary_store=self.summary_store,
-            chat_id=chat_id,
+            session_id=session_id,
             messages=chunk,
             provider=self.provider,
             model=self.model,
             summary_llm=self.llm,
         )
         if success:
-            self.summary_store.set_processed_index(chat_id, end_index)
+            self.summary_store.set_processed_index(session_id, end_index)

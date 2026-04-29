@@ -77,7 +77,7 @@ def test_user_profile_consolidator_writes_separate_profiles_per_session(tmp_path
         storage=storage,
         provider=provider,
         model="fake-model",
-        profile_store_factory=lambda chat_id: create_user_profile_store(app_home, chat_id),
+        profile_store_factory=lambda session_id: create_user_profile_store(app_home, session_id),
         threshold=1,
         lookback_messages=10,
         enabled=True,

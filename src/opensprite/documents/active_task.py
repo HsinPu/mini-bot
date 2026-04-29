@@ -221,13 +221,13 @@ class ActiveTaskStore(ConversationDocumentStore):
             bootstrap_text=_ACTIVE_TASK_BOOTSTRAP,
         )
 
-    def read(self, chat_id: str) -> str:
+    def read(self, session_id: str) -> str:
         return self.document.read_text()
 
     def read_text(self) -> str:
         return self.document.read_text()
 
-    def write(self, chat_id: str, content: str) -> None:
+    def write(self, session_id: str, content: str) -> None:
         self.document.write_managed_block(content)
 
     def read_managed_block(self) -> str:
@@ -236,15 +236,15 @@ class ActiveTaskStore(ConversationDocumentStore):
     def write_managed_block(self, content: str) -> None:
         self.document.write_managed_block(content)
 
-    def get_processed_index(self, chat_id: str) -> int:
-        return self.state.get_processed_index(chat_id)
+    def get_processed_index(self, session_id: str) -> int:
+        return self.state.get_processed_index(session_id)
 
-    def set_processed_index(self, chat_id: str, index: int) -> None:
-        self.state.set_processed_index(chat_id, index)
+    def set_processed_index(self, session_id: str, index: int) -> None:
+        self.state.set_processed_index(session_id, index)
 
-    def clear(self, chat_id: str) -> None:
+    def clear(self, session_id: str) -> None:
         self.document.write_managed_block(DEFAULT_ACTIVE_TASK_CONTENT)
-        self.state.set_processed_index(chat_id, 0)
+        self.state.set_processed_index(session_id, 0)
 
     def read_status(self) -> str:
         block = self.read_managed_block()
@@ -253,7 +253,7 @@ class ActiveTaskStore(ConversationDocumentStore):
             return "inactive"
         return match.group(1).strip().lower() or "inactive"
 
-    def get_context(self, chat_id: str) -> str:
+    def get_context(self, session_id: str) -> str:
         status = self.read_status()
         if status not in _ACTIVE_STATUSES_TO_INCLUDE:
             return ""
@@ -819,7 +819,7 @@ def _format_messages(messages: list[dict[str, Any]]) -> str:
 
 async def consolidate_active_task(
     active_task_store: ActiveTaskStore,
-    chat_id: str,
+    session_id: str,
     messages: list[dict[str, Any]],
     provider,
     model: str,
@@ -872,7 +872,7 @@ Required template:
     try:
         logger.info(
             "[{}] active_task.prompt | current_chars={} transcript_chars={} messages={}",
-            chat_id,
+            session_id,
             len(current_task),
             len(transcript),
             len(messages),
@@ -919,13 +919,13 @@ Required template:
                 details["new_next_step"] = new_next
             active_task_store.append_event("auto_update", "auto", details=details)
             logger.info(
-                "Active task updated for chat {}: {} chars ({} tokens)",
-                chat_id,
+                "Active task updated for session {}: {} chars ({} tokens)",
+                session_id,
                 len(normalized_update),
                 count_text_tokens(normalized_update, model=model),
             )
         else:
-            logger.info("Active task unchanged for chat {}", chat_id)
+            logger.info("Active task unchanged for session {}", session_id)
         return True
     except Exception as exc:
         logger.error("Active task consolidation failed: {}", exc)
@@ -933,7 +933,7 @@ Required template:
 
 
 class ActiveTaskConsolidator(ConversationConsolidator):
-    """Manage incremental ACTIVE_TASK.md updates from stored chat history."""
+    """Manage incremental ACTIVE_TASK.md updates from stored session history."""
 
     def __init__(
         self,
@@ -956,15 +956,15 @@ class ActiveTaskConsolidator(ConversationConsolidator):
         self.enabled = enabled
         self.llm = llm
 
-    async def maybe_update(self, chat_id: str) -> None:
+    async def maybe_update(self, session_id: str) -> None:
         if not self.enabled:
             return
 
-        active_task_store = self.active_task_store_factory(chat_id)
-        message_count = await get_storage_message_count(self.storage, chat_id)
-        last_processed = active_task_store.get_processed_index(chat_id)
+        active_task_store = self.active_task_store_factory(session_id)
+        message_count = await get_storage_message_count(self.storage, session_id)
+        last_processed = active_task_store.get_processed_index(session_id)
         if last_processed > message_count:
-            active_task_store.set_processed_index(chat_id, message_count)
+            active_task_store.set_processed_index(session_id, message_count)
             return
 
         pending = message_count - last_processed
@@ -976,7 +976,7 @@ class ActiveTaskConsolidator(ConversationConsolidator):
             _to_message_dict(message)
             for message in await get_storage_messages_slice(
                 self.storage,
-                chat_id,
+                session_id,
                 start_index=last_processed,
                 end_index=end_index,
             )
@@ -984,28 +984,28 @@ class ActiveTaskConsolidator(ConversationConsolidator):
         if not chunk:
             return
 
-        logger.info("[{}] Updating ACTIVE_TASK.md from {} messages", chat_id, len(chunk))
+        logger.info("[{}] Updating ACTIVE_TASK.md from {} messages", session_id, len(chunk))
         success = await consolidate_active_task(
             active_task_store=active_task_store,
-            chat_id=chat_id,
+            session_id=session_id,
             messages=chunk,
             provider=self.provider,
             model=self.model,
             active_task_llm=self.llm,
         )
         if success:
-            active_task_store.set_processed_index(chat_id, end_index)
+            active_task_store.set_processed_index(session_id, end_index)
 
 
 def create_active_task_store(
     app_home: str | Path | None,
-    chat_id: str | None,
+    session_id: str | None,
     *,
     workspace_root: str | Path | None = None,
 ) -> ActiveTaskStore:
-    """Create the per-chat ACTIVE_TASK.md store for the given session scope."""
+    """Create the per-session ACTIVE_TASK.md store for the given session scope."""
     return ActiveTaskStore(
-        active_task_file=get_active_task_file(app_home, chat_id=chat_id, workspace_root=workspace_root),
-        state_file=get_active_task_state_file(app_home, chat_id=chat_id, workspace_root=workspace_root),
-        event_log_file=get_active_task_event_log_file(app_home, chat_id=chat_id, workspace_root=workspace_root),
+        active_task_file=get_active_task_file(app_home, chat_id=session_id, workspace_root=workspace_root),
+        state_file=get_active_task_state_file(app_home, chat_id=session_id, workspace_root=workspace_root),
+        event_log_file=get_active_task_event_log_file(app_home, chat_id=session_id, workspace_root=workspace_root),
     )

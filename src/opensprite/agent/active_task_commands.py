@@ -38,35 +38,35 @@ class ActiveTaskCommandService:
         self._app_home_getter = app_home_getter
         self._workspace_root_getter = workspace_root_getter
 
-    def get_store(self, chat_id: str):
+    def get_store(self, session_id: str):
         app_home = self._app_home_getter()
         if app_home is None:
             return None
         return create_active_task_store(
             app_home,
-            chat_id,
+            session_id,
             workspace_root=self._workspace_root_getter(),
         )
 
-    def clear(self, chat_id: str) -> None:
+    def clear(self, session_id: str) -> None:
         """Reset ACTIVE_TASK.md for one session."""
-        store = self.get_store(chat_id)
+        store = self.get_store(session_id)
         if store is not None:
-            store.clear(chat_id)
+            store.clear(session_id)
 
-    async def _mark_processed(self, chat_id: str, store: Any) -> None:
-        message_count = await get_storage_message_count(self.storage, chat_id)
-        store.set_processed_index(chat_id, message_count)
+    async def _mark_processed(self, session_id: str, store: Any) -> None:
+        message_count = await get_storage_message_count(self.storage, session_id)
+        store.set_processed_index(session_id, message_count)
 
     async def apply_immediate_transition(
         self,
-        chat_id: str,
+        session_id: str,
         response_text: str,
         *,
         had_tool_error: bool,
     ) -> None:
         """Apply conservative immediate task-state transitions after a response."""
-        store = self.get_store(chat_id)
+        store = self.get_store(session_id)
         if store is None:
             return
         if store.read_status() not in {"active", "blocked", "waiting_user"}:
@@ -87,18 +87,18 @@ class ActiveTaskCommandService:
         else:
             return
 
-        await self._mark_processed(chat_id, store)
+        await self._mark_processed(session_id, store)
         store.append_event("auto_direct_transition", "immediate", details={"status": status, "reason": detail or ""})
 
     async def apply_completion_gate_result(
         self,
-        chat_id: str,
+        session_id: str,
         result: CompletionGateResult,
     ) -> None:
         """Apply conservative task-state updates from completion-gate verdicts."""
         if not result.should_update_active_task or result.active_task_status is None:
             return
-        store = self.get_store(chat_id)
+        store = self.get_store(session_id)
         if store is None:
             return
         if store.read_status() not in {"active", "blocked", "waiting_user"}:
@@ -115,7 +115,7 @@ class ActiveTaskCommandService:
         else:
             return
 
-        await self._mark_processed(chat_id, store)
+        await self._mark_processed(session_id, store)
         store.append_event(
             "completion_gate",
             "immediate",
@@ -124,12 +124,12 @@ class ActiveTaskCommandService:
 
     async def apply_work_progress(
         self,
-        chat_id: str,
+        session_id: str,
         progress: WorkProgressUpdate,
         state: StoredWorkState | None = None,
     ) -> None:
         """Keep ACTIVE_TASK aligned with the final structured work progress state."""
-        store = self.get_store(chat_id)
+        store = self.get_store(session_id)
         if store is None:
             return
         if store.read_status() not in {"active", "blocked", "waiting_user"}:
@@ -179,7 +179,7 @@ class ActiveTaskCommandService:
 
     async def maybe_seed(
         self,
-        chat_id: str,
+        session_id: str,
         current_message: str,
         *,
         enabled: bool,
@@ -188,7 +188,7 @@ class ActiveTaskCommandService:
         """Create a minimal ACTIVE_TASK.md before the first heavy turn when appropriate."""
         if not enabled:
             return
-        store = self.get_store(chat_id)
+        store = self.get_store(session_id)
         if store is None:
             return
 
@@ -213,8 +213,8 @@ class ActiveTaskCommandService:
             return
 
         store.write_managed_block(initial_task)
-        message_count = await get_storage_message_count(self.storage, chat_id)
-        store.set_processed_index(chat_id, max(0, message_count - 1))
+        message_count = await get_storage_message_count(self.storage, session_id)
+        store.set_processed_index(session_id, max(0, message_count - 1))
         compact_message = re.sub(r"\s+", " ", current_message).strip()
         if len(compact_message) > 120:
             compact_message = compact_message[:117].rstrip() + "..."
@@ -227,107 +227,107 @@ class ActiveTaskCommandService:
                 }
             )
         store.append_event("seed", "immediate", details=event_details)
-        logger.info("[{}] active_task.seeded | replace={}", chat_id, replacing)
+        logger.info("[{}] active_task.seeded | replace={}", session_id, replacing)
 
-    async def show(self, chat_id: str) -> str | None:
+    async def show(self, session_id: str) -> str | None:
         """Return the current ACTIVE_TASK block for user display, if any."""
-        store = self.get_store(chat_id)
+        store = self.get_store(session_id)
         if store is None:
             return None
         return store.render_for_user()
 
-    async def show_full(self, chat_id: str) -> str | None:
+    async def show_full(self, session_id: str) -> str | None:
         """Return the full ACTIVE_TASK block for user display, if any."""
-        store = self.get_store(chat_id)
+        store = self.get_store(session_id)
         if store is None:
             return None
         return store.render_full_for_user()
 
-    async def show_history(self, chat_id: str, *, limit: int = 10) -> str | None:
+    async def show_history(self, session_id: str, *, limit: int = 10) -> str | None:
         """Return recent ACTIVE_TASK events for user display, if any."""
-        store = self.get_store(chat_id)
+        store = self.get_store(session_id)
         if store is None:
             return None
         return store.render_history(limit=limit)
 
-    async def set_from_text(self, chat_id: str, task_text: str) -> str | None:
+    async def set_from_text(self, session_id: str, task_text: str) -> str | None:
         """Create or replace the current ACTIVE_TASK from explicit user text."""
-        store = self.get_store(chat_id)
+        store = self.get_store(session_id)
         if store is None:
             return None
         task_block = build_task_block_from_text(task_text, force=True)
         if not task_block:
             return None
         store.write_managed_block(task_block)
-        await self._mark_processed(chat_id, store)
+        await self._mark_processed(session_id, store)
         store.append_event("set", "user", details={"task": task_text})
         return store.render_full_for_user()
 
-    async def activate(self, chat_id: str) -> str | None:
+    async def activate(self, session_id: str) -> str | None:
         """Mark the current ACTIVE_TASK as active again."""
-        store = self.get_store(chat_id)
+        store = self.get_store(session_id)
         if store is None or store.read_status() == "inactive":
             return None
         rendered = store.update_fields(status="active", open_questions=["none"], force=True)
-        await self._mark_processed(chat_id, store)
+        await self._mark_processed(session_id, store)
         store.append_event("activate", "user")
         return f"# Active Task\n\n{rendered}"
 
-    async def reopen(self, chat_id: str) -> str | None:
+    async def reopen(self, session_id: str) -> str | None:
         """Reopen a terminal ACTIVE_TASK and resume it as active."""
-        store = self.get_store(chat_id)
+        store = self.get_store(session_id)
         if store is None:
             return None
         if store.read_status() not in {"done", "cancelled"}:
             return None
         rendered = store.update_fields(status="active", force=True)
-        await self._mark_processed(chat_id, store)
+        await self._mark_processed(session_id, store)
         store.append_event("reopen", "user")
         return f"# Active Task\n\n{rendered}"
 
-    async def block(self, chat_id: str, reason: str) -> str | None:
+    async def block(self, session_id: str, reason: str) -> str | None:
         """Mark the current ACTIVE_TASK as blocked with one explicit reason."""
-        store = self.get_store(chat_id)
+        store = self.get_store(session_id)
         if store is None or store.read_status() == "inactive":
             return None
         rendered = store.update_fields(status="blocked", open_questions=[reason], force=True)
-        await self._mark_processed(chat_id, store)
+        await self._mark_processed(session_id, store)
         store.append_event("block", "user", details={"reason": reason})
         return f"# Active Task\n\n{rendered}"
 
-    async def wait_on(self, chat_id: str, question: str) -> str | None:
+    async def wait_on(self, session_id: str, question: str) -> str | None:
         """Mark the current ACTIVE_TASK as waiting for user input."""
-        store = self.get_store(chat_id)
+        store = self.get_store(session_id)
         if store is None or store.read_status() == "inactive":
             return None
         rendered = store.update_fields(status="waiting_user", open_questions=[question], force=True)
-        await self._mark_processed(chat_id, store)
+        await self._mark_processed(session_id, store)
         store.append_event("wait", "user", details={"question": question})
         return f"# Active Task\n\n{rendered}"
 
-    async def set_current_step(self, chat_id: str, step_text: str) -> str | None:
+    async def set_current_step(self, session_id: str, step_text: str) -> str | None:
         """Replace the current step for the active task."""
-        store = self.get_store(chat_id)
+        store = self.get_store(session_id)
         if store is None or store.read_status() == "inactive":
             return None
         rendered = store.update_fields(status="active", current_step=step_text, force=True)
-        await self._mark_processed(chat_id, store)
+        await self._mark_processed(session_id, store)
         store.append_event("set_current_step", "user", details={"current_step": step_text})
         return f"# Active Task\n\n{rendered}"
 
-    async def set_next_step(self, chat_id: str, step_text: str) -> str | None:
+    async def set_next_step(self, session_id: str, step_text: str) -> str | None:
         """Replace the planned next step for the active task."""
-        store = self.get_store(chat_id)
+        store = self.get_store(session_id)
         if store is None or store.read_status() == "inactive":
             return None
         rendered = store.update_fields(next_step=step_text, force=True)
-        await self._mark_processed(chat_id, store)
+        await self._mark_processed(session_id, store)
         store.append_event("set_next_step", "user", details={"next_step": step_text})
         return f"# Active Task\n\n{rendered}"
 
-    async def advance(self, chat_id: str) -> str | None:
+    async def advance(self, session_id: str) -> str | None:
         """Promote the next step into the current step and mark the previous step complete."""
-        store = self.get_store(chat_id)
+        store = self.get_store(session_id)
         if store is None or store.read_status() == "inactive":
             return None
         current_block = store.read_managed_block()
@@ -342,7 +342,7 @@ class ActiveTaskCommandService:
             append_completed_step=current_step,
             force=True,
         )
-        await self._mark_processed(chat_id, store)
+        await self._mark_processed(session_id, store)
         store.append_event(
             "advance",
             "user",
@@ -350,9 +350,9 @@ class ActiveTaskCommandService:
         )
         return f"# Active Task\n\n{rendered}"
 
-    async def complete_step(self, chat_id: str, next_step_override: str | None = None) -> str | None:
+    async def complete_step(self, session_id: str, next_step_override: str | None = None) -> str | None:
         """Complete the current step and either advance or finish the task."""
-        store = self.get_store(chat_id)
+        store = self.get_store(session_id)
         if store is None or store.read_status() == "inactive":
             return None
         current_block = store.read_managed_block()
@@ -360,7 +360,7 @@ class ActiveTaskCommandService:
         rendered = store.complete_current_step(next_step_override=next_step_override)
         if rendered is None:
             return None
-        await self._mark_processed(chat_id, store)
+        await self._mark_processed(session_id, store)
         store.append_event(
             "complete_step",
             "user",
@@ -371,22 +371,22 @@ class ActiveTaskCommandService:
         )
         return f"# Active Task\n\n{rendered}"
 
-    async def mark_status(self, chat_id: str, status: str) -> str | None:
+    async def mark_status(self, session_id: str, status: str) -> str | None:
         """Set the current ACTIVE_TASK status when one exists."""
-        store = self.get_store(chat_id)
+        store = self.get_store(session_id)
         if store is None or store.read_status() == "inactive":
             return None
         open_questions = ["none"] if status in {"active", "done", "cancelled"} else None
         store.update_fields(status=status, open_questions=open_questions, force=True)
         if status in {"done", "cancelled"}:
-            await self._mark_processed(chat_id, store)
+            await self._mark_processed(session_id, store)
         store.append_event(status, "user")
         return store.render_full_for_user()
 
-    async def reset(self, chat_id: str) -> None:
+    async def reset(self, session_id: str) -> None:
         """Clear the current ACTIVE_TASK state for one session."""
-        store = self.get_store(chat_id)
+        store = self.get_store(session_id)
         if store is None:
             return
-        self.clear(chat_id)
+        self.clear(session_id)
         store.append_event("reset", "user")

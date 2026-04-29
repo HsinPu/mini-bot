@@ -53,7 +53,7 @@ def test_consolidate_uses_structured_merge_prompt():
     result = asyncio.run(
         memory_module.consolidate(
             memory_store=memory_store,
-            chat_id="chat-1",
+            session_id="chat-1",
             messages=[
                 {"role": "user", "content": "Please remember that we are refactoring memory handling."},
                 {"role": "assistant", "content": "I will keep the memory format structured."},

@@ -91,7 +91,7 @@ def test_memory_consolidation_updates_index_after_success(monkeypatch):
 
     asyncio.run(service.maybe_consolidate("chat-1"))
 
-    assert captured["chat_id"] == "chat-1"
+    assert captured["session_id"] == "chat-1"
     assert captured["model"] == "fake-model"
     assert captured["messages"] == [
         {"role": "assistant", "content": "second"},
@@ -128,7 +128,7 @@ def test_memory_consolidation_triggers_when_token_threshold_reached(monkeypatch)
 
     asyncio.run(service.maybe_consolidate("chat-1"))
 
-    assert captured["chat_id"] == "chat-1"
+    assert captured["session_id"] == "chat-1"
     assert storage.updated_index == 2
 
 

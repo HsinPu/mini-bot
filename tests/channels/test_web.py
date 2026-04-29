@@ -451,16 +451,16 @@ async def _run_web_run_cancel_api():
             super().__init__()
             self.storage = storage
 
-        async def request_run_cancel(self, chat_id, run_id, *, channel=None, external_chat_id=None):
-            cancel_calls.append((chat_id, run_id, channel, external_chat_id))
+        async def request_run_cancel(self, session_id, run_id, *, channel=None, external_chat_id=None):
+            cancel_calls.append((session_id, run_id, channel, external_chat_id))
             return run_id == "run-1"
 
     agent = CancelAgent()
     queue = MessageQueue(agent)
     cancelled_sessions = []
 
-    async def fake_cancel_chat(chat_id, channel=None):
-        cancelled_sessions.append((chat_id, channel))
+    async def fake_cancel_chat(session_id, channel=None):
+        cancelled_sessions.append((session_id, channel))
         return 1
 
     queue.cancel_chat = fake_cancel_chat
