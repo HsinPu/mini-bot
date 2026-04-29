@@ -60,6 +60,15 @@
             <span aria-hidden="true">☷</span>
             {{ copy.settingsTitles.channels }}
           </button>
+          <button
+            class="settings-nav__item"
+            :class="{ 'settings-nav__item--active': section === 'schedule' }"
+            type="button"
+            @click="$emit('select-section', 'schedule')"
+          >
+            <span aria-hidden="true">◷</span>
+            {{ copy.settingsTitles.schedule }}
+          </button>
         </div>
 
         <div class="settings-nav__footer">
@@ -405,6 +414,72 @@
             </div>
           </div>
         </section>
+
+        <section v-show="section === 'schedule'" class="settings-page">
+          <p v-if="settingsState.scheduleLoading" class="settings-inline-status">{{ copy.settings.schedule.loading }}</p>
+          <p v-if="settingsState.scheduleError" class="settings-inline-status settings-inline-status--error">
+            {{ settingsState.scheduleError }}
+          </p>
+          <p v-if="settingsState.scheduleNotice" class="settings-inline-status settings-inline-status--success">
+            {{ settingsState.scheduleNotice }}
+          </p>
+
+          <h3>{{ copy.settings.schedule.defaultsTitle }}</h3>
+          <div class="settings-card settings-card--form">
+            <label class="settings-row settings-row--field">
+              <div>
+                <strong>{{ copy.settings.schedule.defaultTimezone.title }}</strong>
+                <span>{{ copy.settings.schedule.defaultTimezone.description }}</span>
+              </div>
+              <input
+                v-model="settingsState.scheduleForm.defaultTimezone"
+                type="text"
+                list="scheduleTimezoneOptions"
+                :placeholder="copy.settings.schedule.defaultTimezone.placeholder"
+                spellcheck="false"
+                @keydown.enter.prevent="$emit('save-schedule-settings')"
+              />
+              <datalist id="scheduleTimezoneOptions">
+                <option
+                  v-for="timezone in settingsState.schedule.common_timezones"
+                  :key="timezone"
+                  :value="timezone"
+                ></option>
+              </datalist>
+            </label>
+
+            <div class="settings-row">
+              <div>
+                <strong>{{ copy.settings.schedule.currentTitle }}</strong>
+                <span>{{ settingsState.schedule.default_timezone || 'UTC' }}</span>
+              </div>
+              <button
+                class="secondary-button"
+                type="button"
+                :disabled="settingsState.scheduleLoading"
+                @click="$emit('save-schedule-settings')"
+              >
+                {{ copy.settings.schedule.save }}
+              </button>
+            </div>
+          </div>
+
+          <h3>{{ copy.settings.schedule.usageTitle }}</h3>
+          <div class="settings-card">
+            <div class="settings-row">
+              <div>
+                <strong>{{ copy.settings.schedule.usageCron.title }}</strong>
+                <span>{{ copy.settings.schedule.usageCron.description }}</span>
+              </div>
+            </div>
+            <div class="settings-row">
+              <div>
+                <strong>{{ copy.settings.schedule.usageExisting.title }}</strong>
+                <span>{{ copy.settings.schedule.usageExisting.description }}</span>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
 
       <div v-if="selectedConnectProvider" class="provider-connect-dialog" role="dialog" aria-modal="true">
@@ -609,5 +684,6 @@ defineEmits([
   "save-provider-connection",
   "disconnect-provider",
   "select-model",
+  "save-schedule-settings",
 ]);
 </script>

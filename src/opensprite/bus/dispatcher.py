@@ -227,7 +227,7 @@ class MessageQueue:
         return positional, tz, deliver
 
     @staticmethod
-    def _parse_cron_add_schedule(args: list[str]) -> tuple[CronSchedule, str, bool]:
+    def _parse_cron_add_schedule(args: list[str], *, default_timezone: str = "UTC") -> tuple[CronSchedule, str, bool]:
         """Parse `/cron add ...` arguments into schedule and payload settings."""
         positional, tz, deliver = MessageQueue._extract_cron_options(args)
         if len(positional) < 3:
@@ -260,11 +260,11 @@ class MessageQueue:
             if dt.tzinfo is None:
                 from zoneinfo import ZoneInfo
 
-                dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+                dt = dt.replace(tzinfo=ZoneInfo(default_timezone or "UTC"))
             return CronSchedule(kind="at", at_ms=int(dt.timestamp() * 1000)), message, deliver
 
         if mode == "cron":
-            return CronSchedule(kind="cron", expr=schedule_value, tz=tz or "UTC"), message, deliver
+            return CronSchedule(kind="cron", expr=schedule_value, tz=tz or default_timezone or "UTC"), message, deliver
 
         raise ValueError("error_unknown_schedule_mode")
 
@@ -284,7 +284,10 @@ class MessageQueue:
 
         if action == "add":
             try:
-                schedule, message, deliver = self._parse_cron_add_schedule(args)
+                schedule, message, deliver = self._parse_cron_add_schedule(
+                    args,
+                    default_timezone=self._cron_default_timezone(),
+                )
             except ValueError as exc:
                 key = str(exc)
                 details = getattr(self.messages.cron, key, key)

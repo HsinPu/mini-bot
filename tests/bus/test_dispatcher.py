@@ -2,7 +2,7 @@ import asyncio
 
 from opensprite.bus.dispatcher import MessageQueue
 from opensprite.bus.message import AssistantMessage
-from opensprite.config.schema import MessagesConfig
+from opensprite.config.schema import MessagesConfig, ToolsConfig
 from opensprite.cron.manager import CronManager
 from opensprite.cron.types import CronJob, CronSchedule
 
@@ -588,6 +588,52 @@ def test_cron_command_adds_interval_job_for_current_session(tmp_path):
     assert jobs[0].schedule.kind == "every"
     assert jobs[0].schedule.every_ms == 300_000
     assert jobs[0].payload.message == "Check weather and report back"
+
+
+def test_cron_command_uses_configured_default_timezone_for_cron_expression(tmp_path):
+    class CronAgent(FakeAgent):
+        def __init__(self):
+            super().__init__()
+            self.cron_manager = None
+            self.tools_config = ToolsConfig(**{"cron": {"default_timezone": "Asia/Taipei"}})
+
+    async def on_job(session_id: str, job: CronJob):
+        return "ok"
+
+    async def scenario():
+        agent = CronAgent()
+        agent.cron_manager = CronManager(workspace_root=tmp_path / "workspace", on_job=on_job)
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, external_chat_id):
+            responses.append((message.session_id, message.text))
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(
+                content='/cron add cron "0 9 * * *" "Daily report"',
+                external_chat_id="same-chat",
+                channel="telegram",
+            )
+            await asyncio.wait_for(event.wait(), timeout=2)
+            service = await agent.cron_manager.get_or_create_service("telegram:same-chat")
+            jobs = service.list_jobs(include_disabled=True)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+            await agent.cron_manager.stop()
+
+        return responses, jobs
+
+    responses, jobs = asyncio.run(scenario())
+
+    assert "Created job 'Daily report'" in responses[0][1]
+    assert jobs[0].schedule.kind == "cron"
+    assert jobs[0].schedule.tz == "Asia/Taipei"
 
 
 def test_cron_command_adds_one_time_job_without_delivery_when_requested(tmp_path):

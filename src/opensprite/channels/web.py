@@ -35,6 +35,12 @@ from ..config.provider_settings import (
     ProviderSettingsService,
     ProviderSettingsValidationError,
 )
+from ..config.schedule_settings import (
+    ScheduleSettingsError,
+    ScheduleSettingsNotFound,
+    ScheduleSettingsService,
+    ScheduleSettingsValidationError,
+)
 from ..utils.log import logger
 
 
@@ -309,6 +315,9 @@ class WebAdapter(MessageAdapter):
     def _get_channel_settings(self) -> ChannelSettingsService:
         return ChannelSettingsService(self._get_config_path())
 
+    def _get_schedule_settings(self) -> ScheduleSettingsService:
+        return ScheduleSettingsService(self._get_config_path())
+
     def _reload_agent_llm_from_config(self, payload: dict[str, Any], *, force: bool = False) -> dict[str, Any]:
         """Hot-apply persisted LLM settings to the running agent when possible."""
         if not force and not payload.get("restart_required"):
@@ -359,6 +368,41 @@ class WebAdapter(MessageAdapter):
         updated["runtime"] = self._json_safe(runtime)
         return updated
 
+    def _reload_schedule_from_config(self, payload: dict[str, Any], *, force: bool = False) -> dict[str, Any]:
+        """Hot-apply persisted scheduling settings to the running agent when possible."""
+        if not force and not payload.get("restart_required"):
+            return payload
+
+        updated = dict(payload)
+        agent = self._get_agent()
+        if agent is None:
+            updated["runtime_reloaded"] = False
+            return updated
+
+        try:
+            config = Config.load(self._get_config_path())
+        except Exception as exc:
+            logger.warning("Schedule runtime reload failed after settings change: {}", exc)
+            updated["runtime_reloaded"] = False
+            updated["reload_error"] = str(exc)
+            return updated
+
+        agent.tools_config = config.tools
+        cron_tool = getattr(getattr(agent, "tools", None), "get", lambda _name: None)("cron")
+        set_default_timezone = getattr(cron_tool, "set_default_timezone", None)
+        tool_updated = False
+        if callable(set_default_timezone):
+            set_default_timezone(config.tools.cron.default_timezone)
+            tool_updated = True
+
+        updated["restart_required"] = False
+        updated["runtime_reloaded"] = True
+        updated["runtime"] = {
+            "default_timezone": config.tools.cron.default_timezone,
+            "tool_updated": tool_updated,
+        }
+        return updated
+
     @staticmethod
     async def _read_json_body(request: web.Request) -> dict[str, Any]:
         try:
@@ -384,6 +428,14 @@ class WebAdapter(MessageAdapter):
         if isinstance(exc, ChannelSettingsValidationError):
             raise web.HTTPBadRequest(text=str(exc)) from exc
         if isinstance(exc, ChannelSettingsNotFound):
+            raise web.HTTPNotFound(text=str(exc)) from exc
+        raise web.HTTPServiceUnavailable(text=str(exc)) from exc
+
+    @staticmethod
+    def _raise_schedule_settings_error(exc: ScheduleSettingsError) -> None:
+        if isinstance(exc, ScheduleSettingsValidationError):
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        if isinstance(exc, ScheduleSettingsNotFound):
             raise web.HTTPNotFound(text=str(exc)) from exc
         raise web.HTTPServiceUnavailable(text=str(exc)) from exc
 
@@ -819,6 +871,24 @@ class WebAdapter(MessageAdapter):
         payload = self._reload_agent_llm_from_config(payload)
         return web.json_response(payload)
 
+    async def _handle_settings_schedule(self, request: web.Request) -> web.Response:
+        try:
+            payload = self._get_schedule_settings().get_schedule()
+        except ScheduleSettingsError as exc:
+            self._raise_schedule_settings_error(exc)
+        return web.json_response(payload)
+
+    async def _handle_settings_schedule_update(self, request: web.Request) -> web.Response:
+        body = await self._read_json_body(request)
+        try:
+            payload = self._get_schedule_settings().update_schedule(
+                default_timezone=self._coerce_optional_text(body.get("default_timezone")),
+            )
+        except ScheduleSettingsError as exc:
+            self._raise_schedule_settings_error(exc)
+        payload = self._reload_schedule_from_config(payload)
+        return web.json_response(payload)
+
     async def _handle_frontend_index(self, request: web.Request) -> web.FileResponse:
         if self._frontend_dir is None:
             raise web.HTTPServiceUnavailable(
@@ -930,6 +1000,8 @@ class WebAdapter(MessageAdapter):
         self.app.router.add_post("/api/settings/providers/{provider_id}/disconnect", self._handle_settings_provider_disconnect)
         self.app.router.add_get("/api/settings/models", self._handle_settings_models)
         self.app.router.add_post("/api/settings/models/select", self._handle_settings_model_select)
+        self.app.router.add_get("/api/settings/schedule", self._handle_settings_schedule)
+        self.app.router.add_put("/api/settings/schedule", self._handle_settings_schedule_update)
         self.app.router.add_get("/", self._handle_frontend_index)
         self.app.router.add_get("/index.html", self._handle_frontend_index)
         if self._frontend_dir is not None:

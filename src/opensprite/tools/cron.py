@@ -31,6 +31,10 @@ class CronTool(Tool):
         """Inject the runtime cron manager after tool registration."""
         self._cron_manager = cron_manager
 
+    def set_default_timezone(self, default_timezone: str) -> None:
+        """Update the default timezone used for new cron expressions and naive datetimes."""
+        self._default_timezone = default_timezone or "UTC"
+
     @property
     def name(self) -> str:
         return "cron"

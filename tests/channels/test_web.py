@@ -698,6 +698,34 @@ async def _run_web_settings_provider_api(tmp_path: Path):
             channels = json.loads((tmp_path / "channels.json").read_text(encoding="utf-8"))
             assert "telegram_work_telegram" not in channels["instances"]
 
+            async with session.get(f"http://127.0.0.1:{port}/api/settings/schedule") as resp:
+                assert resp.status == 200
+                schedule_payload = await resp.json()
+
+            assert schedule_payload["default_timezone"] == "UTC"
+            assert "Asia/Taipei" in schedule_payload["common_timezones"]
+
+            async with session.put(
+                f"http://127.0.0.1:{port}/api/settings/schedule",
+                json={"default_timezone": "Not/AZone"},
+            ) as resp:
+                assert resp.status == 400
+
+            async with session.put(
+                f"http://127.0.0.1:{port}/api/settings/schedule",
+                json={"default_timezone": "Asia/Taipei"},
+            ) as resp:
+                assert resp.status == 200
+                schedule_update_payload = await resp.json()
+
+            assert schedule_update_payload["default_timezone"] == "Asia/Taipei"
+            assert schedule_update_payload["restart_required"] is False
+            assert schedule_update_payload["runtime_reloaded"] is True
+            assert schedule_update_payload["runtime"] == {"default_timezone": "Asia/Taipei", "tool_updated": False}
+            assert agent.tools_config.cron.default_timezone == "Asia/Taipei"
+            main_config = json.loads(config_path.read_text(encoding="utf-8"))
+            assert main_config["tools"]["cron"]["default_timezone"] == "Asia/Taipei"
+
             async with session.get(f"http://127.0.0.1:{port}/api/settings/providers") as resp:
                 assert resp.status == 200
                 providers_payload = await resp.json()

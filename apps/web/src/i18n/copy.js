@@ -33,6 +33,7 @@ export const DISPLAY_COPY = {
       channels: "頻道",
       providers: "提供者",
       models: "模型",
+      schedule: "排程",
     },
     sidebar: {
       ariaLabel: "對話導覽",
@@ -246,6 +247,26 @@ export const DISPLAY_COPY = {
         customPlaceholder: "輸入模型名稱",
         useCustom: "使用自訂模型",
       },
+      schedule: {
+        loading: "讀取排程設定中...",
+        defaultsTitle: "預設排程",
+        defaultTimezone: {
+          title: "預設時區",
+          description: "用於未指定 tz 的 cron 表達式與沒有時區的 ISO 時間。",
+          placeholder: "例如：Asia/Taipei",
+        },
+        currentTitle: "目前使用",
+        save: "儲存",
+        usageTitle: "使用方式",
+        usageCron: {
+          title: "新增排程",
+          description: "在對話中使用 /cron add every、/cron add at 或 /cron add cron；工具呼叫 cron 時也會使用同一個預設時區。",
+        },
+        usageExisting: {
+          title: "既有排程",
+          description: "已建立的排程會保留自己的時間設定；這裡只影響之後新增的排程。",
+        },
+      },
     },
     notices: {
       connectingGateway: "正在連線到你的本機 OpenSprite gateway...",
@@ -287,6 +308,10 @@ export const DISPLAY_COPY = {
       providerDisconnected: (name, restartRequired) => restartRequired
         ? `${name} 已中斷連線，重啟 opensprite gateway 後生效。`
         : `${name} 已中斷連線。`,
+      scheduleLoadFailed: "無法載入排程設定。",
+      scheduleSaveFailed: "無法儲存排程設定。",
+      scheduleRestartRequired: "已儲存，重啟 opensprite gateway 後生效。",
+      scheduleSaved: (timezone) => `排程預設時區已更新為 ${timezone}。`,
     },
   },
   en: {
@@ -321,6 +346,7 @@ export const DISPLAY_COPY = {
       channels: "Channels",
       providers: "Providers",
       models: "Models",
+      schedule: "Schedule",
     },
     sidebar: {
       ariaLabel: "Chat navigation",
@@ -534,6 +560,26 @@ export const DISPLAY_COPY = {
         customPlaceholder: "Enter a model name",
         useCustom: "Use custom model",
       },
+      schedule: {
+        loading: "Loading schedule settings...",
+        defaultsTitle: "Schedule defaults",
+        defaultTimezone: {
+          title: "Default timezone",
+          description: "Used for cron expressions without tz and ISO datetimes without timezone info.",
+          placeholder: "Example: Asia/Taipei",
+        },
+        currentTitle: "Currently active",
+        save: "Save",
+        usageTitle: "Usage",
+        usageCron: {
+          title: "Create scheduled jobs",
+          description: "Use /cron add every, /cron add at, or /cron add cron in chat. Cron tool calls use the same default timezone.",
+        },
+        usageExisting: {
+          title: "Existing jobs",
+          description: "Existing jobs keep their own timing. This setting only affects new scheduled jobs.",
+        },
+      },
     },
     notices: {
       connectingGateway: "Connecting to your local OpenSprite gateway...",
@@ -575,6 +621,10 @@ export const DISPLAY_COPY = {
       providerDisconnected: (name, restartRequired) => restartRequired
         ? `${name} disconnected. Restart opensprite gateway for this to take effect.`
         : `${name} disconnected.`,
+      scheduleLoadFailed: "Could not load schedule settings.",
+      scheduleSaveFailed: "Could not save schedule settings.",
+      scheduleRestartRequired: "Saved. Restart opensprite gateway for this to take effect.",
+      scheduleSaved: (timezone) => `Schedule default timezone updated to ${timezone}.`,
     },
   },
 };

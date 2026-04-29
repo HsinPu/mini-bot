@@ -74,6 +74,7 @@
     @save-provider-connection="saveProviderConnection"
     @disconnect-provider="disconnectProvider"
     @select-model="selectModel"
+    @save-schedule-settings="saveScheduleSettings"
   />
 </template>
 
@@ -124,6 +125,7 @@ const {
   saveProviderConnection,
   disconnectProvider,
   selectModel,
+  saveScheduleSettings,
   toggleSidebar,
   toggleSidebarCollapsed,
   connectSocket,

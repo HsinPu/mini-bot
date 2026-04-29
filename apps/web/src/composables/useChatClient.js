@@ -368,6 +368,16 @@ export function useChatClient() {
       providers: [],
     },
     customModels: {},
+    scheduleLoading: false,
+    scheduleError: "",
+    scheduleNotice: "",
+    schedule: {
+      default_timezone: "UTC",
+      common_timezones: [],
+    },
+    scheduleForm: {
+      defaultTimezone: "UTC",
+    },
   });
 
   let activeSocket = null;
@@ -926,6 +936,20 @@ export function useChatClient() {
     }
   }
 
+  async function loadScheduleSettings() {
+    settingsState.scheduleLoading = true;
+    settingsState.scheduleError = "";
+    try {
+      const payload = await requestSettingsJson("/api/settings/schedule");
+      settingsState.schedule = payload;
+      settingsState.scheduleForm.defaultTimezone = payload.default_timezone || "UTC";
+    } catch (error) {
+      settingsState.scheduleError = error?.message || copy.value.notices.scheduleLoadFailed;
+    } finally {
+      settingsState.scheduleLoading = false;
+    }
+  }
+
   function loadSettingsSection(sectionName) {
     if (sectionName === "channels") {
       loadChannelSettings();
@@ -937,6 +961,10 @@ export function useChatClient() {
     }
     if (sectionName === "models") {
       loadModelSettings();
+      return;
+    }
+    if (sectionName === "schedule") {
+      loadScheduleSettings();
     }
   }
 
@@ -1088,6 +1116,28 @@ export function useChatClient() {
       settingsState.modelsError = error?.message || copy.value.notices.modelSelectFailed;
     } finally {
       settingsState.modelsLoading = false;
+    }
+  }
+
+  async function saveScheduleSettings() {
+    const defaultTimezone = String(settingsState.scheduleForm.defaultTimezone || "").trim() || "UTC";
+    settingsState.scheduleLoading = true;
+    settingsState.scheduleError = "";
+    settingsState.scheduleNotice = "";
+    try {
+      const payload = await requestSettingsJson("/api/settings/schedule", {
+        method: "PUT",
+        body: JSON.stringify({ default_timezone: defaultTimezone }),
+      });
+      settingsState.schedule = payload;
+      settingsState.scheduleForm.defaultTimezone = payload.default_timezone || defaultTimezone;
+      settingsState.scheduleNotice = payload.restart_required
+        ? copy.value.notices.scheduleRestartRequired
+        : copy.value.notices.scheduleSaved(settingsState.scheduleForm.defaultTimezone);
+    } catch (error) {
+      settingsState.scheduleError = error?.message || copy.value.notices.scheduleSaveFailed;
+    } finally {
+      settingsState.scheduleLoading = false;
     }
   }
 
@@ -1413,6 +1463,7 @@ export function useChatClient() {
     loadProviderSettings,
     loadModelSettings,
     loadChannelSettings,
+    loadScheduleSettings,
     beginChannelConnect,
     cancelChannelConnect,
     saveChannelConnection,
@@ -1422,6 +1473,7 @@ export function useChatClient() {
     saveProviderConnection,
     disconnectProvider,
     selectModel,
+    saveScheduleSettings,
     toggleSidebar,
     toggleSidebarCollapsed,
     connectSocket,
