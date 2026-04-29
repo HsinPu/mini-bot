@@ -162,6 +162,8 @@
 :root[data-color-scheme="dark"] .custom-model-row label,
 :root[data-color-scheme="dark"] .channel-field,
 :root[data-color-scheme="dark"] .settings-row span,
+:root[data-color-scheme="dark"] .schedule-editor__header span,
+:root[data-color-scheme="dark"] .schedule-job-row__main > span,
 :root[data-color-scheme="dark"] .provider-row__main span:not(.provider-row__mark):not(.provider-row__badge),
 :root[data-color-scheme="dark"] .provider-row--empty,
 :root[data-color-scheme="dark"] .provider-row--empty span,
@@ -176,6 +178,7 @@
 :root[data-color-scheme="dark"] .settings-page h3,
 :root[data-color-scheme="dark"] .provider-row--empty strong,
 :root[data-color-scheme="dark"] .provider-row__title strong,
+:root[data-color-scheme="dark"] .schedule-editor__header strong,
 :root[data-color-scheme="dark"] .provider-connect-dialog__title h3,
 :root[data-color-scheme="dark"] .model-option,
 :root[data-color-scheme="dark"] .settings-row strong,
@@ -183,7 +186,13 @@
 :root[data-color-scheme="dark"] .settings-row input[type="text"],
 :root[data-color-scheme="dark"] .provider-connect-field input,
 :root[data-color-scheme="dark"] .custom-model-row input,
-:root[data-color-scheme="dark"] .channel-field input {
+:root[data-color-scheme="dark"] .channel-field input,
+:root[data-color-scheme="dark"] .channel-field select,
+:root[data-color-scheme="dark"] .channel-field textarea {
+  color: var(--text);
+}
+
+:root[data-color-scheme="dark"] .schedule-job-row__main > p {
   color: var(--text);
 }
 
@@ -207,8 +216,11 @@
 :root[data-color-scheme="dark"] .provider-connect-field input,
 :root[data-color-scheme="dark"] .custom-model-row input,
 :root[data-color-scheme="dark"] .channel-field input,
+:root[data-color-scheme="dark"] .channel-field select,
+:root[data-color-scheme="dark"] .channel-field textarea,
 :root[data-color-scheme="dark"] .model-option,
 :root[data-color-scheme="dark"] .settings-row select:hover,
+:root[data-color-scheme="dark"] .settings-row select:focus,
 :root[data-color-scheme="dark"] .settings-row input[type="text"]:hover,
 :root[data-color-scheme="dark"] .settings-row input[type="text"]:focus,
 :root[data-color-scheme="dark"] kbd {
@@ -220,11 +232,15 @@
 :root[data-color-scheme="dark"] .provider-connect-field input,
 :root[data-color-scheme="dark"] .custom-model-row input,
 :root[data-color-scheme="dark"] .channel-field input,
+:root[data-color-scheme="dark"] .channel-field select,
+:root[data-color-scheme="dark"] .channel-field textarea,
 :root[data-color-scheme="dark"] .model-option,
 :root[data-color-scheme="dark"] .settings-row select:hover,
+:root[data-color-scheme="dark"] .settings-row select:focus,
 :root[data-color-scheme="dark"] .settings-row input[type="text"]:hover,
 :root[data-color-scheme="dark"] .settings-row input[type="text"]:focus,
 :root[data-color-scheme="dark"] .settings-row--field input[type="text"],
+:root[data-color-scheme="dark"] .settings-row--field select,
 :root[data-color-scheme="dark"] kbd {
   background: var(--surface);
 }
@@ -1730,7 +1746,9 @@ button:disabled {
   grid-column: 1 / -1;
 }
 
-.channel-field input {
+.channel-field input,
+.channel-field select,
+.channel-field textarea {
   width: 100%;
   min-height: 36px;
   padding: 0 10px;
@@ -1738,6 +1756,13 @@ button:disabled {
   border-radius: 7px;
   color: #151515;
   background: #ffffff;
+}
+
+.channel-field textarea {
+  min-height: 82px;
+  padding: 10px;
+  resize: vertical;
+  line-height: 1.45;
 }
 
 .channel-card__switch-row {
@@ -1757,6 +1782,87 @@ button:disabled {
   display: grid;
   gap: 16px;
   padding: 16px;
+}
+
+.schedule-editor {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+}
+
+.schedule-editor__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.schedule-editor__header strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #1d1d1d;
+  font-weight: 560;
+}
+
+.schedule-editor__header span {
+  color: #858585;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.schedule-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.schedule-editor__deliver {
+  grid-column: 1 / -1;
+  min-height: 58px;
+  padding: 0;
+  border-bottom: 0;
+}
+
+.schedule-editor__submit {
+  justify-self: start;
+}
+
+.schedule-job-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 16px 22px;
+  border-bottom: 1px solid #dddddd;
+}
+
+.schedule-job-row:last-child {
+  border-bottom: 0;
+}
+
+.schedule-job-row__main {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.schedule-job-row__main > span,
+.schedule-job-row__main > p {
+  margin: 0;
+  color: #858585;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.schedule-job-row__main > p {
+  color: #555555;
+}
+
+.schedule-job-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .model-provider-card__header {
@@ -1863,7 +1969,8 @@ button:disabled {
 
 .settings-row select:hover,
 .settings-row input[type="text"]:hover,
-.settings-row input[type="text"]:focus {
+.settings-row input[type="text"]:focus,
+.settings-row select:focus {
   border-color: #d7d7d7;
   background: #ffffff;
 }
@@ -1872,7 +1979,8 @@ button:disabled {
   grid-template-columns: minmax(220px, 0.72fr) minmax(220px, 1fr);
 }
 
-.settings-row--field input[type="text"] {
+.settings-row--field input[type="text"],
+.settings-row--field select {
   width: 100%;
   min-width: 0;
   background: #ffffff;
@@ -2038,9 +2146,20 @@ textarea:focus-visible {
   .provider-row__content,
   .channel-card__header,
   .channel-card__footer,
-  .custom-model-row {
+  .custom-model-row,
+  .schedule-form-grid,
+  .schedule-job-row {
     grid-template-columns: 1fr;
     gap: 10px;
+  }
+
+  .schedule-editor__header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .schedule-job-row__actions {
+    justify-content: flex-start;
   }
 
   .channel-card__header,

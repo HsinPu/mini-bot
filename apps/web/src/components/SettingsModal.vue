@@ -431,21 +431,20 @@
                 <strong>{{ copy.settings.schedule.defaultTimezone.title }}</strong>
                 <span>{{ copy.settings.schedule.defaultTimezone.description }}</span>
               </div>
-              <input
+              <select
                 v-model="settingsState.scheduleForm.defaultTimezone"
-                type="text"
-                list="scheduleTimezoneOptions"
-                :placeholder="copy.settings.schedule.defaultTimezone.placeholder"
-                spellcheck="false"
+                :aria-label="copy.settings.schedule.defaultTimezone.title"
+                :disabled="settingsState.scheduleLoading"
                 @keydown.enter.prevent="$emit('save-schedule-settings')"
-              />
-              <datalist id="scheduleTimezoneOptions">
+              >
                 <option
-                  v-for="timezone in settingsState.schedule.common_timezones"
+                  v-for="timezone in scheduleTimezoneOptions"
                   :key="timezone"
                   :value="timezone"
-                ></option>
-              </datalist>
+                >
+                  {{ timezone }}
+                </option>
+              </select>
             </label>
 
             <div class="settings-row">
@@ -461,6 +460,157 @@
               >
                 {{ copy.settings.schedule.save }}
               </button>
+            </div>
+          </div>
+
+          <h3>{{ copy.settings.schedule.manageTitle }}</h3>
+          <p v-if="settingsState.cronJobsError" class="settings-inline-status settings-inline-status--error">
+            {{ settingsState.cronJobsError }}
+          </p>
+          <p v-if="settingsState.cronJobsNotice" class="settings-inline-status settings-inline-status--success">
+            {{ settingsState.cronJobsNotice }}
+          </p>
+
+          <div class="settings-card schedule-editor">
+            <div class="schedule-editor__header">
+              <div>
+                <strong>
+                  {{ settingsState.cronJobForm.jobId ? copy.settings.schedule.editJobTitle : copy.settings.schedule.newJobTitle }}
+                </strong>
+                <span>{{ copy.settings.schedule.newJobDescription }}</span>
+              </div>
+              <button
+                v-if="settingsState.cronJobForm.jobId"
+                class="secondary-button"
+                type="button"
+                @click="$emit('cancel-cron-job-edit')"
+              >
+                {{ copy.settings.schedule.cancelEdit }}
+              </button>
+            </div>
+
+            <div class="schedule-form-grid">
+              <label class="channel-field">
+                <span>{{ copy.settings.schedule.jobName }}</span>
+                <input v-model="settingsState.cronJobForm.name" type="text" />
+              </label>
+
+              <label class="channel-field">
+                <span>{{ copy.settings.schedule.jobType }}</span>
+                <select v-model="settingsState.cronJobForm.mode">
+                  <option value="cron">{{ copy.settings.schedule.jobTypes.cron }}</option>
+                  <option value="every">{{ copy.settings.schedule.jobTypes.every }}</option>
+                  <option value="at">{{ copy.settings.schedule.jobTypes.at }}</option>
+                </select>
+              </label>
+
+              <label v-if="settingsState.cronJobForm.mode === 'every'" class="channel-field">
+                <span>{{ copy.settings.schedule.everySeconds }}</span>
+                <input v-model="settingsState.cronJobForm.everySeconds" type="number" min="1" step="1" />
+              </label>
+
+              <label v-if="settingsState.cronJobForm.mode === 'cron'" class="channel-field channel-field--wide">
+                <span>{{ copy.settings.schedule.cronExpression }}</span>
+                <input v-model="settingsState.cronJobForm.cronExpr" type="text" spellcheck="false" />
+              </label>
+
+              <label v-if="settingsState.cronJobForm.mode === 'cron'" class="channel-field">
+                <span>{{ copy.settings.schedule.timezone }}</span>
+                <select v-model="settingsState.cronJobForm.timezone">
+                  <option
+                    v-for="timezone in scheduleTimezoneOptions"
+                    :key="timezone"
+                    :value="timezone"
+                  >
+                    {{ timezone }}
+                  </option>
+                </select>
+              </label>
+
+              <label v-if="settingsState.cronJobForm.mode === 'at'" class="channel-field">
+                <span>{{ copy.settings.schedule.runAt }}</span>
+                <input v-model="settingsState.cronJobForm.at" type="datetime-local" />
+              </label>
+
+              <label class="channel-field channel-field--wide">
+                <span>{{ copy.settings.schedule.message }}</span>
+                <textarea v-model="settingsState.cronJobForm.message" rows="3" spellcheck="false"></textarea>
+              </label>
+
+              <label class="settings-row schedule-editor__deliver">
+                <div>
+                  <strong>{{ copy.settings.schedule.deliver.title }}</strong>
+                  <span>{{ copy.settings.schedule.deliver.description }}</span>
+                </div>
+                <input v-model="settingsState.cronJobForm.deliver" class="switch" type="checkbox" />
+              </label>
+
+              <button
+                class="primary-button schedule-editor__submit"
+                type="button"
+                :disabled="settingsState.cronJobsLoading"
+                @click="$emit('save-cron-job')"
+              >
+                {{ settingsState.cronJobForm.jobId ? copy.settings.schedule.updateJob : copy.settings.schedule.createJob }}
+              </button>
+            </div>
+          </div>
+
+          <h3>{{ copy.settings.schedule.jobsTitle }}</h3>
+          <p v-if="settingsState.cronJobsLoading" class="settings-inline-status">{{ copy.settings.schedule.jobsLoading }}</p>
+          <div class="settings-card provider-card">
+            <div
+              v-if="!settingsState.cronJobsLoading && settingsState.cronJobs.length === 0"
+              class="provider-row provider-row--empty"
+            >
+              <div>
+                <strong>{{ copy.settings.schedule.noJobsTitle }}</strong>
+                <span>{{ copy.settings.schedule.noJobsDescription }}</span>
+              </div>
+            </div>
+
+            <div v-for="job in settingsState.cronJobs" :key="job.id" class="schedule-job-row">
+              <div class="schedule-job-row__main">
+                <div class="provider-row__title">
+                  <strong>{{ job.name }}</strong>
+                  <span class="provider-row__badge">
+                    {{ job.enabled ? copy.settings.schedule.enabled : copy.settings.schedule.paused }}
+                  </span>
+                </div>
+                <span>{{ job.schedule.display }}</span>
+                <span v-if="job.state.next_run_display">{{ copy.settings.schedule.nextRun(job.state.next_run_display) }}</span>
+                <p>{{ job.payload.message }}</p>
+              </div>
+
+              <div class="schedule-job-row__actions">
+                <button class="secondary-button" type="button" @click="$emit('edit-cron-job', job)">
+                  {{ copy.settings.schedule.edit }}
+                </button>
+                <button
+                  class="secondary-button"
+                  type="button"
+                  :disabled="settingsState.cronJobsLoading"
+                  @click="$emit('cron-job-action', job, job.enabled ? 'pause' : 'enable')"
+                >
+                  {{ job.enabled ? copy.settings.schedule.pause : copy.settings.schedule.enable }}
+                </button>
+                <button
+                  class="secondary-button"
+                  type="button"
+                  :disabled="settingsState.cronJobsLoading"
+                  @click="$emit('cron-job-action', job, 'run')"
+                >
+                  {{ copy.settings.schedule.runNow }}
+                </button>
+                <button
+                  class="secondary-button"
+                  type="button"
+                  :disabled="settingsState.cronJobsLoading"
+                  @click="$emit('cron-job-action', job, 'remove')"
+                >
+                  {{ copy.settings.schedule.remove }}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -670,6 +820,21 @@ const connectionSwitchLabel = computed(() => {
   return props.copy.settings.general.gateway.disconnected;
 });
 
+const scheduleTimezoneOptions = computed(() => {
+  const configured = Array.isArray(props.settingsState.schedule.common_timezones)
+    ? props.settingsState.schedule.common_timezones
+    : [];
+  const options = configured.map((timezone) => String(timezone || "").trim()).filter(Boolean);
+  const current = String(
+    props.settingsState.scheduleForm.defaultTimezone || props.settingsState.schedule.default_timezone || "UTC",
+  ).trim() || "UTC";
+  const uniqueOptions = Array.from(new Set(options.length ? options : ["UTC"]));
+  if (!uniqueOptions.includes(current)) {
+    uniqueOptions.unshift(current);
+  }
+  return uniqueOptions;
+});
+
 defineEmits([
   "close",
   "select-section",
@@ -685,5 +850,9 @@ defineEmits([
   "disconnect-provider",
   "select-model",
   "save-schedule-settings",
+  "save-cron-job",
+  "edit-cron-job",
+  "cancel-cron-job-edit",
+  "cron-job-action",
 ]);
 </script>

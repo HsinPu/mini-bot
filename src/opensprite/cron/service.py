@@ -341,6 +341,46 @@ class CronService:
         self._arm_timer()
         return job
 
+    def update_job(
+        self,
+        job_id: str,
+        *,
+        name: str | None = None,
+        schedule: CronSchedule | None = None,
+        message: str | None = None,
+        deliver: bool | None = None,
+        channel: str | None = None,
+        external_chat_id: str | None = None,
+        delete_after_run: bool | None = None,
+    ) -> CronJob | None:
+        store = self._load_store()
+        job = next((existing for existing in store.jobs if existing.id == job_id), None)
+        if job is None:
+            return None
+
+        now_ms = _now_ms()
+        if schedule is not None:
+            _validate_schedule_for_add(schedule)
+            job.schedule = schedule
+            job.state.next_run_at_ms = _compute_next_run(schedule, now_ms) if job.enabled else None
+        if name is not None:
+            job.name = name
+        if message is not None:
+            job.payload.message = message
+        if deliver is not None:
+            job.payload.deliver = deliver
+        if channel is not None:
+            job.payload.channel = channel
+        if external_chat_id is not None:
+            job.payload.external_chat_id = external_chat_id
+        if delete_after_run is not None:
+            job.delete_after_run = delete_after_run
+
+        job.updated_at_ms = now_ms
+        self._save_store()
+        self._arm_timer()
+        return job
+
     def remove_job(self, job_id: str) -> bool:
         store = self._load_store()
         before = len(store.jobs)

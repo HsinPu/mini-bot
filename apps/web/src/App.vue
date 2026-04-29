@@ -75,6 +75,10 @@
     @disconnect-provider="disconnectProvider"
     @select-model="selectModel"
     @save-schedule-settings="saveScheduleSettings"
+    @save-cron-job="saveCronJob"
+    @edit-cron-job="beginCronJobEdit"
+    @cancel-cron-job-edit="cancelCronJobEdit"
+    @cron-job-action="runCronJobAction"
   />
 </template>
 
@@ -126,6 +130,10 @@ const {
   disconnectProvider,
   selectModel,
   saveScheduleSettings,
+  beginCronJobEdit,
+  cancelCronJobEdit,
+  saveCronJob,
+  runCronJobAction,
   toggleSidebar,
   toggleSidebarCollapsed,
   connectSocket,

@@ -9,6 +9,7 @@ from opensprite.bus.events import RunEvent
 from opensprite.bus.message import AssistantMessage
 from opensprite.channels.web import WebAdapter
 from opensprite.config import Config
+from opensprite.cron import CronManager
 from opensprite.storage import MemoryStorage, StoredMessage
 
 
@@ -858,6 +859,141 @@ def test_web_adapter_schedule_settings_create_default_config(tmp_path, monkeypat
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
     asyncio.run(_run_web_schedule_settings_creates_default_config(tmp_path))
+
+
+async def _run_web_cron_jobs_api(tmp_path: Path):
+    config_path = tmp_path / "opensprite.json"
+    Config.copy_template(config_path)
+    triggered: list[tuple[str, str]] = []
+
+    async def on_job(session_id, job):
+        triggered.append((session_id, job.payload.message))
+        return None
+
+    class CronAgent(EchoAgent):
+        def __init__(self):
+            super().__init__()
+            self.config_path = config_path
+            self.cron_manager = CronManager(workspace_root=tmp_path / "workspace", on_job=on_job)
+
+    agent = CronAgent()
+    queue = MessageQueue(agent)
+    adapter = WebAdapter(
+        mq=queue,
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "path": "/ws",
+            "health_path": "/healthz",
+            "frontend_auto_build": False,
+        },
+    )
+    adapter_task = asyncio.create_task(adapter.run())
+
+    try:
+        await adapter.wait_until_started()
+        port = adapter.bound_port
+        assert port is not None
+        session_id = "web:browser-1"
+
+        async with ClientSession() as session:
+            async with session.get(
+                f"http://127.0.0.1:{port}/api/cron/jobs",
+                params={"session_id": session_id},
+            ) as resp:
+                assert resp.status == 200
+                payload = await resp.json()
+
+            assert payload["session_id"] == session_id
+            assert payload["jobs"] == []
+
+            async with session.post(
+                f"http://127.0.0.1:{port}/api/cron/jobs",
+                json={
+                    "session_id": session_id,
+                    "kind": "every",
+                    "every_seconds": 60,
+                    "message": "check status",
+                    "deliver": True,
+                },
+            ) as resp:
+                assert resp.status == 200
+                created = await resp.json()
+
+            job_id = created["job"]["id"]
+            assert created["job"]["schedule"]["kind"] == "every"
+            assert created["job"]["payload"]["channel"] == "web"
+            assert created["job"]["payload"]["external_chat_id"] == "browser-1"
+
+            async with session.put(
+                f"http://127.0.0.1:{port}/api/cron/jobs/{job_id}",
+                json={
+                    "session_id": session_id,
+                    "kind": "cron",
+                    "cron_expr": "0 9 * * *",
+                    "tz": "Asia/Taipei",
+                    "message": "daily check",
+                    "deliver": False,
+                },
+            ) as resp:
+                assert resp.status == 200
+                updated = await resp.json()
+
+            assert updated["job"]["schedule"]["kind"] == "cron"
+            assert updated["job"]["schedule"]["tz"] == "Asia/Taipei"
+            assert updated["job"]["payload"]["deliver"] is False
+
+            async with session.post(
+                f"http://127.0.0.1:{port}/api/cron/jobs/{job_id}/pause",
+                json={"session_id": session_id},
+            ) as resp:
+                assert resp.status == 200
+                paused = await resp.json()
+
+            assert paused["job"]["enabled"] is False
+
+            async with session.post(
+                f"http://127.0.0.1:{port}/api/cron/jobs/{job_id}/enable",
+                json={"session_id": session_id},
+            ) as resp:
+                assert resp.status == 200
+                enabled = await resp.json()
+
+            assert enabled["job"]["enabled"] is True
+
+            async with session.post(
+                f"http://127.0.0.1:{port}/api/cron/jobs/{job_id}/run",
+                json={"session_id": session_id},
+            ) as resp:
+                assert resp.status == 200
+
+            assert triggered == [(session_id, "daily check")]
+
+            async with session.delete(
+                f"http://127.0.0.1:{port}/api/cron/jobs/{job_id}",
+                params={"session_id": session_id},
+            ) as resp:
+                assert resp.status == 200
+
+            async with session.get(
+                f"http://127.0.0.1:{port}/api/cron/jobs",
+                params={"session_id": session_id},
+            ) as resp:
+                assert resp.status == 200
+                final_payload = await resp.json()
+
+            assert final_payload["jobs"] == []
+    finally:
+        adapter_task.cancel()
+        try:
+            await adapter_task
+        except asyncio.CancelledError:
+            pass
+        await agent.cron_manager.stop()
+
+
+def test_web_adapter_cron_jobs_api(tmp_path):
+    asyncio.run(_run_web_cron_jobs_api(tmp_path))
 
 
 async def _run_web_channel_settings_hot_reload(tmp_path: Path):

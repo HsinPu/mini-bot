@@ -378,6 +378,21 @@ export function useChatClient() {
     scheduleForm: {
       defaultTimezone: "UTC",
     },
+    cronJobsLoading: false,
+    cronJobsError: "",
+    cronJobsNotice: "",
+    cronJobs: [],
+    cronJobForm: {
+      jobId: "",
+      mode: "cron",
+      name: "",
+      message: "",
+      everySeconds: "3600",
+      cronExpr: "0 9 * * *",
+      at: "",
+      timezone: "UTC",
+      deliver: true,
+    },
   });
 
   let activeSocket = null;
@@ -538,6 +553,15 @@ export function useChatClient() {
   watch(settingsOpen, (isOpen) => {
     document.body.classList.toggle("settings-open", isOpen);
   });
+
+  watch(
+    () => state.activeExternalChatId,
+    () => {
+      if (settingsOpen.value && settingsSection.value === "schedule") {
+        loadCronJobs();
+      }
+    },
+  );
 
   watch(sidebarOpen, (isOpen) => {
     document.body.classList.toggle("sidebar-open", isOpen);
@@ -785,6 +809,58 @@ export function useChatClient() {
     return response.json();
   }
 
+  function getActiveCronSessionId() {
+    const session = currentSession.value;
+    if (session?.sessionId) {
+      return session.sessionId;
+    }
+    if (session?.externalChatId) {
+      return `web:${session.externalChatId}`;
+    }
+    return "";
+  }
+
+  function formatDateTimeLocal(timestampMs) {
+    const date = new Date(Number(timestampMs || 0));
+    if (Number.isNaN(date.getTime())) {
+      return "";
+    }
+    const offsetMs = date.getTimezoneOffset() * 60_000;
+    return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+  }
+
+  function resetCronJobForm() {
+    settingsState.cronJobForm.jobId = "";
+    settingsState.cronJobForm.mode = "cron";
+    settingsState.cronJobForm.name = "";
+    settingsState.cronJobForm.message = "";
+    settingsState.cronJobForm.everySeconds = "3600";
+    settingsState.cronJobForm.cronExpr = "0 9 * * *";
+    settingsState.cronJobForm.at = "";
+    settingsState.cronJobForm.timezone = settingsState.schedule.default_timezone || "UTC";
+    settingsState.cronJobForm.deliver = true;
+  }
+
+  function buildCronJobPayload() {
+    const form = settingsState.cronJobForm;
+    const payload = {
+      session_id: getActiveCronSessionId(),
+      kind: form.mode,
+      name: String(form.name || "").trim(),
+      message: String(form.message || "").trim(),
+      deliver: Boolean(form.deliver),
+    };
+    if (form.mode === "every") {
+      payload.every_seconds = Number(form.everySeconds);
+    } else if (form.mode === "cron") {
+      payload.cron_expr = String(form.cronExpr || "").trim();
+      payload.tz = String(form.timezone || settingsState.schedule.default_timezone || "UTC").trim();
+    } else if (form.mode === "at") {
+      payload.at = String(form.at || "").trim();
+    }
+    return payload;
+  }
+
   function makeHistoryMessage(message, index) {
     const metadata = message?.metadata && typeof message.metadata === "object" ? message.metadata : {};
     const role = message?.role === "user" ? "user" : "assistant";
@@ -943,10 +1019,33 @@ export function useChatClient() {
       const payload = await requestSettingsJson("/api/settings/schedule");
       settingsState.schedule = payload;
       settingsState.scheduleForm.defaultTimezone = payload.default_timezone || "UTC";
+      if (!settingsState.cronJobForm.timezone || !settingsState.cronJobForm.jobId) {
+        settingsState.cronJobForm.timezone = settingsState.scheduleForm.defaultTimezone;
+      }
     } catch (error) {
       settingsState.scheduleError = error?.message || copy.value.notices.scheduleLoadFailed;
     } finally {
       settingsState.scheduleLoading = false;
+    }
+  }
+
+  async function loadCronJobs() {
+    const sessionId = getActiveCronSessionId();
+    if (!sessionId) {
+      settingsState.cronJobs = [];
+      settingsState.cronJobsError = copy.value.notices.sessionNotReady;
+      return;
+    }
+
+    settingsState.cronJobsLoading = true;
+    settingsState.cronJobsError = "";
+    try {
+      const payload = await requestSettingsJson(`/api/cron/jobs?session_id=${encodeURIComponent(sessionId)}`);
+      settingsState.cronJobs = Array.isArray(payload.jobs) ? payload.jobs : [];
+    } catch (error) {
+      settingsState.cronJobsError = error?.message || copy.value.notices.cronJobsLoadFailed;
+    } finally {
+      settingsState.cronJobsLoading = false;
     }
   }
 
@@ -965,6 +1064,7 @@ export function useChatClient() {
     }
     if (sectionName === "schedule") {
       loadScheduleSettings();
+      loadCronJobs();
     }
   }
 
@@ -1138,6 +1238,86 @@ export function useChatClient() {
       settingsState.scheduleError = error?.message || copy.value.notices.scheduleSaveFailed;
     } finally {
       settingsState.scheduleLoading = false;
+    }
+  }
+
+  function beginCronJobEdit(job) {
+    const schedule = job?.schedule || {};
+    const payload = job?.payload || {};
+    settingsState.cronJobsNotice = "";
+    settingsState.cronJobsError = "";
+    settingsState.cronJobForm.jobId = job?.id || "";
+    settingsState.cronJobForm.mode = schedule.kind || "cron";
+    settingsState.cronJobForm.name = job?.name || "";
+    settingsState.cronJobForm.message = payload.message || "";
+    settingsState.cronJobForm.everySeconds = schedule.every_ms ? String(Math.max(1, Math.floor(schedule.every_ms / 1000))) : "3600";
+    settingsState.cronJobForm.cronExpr = schedule.expr || "0 9 * * *";
+    settingsState.cronJobForm.at = schedule.at_ms ? formatDateTimeLocal(schedule.at_ms) : "";
+    settingsState.cronJobForm.timezone = schedule.tz || settingsState.schedule.default_timezone || "UTC";
+    settingsState.cronJobForm.deliver = payload.deliver !== false;
+  }
+
+  function cancelCronJobEdit() {
+    resetCronJobForm();
+  }
+
+  async function saveCronJob() {
+    const payload = buildCronJobPayload();
+    if (!payload.session_id) {
+      settingsState.cronJobsError = copy.value.notices.sessionNotReady;
+      return;
+    }
+    if (!payload.message) {
+      settingsState.cronJobsError = copy.value.notices.cronJobMessageRequired;
+      return;
+    }
+
+    const jobId = settingsState.cronJobForm.jobId;
+    settingsState.cronJobsLoading = true;
+    settingsState.cronJobsError = "";
+    settingsState.cronJobsNotice = "";
+    try {
+      await requestSettingsJson(jobId ? `/api/cron/jobs/${encodeURIComponent(jobId)}` : "/api/cron/jobs", {
+        method: jobId ? "PUT" : "POST",
+        body: JSON.stringify(payload),
+      });
+      settingsState.cronJobsNotice = jobId ? copy.value.notices.cronJobUpdated : copy.value.notices.cronJobCreated;
+      resetCronJobForm();
+      await loadCronJobs();
+    } catch (error) {
+      settingsState.cronJobsError = error?.message || copy.value.notices.cronJobSaveFailed;
+    } finally {
+      settingsState.cronJobsLoading = false;
+    }
+  }
+
+  async function runCronJobAction(job, action) {
+    const sessionId = getActiveCronSessionId();
+    if (!sessionId) {
+      settingsState.cronJobsError = copy.value.notices.sessionNotReady;
+      return;
+    }
+
+    settingsState.cronJobsLoading = true;
+    settingsState.cronJobsError = "";
+    settingsState.cronJobsNotice = "";
+    try {
+      if (action === "remove") {
+        await requestSettingsJson(`/api/cron/jobs/${encodeURIComponent(job.id)}?session_id=${encodeURIComponent(sessionId)}`, {
+          method: "DELETE",
+        });
+      } else {
+        await requestSettingsJson(`/api/cron/jobs/${encodeURIComponent(job.id)}/${encodeURIComponent(action)}`, {
+          method: "POST",
+          body: JSON.stringify({ session_id: sessionId }),
+        });
+      }
+      settingsState.cronJobsNotice = copy.value.notices.cronJobActionDone;
+      await loadCronJobs();
+    } catch (error) {
+      settingsState.cronJobsError = error?.message || copy.value.notices.cronJobActionFailed;
+    } finally {
+      settingsState.cronJobsLoading = false;
     }
   }
 
@@ -1464,6 +1644,7 @@ export function useChatClient() {
     loadModelSettings,
     loadChannelSettings,
     loadScheduleSettings,
+    loadCronJobs,
     beginChannelConnect,
     cancelChannelConnect,
     saveChannelConnection,
@@ -1474,6 +1655,10 @@ export function useChatClient() {
     disconnectProvider,
     selectModel,
     saveScheduleSettings,
+    beginCronJobEdit,
+    cancelCronJobEdit,
+    saveCronJob,
+    runCronJobAction,
     toggleSidebar,
     toggleSidebarCollapsed,
     connectSocket,
