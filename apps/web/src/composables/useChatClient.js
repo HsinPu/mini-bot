@@ -682,6 +682,12 @@ export function useChatClient() {
     closeSidebar();
   }
 
+  function persistActiveSession() {
+    if (state.activeExternalChatId) {
+      writeStoredValue(STORAGE_KEYS.activeExternalChatId, state.activeExternalChatId);
+    }
+  }
+
   function selectSettingsSection(sectionName) {
     settingsSection.value = Object.prototype.hasOwnProperty.call(copy.value.settingsTitles, sectionName) ? sectionName : "general";
     loadSettingsSection(settingsSection.value);
@@ -1092,6 +1098,7 @@ export function useChatClient() {
       if (!state.activeExternalChatId) {
         state.activeExternalChatId = session.externalChatId;
       }
+      persistActiveSession();
       setNotice(copy.value.notices.liveSessionReady(payload.session_id), "success");
       return;
     }
@@ -1324,6 +1331,7 @@ export function useChatClient() {
     if (clientDisposed) {
       return;
     }
+    persistActiveSession();
     connectSocket();
   }
 
