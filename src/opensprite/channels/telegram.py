@@ -126,18 +126,18 @@ class TelegramAdapter(MessageAdapter):
         ]
         return ", ".join(parts)
 
-    async def _send_typing_action(self, chat_id: str) -> None:
+    async def _send_typing_action(self, external_chat_id: str) -> None:
         """Send one Telegram typing action if the app is available."""
         if self.app is None:
             return
         try:
-            await self.app.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+            await self.app.bot.send_chat_action(chat_id=external_chat_id, action=ChatAction.TYPING)
         except Exception as exc:
-            logger.debug("Telegram typing action failed for chat {}: {}", chat_id, exc)
+            logger.debug("Telegram typing action failed for chat {}: {}", external_chat_id, exc)
 
-    def _start_typing_indicator(self, session_id: str | None, chat_id: str | None) -> None:
+    def _start_typing_indicator(self, session_id: str | None, external_chat_id: str | None) -> None:
         """Start a periodic typing indicator for an active session."""
-        if self.app is None or not session_id or not chat_id:
+        if self.app is None or not session_id or not external_chat_id:
             return
         if session_id in self._typing_tasks:
             return
@@ -147,7 +147,7 @@ class TelegramAdapter(MessageAdapter):
         async def run_typing() -> None:
             try:
                 while True:
-                    await self._send_typing_action(chat_id)
+                    await self._send_typing_action(external_chat_id)
                     await asyncio.sleep(interval)
             except asyncio.CancelledError:
                 raise
@@ -304,8 +304,8 @@ class TelegramAdapter(MessageAdapter):
             )
         
         # 取出聊天室 ID
-        chat_id = str(message.chat.id) if message.chat else None
-        session_id = build_session_id(self.channel_instance_id, chat_id) if chat_id else None
+        external_chat_id = str(message.chat.id) if message.chat else None
+        session_id = build_session_id(self.channel_instance_id, external_chat_id) if external_chat_id else None
         
         telegram_bot = self._resolve_update_bot(raw_update, bot)
 
@@ -361,7 +361,7 @@ class TelegramAdapter(MessageAdapter):
         return UserMessage(
             text=text,
             channel=self.channel_instance_id,
-            external_chat_id=chat_id,
+            external_chat_id=external_chat_id,
             session_id=session_id,
             sender_id=sender_id,
             sender_name=sender_name,

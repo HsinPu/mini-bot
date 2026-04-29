@@ -58,26 +58,26 @@ class SavedMessageStorage:
     def __init__(self, messages: dict[str, list[StoredMessage]] | None = None):
         self.saved = []
         self.messages: defaultdict[str, list[StoredMessage]] = defaultdict(list)
-        for chat_id, rows in (messages or {}).items():
-            self.messages[chat_id].extend(rows)
+        for session_id, rows in (messages or {}).items():
+            self.messages[session_id].extend(rows)
 
-    async def get_messages(self, chat_id, limit=None):
-        messages = self.messages.get(chat_id, [])
+    async def get_messages(self, session_id, limit=None):
+        messages = self.messages.get(session_id, [])
         if limit is None:
             return list(messages)
         return list(messages[-limit:])
 
-    async def add_message(self, chat_id, message: StoredMessage):
-        self.messages[chat_id].append(message)
-        self.saved.append((chat_id, message.role, message.content, message.tool_name, dict(message.metadata)))
+    async def add_message(self, session_id, message: StoredMessage):
+        self.messages[session_id].append(message)
+        self.saved.append((session_id, message.role, message.content, message.tool_name, dict(message.metadata)))
 
-    async def clear_messages(self, chat_id):
-        self.messages.pop(chat_id, None)
+    async def clear_messages(self, session_id):
+        self.messages.pop(session_id, None)
 
-    async def get_consolidated_index(self, chat_id):
+    async def get_consolidated_index(self, session_id):
         return 0
 
-    async def set_consolidated_index(self, chat_id, index):
+    async def set_consolidated_index(self, session_id, index):
         return None
 
     async def get_all_sessions(self):

@@ -10,11 +10,11 @@ class FakeMemoryStore:
         self.current = current
         self.written = None
 
-    def read(self, chat_id: str) -> str:
+    def read(self, session_id: str) -> str:
         return self.current
 
-    def write(self, chat_id: str, content: str) -> None:
-        self.written = (chat_id, content)
+    def write(self, session_id: str, content: str) -> None:
+        self.written = (session_id, content)
 
 
 class FakeProvider:

@@ -16,18 +16,18 @@ from opensprite.storage.base import StoredMessage
 
 
 class FakeStorage:
-    def __init__(self, messages_by_chat):
-        self.messages_by_chat = messages_by_chat
+    def __init__(self, messages_by_session):
+        self.messages_by_session = messages_by_session
 
-    async def get_messages(self, chat_id, limit=None):
-        messages = list(self.messages_by_chat[chat_id])
+    async def get_messages(self, session_id, limit=None):
+        messages = list(self.messages_by_session[session_id])
         return messages[-limit:] if limit is not None else messages
 
-    async def get_message_count(self, chat_id):
-        return len(self.messages_by_chat[chat_id])
+    async def get_message_count(self, session_id):
+        return len(self.messages_by_session[session_id])
 
-    async def get_messages_slice(self, chat_id, *, start_index=0, end_index=None):
-        return list(self.messages_by_chat[chat_id][start_index:end_index])
+    async def get_messages_slice(self, session_id, *, start_index=0, end_index=None):
+        return list(self.messages_by_session[session_id][start_index:end_index])
 
 
 class FakeProvider:

@@ -78,19 +78,19 @@ class _MinimalMCPTool(Tool):
 
 
 class _EmptyStorage:
-    async def get_messages(self, chat_id, limit=None):
+    async def get_messages(self, session_id, limit=None):
         return []
 
-    async def add_message(self, chat_id, message: StoredMessage):
+    async def add_message(self, session_id, message: StoredMessage):
         return None
 
-    async def clear_messages(self, chat_id):
+    async def clear_messages(self, session_id):
         return None
 
-    async def get_consolidated_index(self, chat_id):
+    async def get_consolidated_index(self, session_id):
         return 0
 
-    async def set_consolidated_index(self, chat_id, index):
+    async def set_consolidated_index(self, session_id, index):
         return None
 
     async def get_all_sessions(self):

@@ -16,13 +16,13 @@ class FakeStorage:
         self.consolidated_index = consolidated_index
         self.updated_index = None
 
-    async def get_messages(self, chat_id, limit=None):
+    async def get_messages(self, session_id, limit=None):
         return list(self.messages)
 
-    async def get_consolidated_index(self, chat_id):
+    async def get_consolidated_index(self, session_id):
         return self.consolidated_index
 
-    async def set_consolidated_index(self, chat_id, index):
+    async def set_consolidated_index(self, session_id, index):
         self.updated_index = index
 
 

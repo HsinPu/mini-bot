@@ -24,7 +24,7 @@ class FakeStorage:
     def __init__(self, messages):
         self.messages = list(messages)
 
-    async def get_messages(self, chat_id, limit=None):
+    async def get_messages(self, session_id, limit=None):
         return list(self.messages)
 
 

@@ -30,10 +30,10 @@ async def _fake_reload_mcp() -> str:
 
 
 class FakeSearchStore:
-    async def search_history(self, chat_id: str, query: str, limit: int = 5):
+    async def search_history(self, session_id: str, query: str, limit: int = 5):
         return []
 
-    async def search_knowledge(self, chat_id: str, query: str, limit: int = 5):
+    async def search_knowledge(self, session_id: str, query: str, limit: int = 5):
         return []
 
 
@@ -184,8 +184,8 @@ def test_register_default_tools_applies_typed_tools_config_values():
     assert web_fetch_tool.fetcher.firecrawl_api_key == "firecrawl-key"
 
 
-async def _fake_preview_run_file_change_revert(chat_id: str, run_id: str, change_id: int):
-    return {"chat_id": chat_id, "run_id": run_id, "change_id": change_id, "status": "ready"}
+async def _fake_preview_run_file_change_revert(session_id: str, run_id: str, change_id: int):
+    return {"session_id": session_id, "run_id": run_id, "change_id": change_id, "status": "ready"}
 
 
 def test_register_default_tools_includes_run_trace_tools_when_storage_is_available():

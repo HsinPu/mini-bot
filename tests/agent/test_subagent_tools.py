@@ -33,23 +33,23 @@ class FakeStorage:
         self.saved = []
         self.messages = defaultdict(list)
 
-    async def get_messages(self, chat_id, limit=None):
-        messages = self.messages.get(chat_id, [])
+    async def get_messages(self, session_id, limit=None):
+        messages = self.messages.get(session_id, [])
         if limit:
             return messages[-limit:]
         return list(messages)
 
-    async def add_message(self, chat_id, message):
-        self.messages[chat_id].append(message)
-        self.saved.append((chat_id, message.role, message.content, message.tool_name, message.metadata))
+    async def add_message(self, session_id, message):
+        self.messages[session_id].append(message)
+        self.saved.append((session_id, message.role, message.content, message.tool_name, message.metadata))
 
-    async def clear_messages(self, chat_id):
+    async def clear_messages(self, session_id):
         return None
 
-    async def get_consolidated_index(self, chat_id):
+    async def get_consolidated_index(self, session_id):
         return 0
 
-    async def set_consolidated_index(self, chat_id, index):
+    async def set_consolidated_index(self, session_id, index):
         return None
 
     async def get_all_sessions(self):
@@ -428,7 +428,7 @@ def test_test_writer_can_use_write_tools_for_test_paths(tmp_path):
     tool_results = [saved for saved in storage.saved if saved[1] == "tool"]
     assert len(tool_results) == 1
     assert tool_results[0][0:4] == (
-        next(chat_id for chat_id in storage.messages if ":subagent:task_" in chat_id),
+        next(session_id for session_id in storage.messages if ":subagent:task_" in session_id),
         "tool",
         "tool:",
         "apply_patch",
@@ -470,7 +470,7 @@ def test_test_writer_allows_common_js_tests_directory(tmp_path):
     tool_results = [saved for saved in storage.saved if saved[1] == "tool"]
     assert len(tool_results) == 1
     assert tool_results[0][0:4] == (
-        next(chat_id for chat_id in storage.messages if ":subagent:task_" in chat_id),
+        next(session_id for session_id in storage.messages if ":subagent:task_" in session_id),
         "tool",
         "tool:",
         "apply_patch",

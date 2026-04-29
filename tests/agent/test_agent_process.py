@@ -70,19 +70,19 @@ class FakeStorage:
     def __init__(self):
         self.saved = []
 
-    async def get_messages(self, chat_id, limit=None):
+    async def get_messages(self, session_id, limit=None):
         return []
 
-    async def add_message(self, chat_id, message: StoredMessage):
-        self.saved.append((chat_id, message.role, message.content, dict(message.metadata)))
+    async def add_message(self, session_id, message: StoredMessage):
+        self.saved.append((session_id, message.role, message.content, dict(message.metadata)))
 
-    async def clear_messages(self, chat_id):
+    async def clear_messages(self, session_id):
         return None
 
-    async def get_consolidated_index(self, chat_id):
+    async def get_consolidated_index(self, session_id):
         return 0
 
-    async def set_consolidated_index(self, chat_id, index):
+    async def set_consolidated_index(self, session_id, index):
         return None
 
     async def get_all_sessions(self):
@@ -94,7 +94,7 @@ class HistoryStorage(FakeStorage):
         super().__init__()
         self.messages = list(messages)
 
-    async def get_messages(self, chat_id, limit=None):
+    async def get_messages(self, session_id, limit=None):
         if limit is None:
             return list(self.messages)
         return list(self.messages[-limit:])
@@ -191,21 +191,21 @@ def test_agent_process_persists_user_then_assistant_then_runs_maintenance(tmp_pa
             assert storage.saved[0][1] == "user"
             return ExecutionResult(content="assistant reply", executed_tool_calls=0, used_configure_skill=False)
 
-        async def fake_consolidate(chat_id):
+        async def fake_consolidate(session_id):
             await release_maintenance.wait()
-            call_order.append(("memory", chat_id))
+            call_order.append(("memory", session_id))
 
-        async def fake_update_profile(chat_id):
+        async def fake_update_profile(session_id):
             await release_maintenance.wait()
-            call_order.append(("profile", chat_id))
+            call_order.append(("profile", session_id))
 
-        async def fake_update_active_task(chat_id):
+        async def fake_update_active_task(session_id):
             await release_maintenance.wait()
-            call_order.append(("active-task", chat_id))
+            call_order.append(("active-task", session_id))
 
-        async def fake_update_recent_summary(chat_id):
+        async def fake_update_recent_summary(session_id):
             await release_maintenance.wait()
-            call_order.append(("recent-summary", chat_id))
+            call_order.append(("recent-summary", session_id))
 
         agent.call_llm = fake_call_llm
         agent._maybe_consolidate_memory = fake_consolidate
@@ -293,8 +293,8 @@ def test_agent_process_emits_run_lifecycle_events(tmp_path):
 
         agent.call_llm = fake_call_llm
         agent._maybe_apply_immediate_task_transition = fake_transition
-        agent._schedule_post_response_maintenance = lambda chat_id: None
-        agent._maybe_schedule_skill_review = lambda chat_id, result: None
+        agent._schedule_post_response_maintenance = lambda session_id: None
+        agent._maybe_schedule_skill_review = lambda session_id, result: None
 
         response = await agent.process(
             UserMessage(
@@ -553,7 +553,7 @@ def test_agent_process_persists_media_only_message_without_llm(tmp_path):
         async def fail_call_llm(*args, **kwargs):
             raise AssertionError("media-only messages should not call the LLM")
 
-        async def fake_maintenance(chat_id):
+        async def fake_maintenance(session_id):
             return None
 
         agent.call_llm = fail_call_llm
@@ -629,7 +629,7 @@ def test_agent_process_passes_saved_media_paths_when_text_requests_analysis(tmp_
         captured = {}
 
         async def fake_call_llm(
-            chat_id,
+            session_id,
             current_message,
             channel=None,
             user_images=None,
@@ -645,7 +645,7 @@ def test_agent_process_passes_saved_media_paths_when_text_requests_analysis(tmp_
             captured["user_video_files"] = list(user_video_files or [])
             return ExecutionResult(content="analysis reply", executed_tool_calls=0, used_configure_skill=False)
 
-        async def fake_maintenance(chat_id):
+        async def fake_maintenance(session_id):
             return None
 
         agent.call_llm = fake_call_llm
@@ -704,8 +704,8 @@ def test_agent_process_seeds_active_task_from_detected_intent(tmp_path):
             return ExecutionResult(content="seeded", executed_tool_calls=0)
 
         agent._execute_messages = fake_execute_messages
-        agent._schedule_post_response_maintenance = lambda chat_id: None
-        agent._maybe_schedule_skill_review = lambda chat_id, result: None
+        agent._schedule_post_response_maintenance = lambda session_id: None
+        agent._maybe_schedule_skill_review = lambda session_id, result: None
 
         await agent.process(
             UserMessage(
@@ -754,8 +754,8 @@ def test_agent_process_emits_completion_gate_needs_verification_after_code_chang
             )
 
         agent.call_llm = fake_call_llm
-        agent._schedule_post_response_maintenance = lambda chat_id: None
-        agent._maybe_schedule_skill_review = lambda chat_id, result: None
+        agent._schedule_post_response_maintenance = lambda session_id: None
+        agent._maybe_schedule_skill_review = lambda session_id, result: None
 
         await agent.process(
             UserMessage(
@@ -809,8 +809,8 @@ def test_agent_process_auto_continues_once_when_code_changes_are_missing(tmp_pat
             )
 
         agent.call_llm = fake_call_llm
-        agent._schedule_post_response_maintenance = lambda chat_id: None
-        agent._maybe_schedule_skill_review = lambda chat_id, result: None
+        agent._schedule_post_response_maintenance = lambda session_id: None
+        agent._maybe_schedule_skill_review = lambda session_id, result: None
 
         response = await agent.process(
             UserMessage(
@@ -878,8 +878,8 @@ def test_agent_process_stops_auto_continue_when_continuation_has_no_progress(tmp
             return ExecutionResult(content="Completed the refactor.", executed_tool_calls=0)
 
         agent.call_llm = fake_call_llm
-        agent._schedule_post_response_maintenance = lambda chat_id: None
-        agent._maybe_schedule_skill_review = lambda chat_id, result: None
+        agent._schedule_post_response_maintenance = lambda session_id: None
+        agent._maybe_schedule_skill_review = lambda session_id, result: None
 
         await agent.process(
             UserMessage(
@@ -1023,8 +1023,8 @@ def test_agent_process_updates_active_task_with_verification_step_when_work_rema
             )
 
         agent.call_llm = fake_call_llm
-        agent._schedule_post_response_maintenance = lambda chat_id: None
-        agent._maybe_schedule_skill_review = lambda chat_id, result: None
+        agent._schedule_post_response_maintenance = lambda session_id: None
+        agent._maybe_schedule_skill_review = lambda session_id, result: None
         await agent.process(
             UserMessage(
                 text="Please refactor the agent and run tests.",
@@ -1070,8 +1070,8 @@ def test_agent_process_persists_work_state_with_delegate_task(tmp_path):
             )
 
         agent.call_llm = fake_call_llm
-        agent._schedule_post_response_maintenance = lambda chat_id: None
-        agent._maybe_schedule_skill_review = lambda chat_id, result: None
+        agent._schedule_post_response_maintenance = lambda session_id: None
+        agent._maybe_schedule_skill_review = lambda session_id, result: None
 
         await storage.upsert_work_state(
             StoredWorkState(
@@ -1454,7 +1454,7 @@ def test_agent_process_returns_queued_outbound_media(tmp_path):
             assert agent._queue_outbound_media("video", "video-out") is None
             return ExecutionResult(content="sending media", executed_tool_calls=1, used_configure_skill=False)
 
-        async def fake_maintenance(chat_id):
+        async def fake_maintenance(session_id):
             return None
 
         agent.call_llm = fake_call_llm

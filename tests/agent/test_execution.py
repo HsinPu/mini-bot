@@ -67,8 +67,8 @@ class LlmCompactionProvider:
         return LLMResponse(content=self.final_response, model="fake-model")
 
 
-async def _save_message_collector(calls, chat_id, role, content, tool_name=None, metadata=None):
-    calls.append((chat_id, role, content, tool_name, dict(metadata or {})))
+async def _save_message_collector(calls, session_id, role, content, tool_name=None, metadata=None):
+    calls.append((session_id, role, content, tool_name, dict(metadata or {})))
 
 
 def _make_engine(provider, registry, save_calls, tools_config=None, **engine_kwargs):
@@ -79,8 +79,8 @@ def _make_engine(provider, registry, save_calls, tools_config=None, **engine_kwa
         tools=registry,
         tools_config=tools_config or ToolsConfig(max_tool_iterations=3),
         empty_response_fallback="EMPTY",
-        save_message=lambda chat_id, role, content, tool_name=None, metadata=None: _save_message_collector(
-            save_calls, chat_id, role, content, tool_name, metadata
+        save_message=lambda session_id, role, content, tool_name=None, metadata=None: _save_message_collector(
+            save_calls, session_id, role, content, tool_name, metadata
         ),
         format_log_preview=lambda text, max_chars=200: str(text)[:max_chars],
         summarize_messages=lambda messages, tail=4: f"count={len(messages)}",

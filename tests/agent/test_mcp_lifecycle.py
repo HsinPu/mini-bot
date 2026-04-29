@@ -80,16 +80,16 @@ def test_process_connects_mcp_before_saving_and_calling_llm(tmp_path):
             assert order[0] == "connect"
             return ExecutionResult(content="assistant reply", executed_tool_calls=0, used_configure_skill=False)
 
-        async def fake_consolidate(chat_id):
+        async def fake_consolidate(session_id):
             order.append("memory")
 
-        async def fake_update_profile(chat_id):
+        async def fake_update_profile(session_id):
             order.append("profile")
 
-        async def fake_update_active_task(chat_id):
+        async def fake_update_active_task(session_id):
             order.append("active-task")
 
-        async def fake_update_recent_summary(chat_id):
+        async def fake_update_recent_summary(session_id):
             order.append("recent-summary")
 
         agent.connect_mcp = fake_connect_mcp
