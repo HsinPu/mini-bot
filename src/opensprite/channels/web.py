@@ -307,7 +307,8 @@ class WebAdapter(MessageAdapter):
         raw_path = getattr(agent, "config_path", None) if agent is not None else None
         if raw_path is not None:
             return Path(raw_path).expanduser().resolve()
-        return (Path.home() / ".opensprite" / "opensprite.json").resolve()
+        config = Config.load(None)
+        return Path(config.source_path or Path.home() / ".opensprite" / "opensprite.json").resolve()
 
     def _get_provider_settings(self) -> ProviderSettingsService:
         return ProviderSettingsService(self._get_config_path())

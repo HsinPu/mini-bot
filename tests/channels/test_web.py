@@ -819,6 +819,47 @@ def test_web_adapter_exposes_settings_provider_api(tmp_path):
     asyncio.run(_run_web_settings_provider_api(tmp_path))
 
 
+async def _run_web_schedule_settings_creates_default_config(tmp_path: Path):
+    agent = EchoAgent()
+    queue = MessageQueue(agent)
+    adapter = WebAdapter(
+        mq=queue,
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "path": "/ws",
+            "health_path": "/healthz",
+            "frontend_auto_build": False,
+        },
+    )
+    adapter_task = asyncio.create_task(adapter.run())
+
+    try:
+        await adapter.wait_until_started()
+        port = adapter.bound_port
+        assert port is not None
+
+        async with ClientSession() as session:
+            async with session.get(f"http://127.0.0.1:{port}/api/settings/schedule") as resp:
+                assert resp.status == 200
+                payload = await resp.json()
+
+        assert payload["default_timezone"] == "UTC"
+        assert (tmp_path / ".opensprite" / "opensprite.json").is_file()
+    finally:
+        adapter_task.cancel()
+        try:
+            await adapter_task
+        except asyncio.CancelledError:
+            pass
+
+
+def test_web_adapter_schedule_settings_create_default_config(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    asyncio.run(_run_web_schedule_settings_creates_default_config(tmp_path))
+
+
 async def _run_web_channel_settings_hot_reload(tmp_path: Path):
     config_path = tmp_path / "opensprite.json"
     Config.copy_template(config_path)
