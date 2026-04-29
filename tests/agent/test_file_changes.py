@@ -16,7 +16,7 @@ def _service(storage: MemoryStorage, workspace_root: Path) -> RunFileChangeServi
 
     return RunFileChangeService(
         storage=storage,
-        workspace_for_chat=lambda _chat_id: workspace_root,
+        workspace_for_session=lambda _session_id: workspace_root,
         emit_run_event=emit_run_event,
         format_log_preview=lambda content, max_chars=160: str(content or "")[:max_chars],
     )

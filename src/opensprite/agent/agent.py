@@ -197,18 +197,18 @@ class AgentLoop:
 
     async def _create_run(
         self,
-        chat_id: str,
+        session_id: str,
         run_id: str,
         *,
         status: str = "running",
         metadata: dict[str, Any] | None = None,
     ) -> None:
         """Create a durable run record when the configured storage supports it."""
-        await self.run_trace.create_run(chat_id, run_id, status=status, metadata=metadata)
+        await self.run_trace.create_run(session_id, run_id, status=status, metadata=metadata)
 
     async def _update_run_status(
         self,
-        chat_id: str,
+        session_id: str,
         run_id: str,
         status: str,
         *,
@@ -217,7 +217,7 @@ class AgentLoop:
     ) -> None:
         """Update a durable run record when the configured storage supports it."""
         await self.run_trace.update_run_status(
-            chat_id,
+            session_id,
             run_id,
             status,
             metadata=metadata,
@@ -226,7 +226,7 @@ class AgentLoop:
 
     async def _add_run_part(
         self,
-        chat_id: str,
+        session_id: str,
         run_id: str,
         part_type: str,
         *,
@@ -236,7 +236,7 @@ class AgentLoop:
     ) -> None:
         """Persist one ordered run artifact when the storage supports it."""
         await self.run_trace.add_part(
-            chat_id,
+            session_id,
             run_id,
             part_type,
             content=content,
@@ -249,7 +249,7 @@ class AgentLoop:
         await self.file_changes.record_changes(
             tool_name,
             changes,
-            chat_id=self.turn_context.current_session_id(),
+            session_id=self.turn_context.current_session_id(),
             run_id=self.turn_context.current_run_id(),
             channel=self.turn_context.current_channel(),
             external_chat_id=self.turn_context.current_external_chat_id(),
@@ -257,7 +257,7 @@ class AgentLoop:
 
     async def _emit_run_event(
         self,
-        chat_id: str,
+        session_id: str,
         run_id: str,
         event_type: str,
         payload: dict[str, Any] | None = None,
@@ -267,7 +267,7 @@ class AgentLoop:
     ) -> None:
         """Persist and publish one structured run event."""
         await self.run_trace.emit_event(
-            chat_id,
+            session_id,
             run_id,
             event_type,
             payload,
@@ -514,7 +514,7 @@ class AgentLoop:
         )
         self.file_changes = RunFileChangeService(
             storage=self.storage,
-            workspace_for_chat=self._get_workspace_for_chat,
+            workspace_for_session=self._get_workspace_for_session,
             emit_run_event=self._emit_run_event,
             format_log_preview=self._format_log_preview,
             note_file_change=self.turn_context.note_file_change,
@@ -961,13 +961,13 @@ class AgentLoop:
 
     async def _cancel_owned_background_sessions(
         self,
-        chat_id: str,
+        session_id: str,
         run_id: str,
     ) -> list[BackgroundSession]:
         """Kill managed background sessions started by the specified run."""
         if self.background_process_manager is None:
             return []
-        return await self.background_process_manager.kill_owned_sessions(chat_id, run_id=run_id)
+        return await self.background_process_manager.kill_owned_sessions(session_id, run_id=run_id)
 
     def _get_current_workspace(self) -> Path:
         """Resolve the current task-local workspace."""
@@ -975,30 +975,30 @@ class AgentLoop:
         session_id = self._get_current_session_id() or "default"
         return get_chat_workspace(session_id, workspace_root=workspace_root)
 
-    def _get_workspace_for_chat(self, chat_id: str) -> Path:
+    def _get_workspace_for_session(self, session_id: str) -> Path:
         """Resolve the isolated workspace for a specific session id."""
         workspace_root = self.tool_workspace or getattr(self._context_builder, "workspace", Path.cwd())
-        return get_chat_workspace(chat_id, workspace_root=workspace_root)
+        return get_chat_workspace(session_id, workspace_root=workspace_root)
 
     async def preview_run_file_change_revert(
         self,
-        chat_id: str,
+        session_id: str,
         run_id: str,
         change_id: int,
     ) -> dict[str, Any]:
         """Inspect whether one captured file change can be safely reverted."""
-        return await self.file_changes.preview_revert(chat_id, run_id, change_id)
+        return await self.file_changes.preview_revert(session_id, run_id, change_id)
 
     async def revert_run_file_change(
         self,
-        chat_id: str,
+        session_id: str,
         run_id: str,
         change_id: int,
         *,
         dry_run: bool = True,
     ) -> dict[str, Any]:
         """Safely revert one captured file change; defaults to dry-run inspection."""
-        return await self.file_changes.revert(chat_id, run_id, change_id, dry_run=dry_run)
+        return await self.file_changes.revert(session_id, run_id, change_id, dry_run=dry_run)
 
     @staticmethod
     def _decode_media_data_url(payload: str, media_prefix: str) -> tuple[str, bytes] | None:
@@ -1007,7 +1007,7 @@ class AgentLoop:
 
     def _persist_inbound_media(
         self,
-        chat_id: str,
+        session_id: str,
         media_items: list[str] | None,
         *,
         media_prefix: str,
@@ -1016,24 +1016,24 @@ class AgentLoop:
     ) -> list[str]:
         """Persist inbound media data URLs under a session workspace directory."""
         return self.media_service.persist_inbound_media(
-            chat_id,
+            session_id,
             media_items,
             media_prefix=media_prefix,
             directory_name=directory_name,
             extensions=extensions,
         )
 
-    def _persist_inbound_images(self, chat_id: str, images: list[str] | None) -> list[str]:
+    def _persist_inbound_images(self, session_id: str, images: list[str] | None) -> list[str]:
         """Persist inbound image data URLs under the session workspace images directory."""
-        return self.media_service.persist_inbound_images(chat_id, images)
+        return self.media_service.persist_inbound_images(session_id, images)
 
-    def _persist_inbound_audios(self, chat_id: str, audios: list[str] | None) -> list[str]:
+    def _persist_inbound_audios(self, session_id: str, audios: list[str] | None) -> list[str]:
         """Persist inbound audio data URLs under the session workspace audios directory."""
-        return self.media_service.persist_inbound_audios(chat_id, audios)
+        return self.media_service.persist_inbound_audios(session_id, audios)
 
-    def _persist_inbound_videos(self, chat_id: str, videos: list[str] | None) -> list[str]:
+    def _persist_inbound_videos(self, session_id: str, videos: list[str] | None) -> list[str]:
         """Persist inbound video data URLs under the session workspace videos directory."""
-        return self.media_service.persist_inbound_videos(chat_id, videos)
+        return self.media_service.persist_inbound_videos(session_id, videos)
 
     def _register_default_tools(self) -> None:
         """
@@ -1067,7 +1067,7 @@ class AgentLoop:
             background_session_owner_factory=self._current_background_session_owner,
             process_manager_callback=self._set_background_process_manager,
             active_task_store_factory=self._get_active_task_store,
-            get_message_count=lambda chat_id: get_storage_message_count(self.storage, chat_id),
+            get_message_count=lambda session_id: get_storage_message_count(self.storage, session_id),
             file_change_recorder=self._record_file_changes,
             storage=self.storage,
             preview_run_file_change_revert=self.preview_run_file_change_revert,

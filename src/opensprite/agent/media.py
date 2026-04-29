@@ -79,7 +79,7 @@ class AgentMediaService:
 
     def persist_inbound_media(
         self,
-        chat_id: str,
+        session_id: str,
         media_items: list[str] | None,
         *,
         media_prefix: str,
@@ -91,7 +91,7 @@ class AgentMediaService:
             return []
 
         workspace = get_chat_workspace(
-            chat_id,
+            session_id,
             workspace_root=self._workspace_root_getter(),
             app_home=self._app_home_getter(),
         )
@@ -103,7 +103,7 @@ class AgentMediaService:
             if decoded is None:
                 logger.warning(
                     "[{}] inbound.{}.persist.skip | index={} reason=unsupported-payload",
-                    chat_id,
+                    session_id,
                     media_prefix,
                     index,
                 )
@@ -120,14 +120,14 @@ class AgentMediaService:
                 saved_files.append(target.relative_to(workspace).as_posix())
                 logger.info(
                     "[{}] inbound.{}.persisted | file={}",
-                    chat_id,
+                    session_id,
                     media_prefix,
                     target,
                 )
             except Exception as exc:
                 logger.warning(
                     "[{}] inbound.{}.persist.failed | index={} error={}",
-                    chat_id,
+                    session_id,
                     media_prefix,
                     index,
                     exc,
@@ -135,30 +135,30 @@ class AgentMediaService:
 
         return saved_files
 
-    def persist_inbound_images(self, chat_id: str, images: list[str] | None) -> list[str]:
+    def persist_inbound_images(self, session_id: str, images: list[str] | None) -> list[str]:
         """Persist inbound image data URLs under the session workspace images directory."""
         return self.persist_inbound_media(
-            chat_id,
+            session_id,
             images,
             media_prefix="image",
             directory_name="images",
             extensions=INBOUND_IMAGE_EXTENSIONS,
         )
 
-    def persist_inbound_audios(self, chat_id: str, audios: list[str] | None) -> list[str]:
+    def persist_inbound_audios(self, session_id: str, audios: list[str] | None) -> list[str]:
         """Persist inbound audio data URLs under the session workspace audios directory."""
         return self.persist_inbound_media(
-            chat_id,
+            session_id,
             audios,
             media_prefix="audio",
             directory_name="audios",
             extensions=INBOUND_AUDIO_EXTENSIONS,
         )
 
-    def persist_inbound_videos(self, chat_id: str, videos: list[str] | None) -> list[str]:
+    def persist_inbound_videos(self, session_id: str, videos: list[str] | None) -> list[str]:
         """Persist inbound video data URLs under the session workspace videos directory."""
         return self.persist_inbound_media(
-            chat_id,
+            session_id,
             videos,
             media_prefix="video",
             directory_name="videos",

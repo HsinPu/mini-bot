@@ -14,7 +14,7 @@ from ..utils.text_changes import format_unified_diff, text_sha256
 
 RUN_FILE_REVERT_DIFF_MAX_CHARS = 12_000
 
-WorkspaceForChat = Callable[[str], Path]
+WorkspaceForSession = Callable[[str], Path]
 EventEmitter = Callable[..., Awaitable[None]]
 PreviewFormatter = Callable[[str | list[dict[str, Any]] | None, int], str]
 FileChangeRecorder = Callable[[str], None]
@@ -37,13 +37,13 @@ class RunFileChangeService:
         self,
         *,
         storage: StorageProvider,
-        workspace_for_chat: WorkspaceForChat,
+        workspace_for_session: WorkspaceForSession,
         emit_run_event: EventEmitter,
         format_log_preview: PreviewFormatter,
         note_file_change: FileChangeRecorder | None = None,
     ):
         self.storage = storage
-        self._workspace_for_chat = workspace_for_chat
+        self._workspace_for_session = workspace_for_session
         self._emit_run_event = emit_run_event
         self._format_log_preview = format_log_preview
         self._note_file_change = note_file_change
@@ -53,13 +53,13 @@ class RunFileChangeService:
         tool_name: str,
         changes: list[dict[str, Any]],
         *,
-        chat_id: str | None,
+        session_id: str | None,
         run_id: str | None,
         channel: str | None = None,
         external_chat_id: str | None = None,
     ) -> None:
         """Persist file mutations for the active run when available."""
-        if not chat_id or not run_id or not changes:
+        if not session_id or not run_id or not changes:
             return
 
         add_change = getattr(self.storage, "add_run_file_change", None)
@@ -78,7 +78,7 @@ class RunFileChangeService:
             metadata.setdefault("diff_len", len(diff))
             try:
                 await add_change(
-                    chat_id,
+                    session_id,
                     run_id,
                     tool_name,
                     path,
@@ -93,7 +93,7 @@ class RunFileChangeService:
             except Exception as e:
                 logger.warning(
                     "[{}] run.file-change.persist.failed | run_id={} tool={} path={} error={}",
-                    chat_id,
+                    session_id,
                     run_id,
                     tool_name,
                     path,
@@ -102,7 +102,7 @@ class RunFileChangeService:
                 continue
 
             await self._emit_run_event(
-                chat_id,
+                session_id,
                 run_id,
                 "file_changed",
                 {
@@ -121,15 +121,15 @@ class RunFileChangeService:
                 try:
                     self._note_file_change(path)
                 except Exception:
-                    logger.exception("[{}] run.file-change.progress-hook.failed | run_id={} path={}", chat_id, run_id, path)
+                    logger.exception("[{}] run.file-change.progress-hook.failed | run_id={} path={}", session_id, run_id, path)
 
-    def _resolve_change_path(self, chat_id: str, path: str) -> tuple[Path | None, str | None]:
+    def _resolve_change_path(self, session_id: str, path: str) -> tuple[Path | None, str | None]:
         """Resolve a stored run file-change path and keep it inside the session workspace."""
         raw_path = str(path or "").strip()
         if not raw_path:
             return None, "stored file-change path is empty"
 
-        workspace = self._workspace_for_chat(chat_id).resolve(strict=False)
+        workspace = self._workspace_for_session(session_id).resolve(strict=False)
         candidate = Path(raw_path).expanduser()
         if not candidate.is_absolute():
             candidate = workspace / candidate
@@ -157,7 +157,7 @@ class RunFileChangeService:
 
     async def prepare_revert(
         self,
-        chat_id: str,
+        session_id: str,
         run_id: str,
         change_id: int,
     ) -> PreparedRunFileChangeRevert:
@@ -168,7 +168,7 @@ class RunFileChangeService:
                 preview={
                     "status": "unavailable",
                     "ok": False,
-                    "chat_id": chat_id,
+                    "session_id": session_id,
                     "run_id": run_id,
                     "change_id": change_id,
                     "reason": "storage does not support run file-change lookup",
@@ -182,28 +182,28 @@ class RunFileChangeService:
                 preview={
                     "status": "not_found",
                     "ok": False,
-                    "chat_id": chat_id,
+                    "session_id": session_id,
                     "run_id": run_id,
                     "change_id": change_id,
                     "reason": "change_id must be an integer",
                 }
             )
 
-        change = await getter(chat_id, run_id, normalized_change_id)
+        change = await getter(session_id, run_id, normalized_change_id)
         if change is None:
             return PreparedRunFileChangeRevert(
                 preview={
                     "status": "not_found",
                     "ok": False,
-                    "chat_id": chat_id,
+                    "session_id": session_id,
                     "run_id": run_id,
                     "change_id": normalized_change_id,
                     "reason": "file change was not found for this run",
                 }
             )
 
-        file_path, path_error = self._resolve_change_path(chat_id, change.path)
-        base_preview = self._base_revert_preview(chat_id, run_id, normalized_change_id, change)
+        file_path, path_error = self._resolve_change_path(session_id, change.path)
+        base_preview = self._base_revert_preview(session_id, run_id, normalized_change_id, change)
         if path_error or file_path is None:
             return PreparedRunFileChangeRevert(
                 preview={
@@ -262,13 +262,13 @@ class RunFileChangeService:
 
     @staticmethod
     def _base_revert_preview(
-        chat_id: str,
+        session_id: str,
         run_id: str,
         change_id: int,
         change: StoredRunFileChange,
     ) -> dict[str, Any]:
         return {
-            "chat_id": chat_id,
+            "session_id": session_id,
             "run_id": run_id,
             "change_id": change_id,
             "path": change.path,
@@ -335,21 +335,21 @@ class RunFileChangeService:
 
         return None
 
-    async def preview_revert(self, chat_id: str, run_id: str, change_id: int) -> dict[str, Any]:
+    async def preview_revert(self, session_id: str, run_id: str, change_id: int) -> dict[str, Any]:
         """Inspect whether one captured file change can be safely reverted."""
-        prepared = await self.prepare_revert(chat_id, run_id, change_id)
+        prepared = await self.prepare_revert(session_id, run_id, change_id)
         return prepared.preview
 
     async def revert(
         self,
-        chat_id: str,
+        session_id: str,
         run_id: str,
         change_id: int,
         *,
         dry_run: bool = True,
     ) -> dict[str, Any]:
         """Safely revert one captured file change; defaults to dry-run inspection."""
-        prepared = await self.prepare_revert(chat_id, run_id, change_id)
+        prepared = await self.prepare_revert(session_id, run_id, change_id)
         result = {**prepared.preview, "dry_run": bool(dry_run), "applied": False}
         if dry_run or prepared.preview.get("status") != "ready" or prepared.file_path is None:
             return result
