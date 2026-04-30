@@ -227,13 +227,15 @@ const filteredEvents = computed(() => {
 
 const toolEventCount = computed(() => countEventsByCategory("tool"));
 const verificationEventCount = computed(() => countEventsByCategory("verification"));
+const permissionEventCount = computed(() => countEventsByCategory("permission"));
 const artifactCount = computed(() => artifacts.value.length);
 
 const artifactGroups = computed(() => {
   const toolArtifacts = artifacts.value.filter((artifact) => artifact.kind === "tool");
   const fileArtifacts = artifacts.value.filter((artifact) => artifact.kind === "file" || artifact.path);
   const verificationArtifacts = artifacts.value.filter((artifact) => artifact.kind === "verification");
-  const grouped = new Set([...toolArtifacts, ...fileArtifacts, ...verificationArtifacts]);
+  const permissionArtifacts = artifacts.value.filter((artifact) => artifact.kind === "permission");
+  const grouped = new Set([...toolArtifacts, ...fileArtifacts, ...verificationArtifacts, ...permissionArtifacts]);
   const otherArtifacts = artifacts.value.filter((artifact) => !grouped.has(artifact));
 
   return [
@@ -253,6 +255,11 @@ const artifactGroups = computed(() => {
       items: verificationArtifacts,
     },
     {
+      kind: "permission",
+      label: props.copy.trace.artifactSections.permission,
+      items: permissionArtifacts,
+    },
+    {
       kind: "other",
       label: props.copy.trace.artifactSections.other,
       items: otherArtifacts,
@@ -268,6 +275,7 @@ const filterOptions = computed(() => [
   { value: "llm", label: props.copy.trace.filters.llm, count: countEventsByCategory("llm") },
   { value: "tool", label: props.copy.trace.filters.tool, count: toolEventCount.value },
   { value: "verification", label: props.copy.trace.filters.verification, count: verificationEventCount.value },
+  { value: "permission", label: props.copy.trace.filters.permission, count: permissionEventCount.value },
   { value: "other", label: props.copy.trace.filters.other, count: countEventsByCategory("other") },
 ]);
 

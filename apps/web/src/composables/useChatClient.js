@@ -31,7 +31,7 @@ const RUN_SUMMARY_NOT_FOUND_RETRY_DELAY_MS = 1200;
 const RUN_SUMMARY_NOT_FOUND_RETRY_LIMIT = 3;
 const RUN_BACKFILL_COOLDOWN_MS = 2000;
 const TERMINAL_RUN_STATUSES = new Set(["completed", "failed", "cancelled"]);
-const RUN_EVENT_KINDS = new Set(["run", "llm", "tool", "verification", "work", "completion", "file", "text", "system", "other"]);
+const RUN_EVENT_KINDS = new Set(["run", "llm", "tool", "verification", "permission", "work", "completion", "file", "text", "system", "other"]);
 const MCP_TRANSPORT_TYPES = new Set(["stdio", "sse", "streamableHttp"]);
 const TIMELINE_EVENT_TYPES = new Set([
   "run_started",
@@ -40,6 +40,9 @@ const TIMELINE_EVENT_TYPES = new Set([
   "file_changed",
   "verification_started",
   "verification_result",
+  "permission_requested",
+  "permission_granted",
+  "permission_denied",
   "run_finished",
   "run_failed",
   "run_cancelled",
@@ -205,6 +208,9 @@ function inferRunEventKind(eventType) {
   }
   if (normalized.startsWith("verification_")) {
     return "verification";
+  }
+  if (normalized.startsWith("permission_")) {
+    return "permission";
   }
   if (normalized.startsWith("work_") || normalized.startsWith("task_")) {
     return "work";
@@ -590,6 +596,23 @@ function describeRunEvent(eventType, payload, copy) {
       label: `${copy.run.fileChanged || "File changed"}: ${payload.path || "?"}`,
       detail: payload.diff_preview || payload.action || "",
       tone: "running",
+    };
+  }
+
+  if (eventType === "permission_requested") {
+    return {
+      label: `${copy.trace.filters.permission}: ${payload.tool_name || copy.run.unknownTool}`,
+      detail: payload.reason || payload.args_preview || "",
+      tone: "warning",
+    };
+  }
+
+  if (eventType === "permission_granted" || eventType === "permission_denied") {
+    const granted = eventType === "permission_granted";
+    return {
+      label: `${copy.trace.filters.permission}: ${payload.tool_name || copy.run.unknownTool}`,
+      detail: payload.resolution_reason || payload.status || "",
+      tone: granted ? "success" : "error",
     };
   }
 
