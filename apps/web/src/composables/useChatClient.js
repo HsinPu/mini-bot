@@ -29,6 +29,7 @@ const RUN_HISTORY_LIMIT = 10;
 const RUN_SUMMARY_FETCH_DELAY_MS = 500;
 const RUN_SUMMARY_NOT_FOUND_RETRY_DELAY_MS = 1200;
 const RUN_SUMMARY_NOT_FOUND_RETRY_LIMIT = 3;
+const RUN_BACKFILL_COOLDOWN_MS = 2000;
 const TERMINAL_RUN_STATUSES = new Set(["completed", "failed", "cancelled"]);
 const RUN_EVENT_KINDS = new Set(["run", "llm", "tool", "verification", "work", "completion", "file", "text", "system", "other"]);
 const MCP_TRANSPORT_TYPES = new Set(["stdio", "sse", "streamableHttp"]);
@@ -769,6 +770,7 @@ export function useChatClient() {
   let colorSchemeMediaQuery = null;
   let clientDisposed = false;
   const runSummaryTimers = new Map();
+  const runBackfillTimes = new Map();
 
   function applyDocumentPreferences() {
     if (typeof document === "undefined") {
@@ -1926,6 +1928,19 @@ export function useChatClient() {
     }
   }
 
+  function shouldBackfillSessionRuns(session) {
+    if (!session?.sessionId) {
+      return false;
+    }
+    const now = Date.now();
+    const lastBackfillAt = runBackfillTimes.get(session.sessionId) || 0;
+    if (session.runsLoaded && now - lastBackfillAt < RUN_BACKFILL_COOLDOWN_MS) {
+      return false;
+    }
+    runBackfillTimes.set(session.sessionId, now);
+    return true;
+  }
+
   function normalizeHistorySession(payload) {
     const sessionId = String(payload?.session_id || "").trim();
     const externalChatId = String(payload?.external_chat_id || "").trim()
@@ -2572,7 +2587,9 @@ export function useChatClient() {
       }
       persistActiveSession();
       setNotice(copy.value.notices.liveSessionReady(payload.session_id), "success");
-      void loadCurrentSessionRuns({ force: true });
+      if (shouldBackfillSessionRuns(session)) {
+        void loadCurrentSessionRuns({ force: true });
+      }
       return;
     }
 
@@ -2837,6 +2854,7 @@ export function useChatClient() {
       clearTimeout(timer);
     }
     runSummaryTimers.clear();
+    runBackfillTimes.clear();
     removeColorSchemeListener();
     document.removeEventListener("keydown", handleGlobalKeydown);
     document.body.classList.remove("settings-open", "sidebar-open");

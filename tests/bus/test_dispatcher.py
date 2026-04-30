@@ -5,6 +5,10 @@ from opensprite.bus.message import AssistantMessage
 from opensprite.config.schema import MessagesConfig, ToolsConfig
 from opensprite.cron.manager import CronManager
 from opensprite.cron.types import CronJob, CronSchedule
+from opensprite.llms.base import LLMResponse, ToolCall
+from opensprite.storage import MemoryStorage
+
+from tests.agent.agent_test_helpers import make_agent_loop
 
 
 class FakeAgent:
@@ -20,6 +24,32 @@ class FakeAgent:
             external_chat_id=user_message.external_chat_id,
             session_id=user_message.session_id,
         )
+
+
+class ReplyProvider:
+    async def chat(self, messages, tools=None, model=None, temperature=0.7, max_tokens=2048, **kwargs):
+        return LLMResponse(content="trace pong", model="fake-model")
+
+    def get_default_model(self) -> str:
+        return "fake-model"
+
+
+class ToolReplyProvider:
+    def __init__(self):
+        self.responses = [
+            LLMResponse(
+                content="need tool",
+                model="fake-model",
+                tool_calls=[ToolCall(id="tc1", name="dummy", arguments={"value": "abc"})],
+            ),
+            LLMResponse(content="tool trace pong", model="fake-model"),
+        ]
+
+    async def chat(self, messages, tools=None, model=None, temperature=0.7, max_tokens=2048, **kwargs):
+        return self.responses.pop(0)
+
+    def get_default_model(self) -> str:
+        return "fake-model"
 
 
 async def _run_queue_once(agent_channel: str, inbound_channel: str):
@@ -98,6 +128,103 @@ def test_message_queue_accepts_empty_text_media_message():
     assert responses == [("telegram:media-chat", "pong")]
     assert seen_messages[0].text == ""
     assert seen_messages[0].images == ["img-a"]
+
+
+def test_message_queue_persists_run_trace_for_telegram_message(tmp_path):
+    async def scenario():
+        storage = MemoryStorage()
+        agent = make_agent_loop(tmp_path, provider=ReplyProvider(), storage=storage)
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, external_chat_id):
+            responses.append((message.session_id, channel, external_chat_id, message.text))
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="trace ping", external_chat_id="trace-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        session_id = "telegram:trace-chat"
+        runs = await storage.get_runs(session_id)
+        assert len(runs) == 1
+        run = runs[0]
+        events = await storage.get_run_events(session_id, run.run_id)
+        parts = await storage.get_run_parts(session_id, run.run_id)
+        return responses, run, events, parts
+
+    responses, run, events, parts = asyncio.run(scenario())
+
+    assert responses == [("telegram:trace-chat", "telegram", "trace-chat", "trace pong")]
+    assert run.session_id == "telegram:trace-chat"
+    assert run.status == "completed"
+    assert run.metadata["channel"] == "telegram"
+    assert run.metadata["external_chat_id"] == "trace-chat"
+    event_types = [event.event_type for event in events]
+    assert "run_started" in event_types
+    assert "task_intent.detected" in event_types
+    assert "run_finished" in event_types
+    assert events[0].payload["status"] == "running"
+    assert events[-1].payload["status"] == "completed"
+    assert len(parts) == 1
+    assert parts[0].part_type == "assistant_message"
+    assert parts[0].content == "trace pong"
+
+
+def test_message_queue_persists_tool_trace_for_telegram_message(tmp_path):
+    async def scenario():
+        storage = MemoryStorage()
+        agent = make_agent_loop(tmp_path, provider=ToolReplyProvider(), storage=storage)
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, external_chat_id):
+            responses.append((message.session_id, channel, external_chat_id, message.text))
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="use a tool", external_chat_id="tool-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        session_id = "telegram:tool-chat"
+        runs = await storage.get_runs(session_id)
+        assert len(runs) == 1
+        run = runs[0]
+        events = await storage.get_run_events(session_id, run.run_id)
+        parts = await storage.get_run_parts(session_id, run.run_id)
+        return responses, run, events, parts
+
+    responses, run, events, parts = asyncio.run(scenario())
+
+    assert responses == [("telegram:tool-chat", "telegram", "tool-chat", "tool trace pong")]
+    assert run.status == "completed"
+    assert run.metadata["executed_tool_calls"] == 1
+    event_types = [event.event_type for event in events]
+    assert "tool_started" in event_types
+    assert "tool_result" in event_types
+    assert "run_finished" in event_types
+    tool_events = [event for event in events if event.event_type in {"tool_started", "tool_result"}]
+    assert [event.payload["tool_name"] for event in tool_events] == ["dummy", "dummy"]
+    assert [part.part_type for part in parts] == ["tool_call", "tool_result", "assistant_message"]
+    assert [part.tool_name for part in parts[:2]] == ["dummy", "dummy"]
+    assert parts[0].metadata["tool_call_id"] == "tc1"
+    assert parts[0].metadata["state"] == "running"
+    assert parts[1].metadata["tool_call_id"] == "tc1"
+    assert parts[1].metadata["ok"] is True
+    assert parts[1].content == "ok"
+    assert parts[2].content == "tool trace pong"
 
 
 def test_message_queue_can_bypass_immediate_commands_for_internal_messages():
