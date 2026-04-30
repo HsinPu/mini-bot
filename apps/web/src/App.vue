@@ -38,8 +38,6 @@
       :run-summary="currentRunSummary"
       :permission-state="permissionState"
       :permission-requests="currentPermissionRequests"
-      :question-state="questionState"
-      :question-requests="currentQuestionRequests"
       :show-run-timeline="state.showRunTimeline"
       :show-run-summary="state.showRunSummary"
       :show-run-trace="state.showRunTrace"
@@ -64,9 +62,6 @@
       @submit-message="submitMessage"
       @cancel-run="cancelRun"
       @resolve-permission="resolvePermissionRequest"
-      @set-question-answer="setQuestionAnswer"
-      @reply-question="replyToQuestion"
-      @reject-question="rejectQuestion"
       @revert-file-change="revertRunFileChange"
       @select-run="selectRun"
     />
@@ -132,7 +127,6 @@ const {
   settingsForm,
   settingsState,
   permissionState,
-  questionState,
   currentMessages,
   currentWorkState,
   currentRuns,
@@ -142,7 +136,6 @@ const {
   currentRunTimeline,
   currentRunSummary,
   currentPermissionRequests,
-  currentQuestionRequests,
   settingsTitle,
   sessionMeta,
   composerHint,
@@ -195,9 +188,6 @@ const {
   createNewChat,
   cancelRun,
   resolvePermissionRequest,
-  setQuestionAnswer,
-  replyToQuestion,
-  rejectQuestion,
   revertRunFileChange,
   toggleSettingsConnection,
   submitMessage,

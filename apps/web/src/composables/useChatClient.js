@@ -3062,7 +3062,6 @@ export function useChatClient() {
         return;
       }
       addMessage(session.externalChatId, makeMessage("assistant", payload.text || "", payload.session_id || "OpenSprite"));
-      void loadQuestionRequests();
       scrollMessagesToBottom();
       return;
     }
@@ -3326,7 +3325,6 @@ export function useChatClient() {
       return;
     }
     void loadPermissionRequests();
-    void loadQuestionRequests();
     persistActiveSession();
     connectSocket();
   }
