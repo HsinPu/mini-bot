@@ -1309,8 +1309,33 @@ export function useChatClient() {
     return normalized;
   }
 
+  function applyToolArtifactToParts(run, artifact) {
+    if (!artifact || artifact.kind !== "tool" || !artifact.toolCallId || !TERMINAL_PART_STATES.has(artifact.status)) {
+      return;
+    }
+    run.parts = (run.parts || []).map((part) => {
+      const metadata = part.metadata && typeof part.metadata === "object" ? part.metadata : {};
+      const toolCallId = String(metadata.tool_call_id || metadata.toolCallId || part.artifact?.toolCallId || "").trim();
+      if (part.partType !== "tool_call" || toolCallId !== artifact.toolCallId) {
+        return part;
+      }
+      const finishedAt = artifact.metadata?.finished_at || metadata.finished_at;
+      const nextMetadata = { ...metadata, state: artifact.status };
+      if (finishedAt) {
+        nextMetadata.finished_at = finishedAt;
+      }
+      return {
+        ...part,
+        state: artifact.status,
+        metadata: nextMetadata,
+        artifact: part.artifact ? { ...part.artifact, status: artifact.status } : part.artifact,
+      };
+    });
+  }
+
   function applyRunEventArtifact(run, artifact) {
     const normalized = upsertRunArtifact(run, artifact);
+    applyToolArtifactToParts(run, normalized);
     if (!normalized || normalized.kind !== "file" || !normalized.path) {
       return;
     }
@@ -1939,6 +1964,7 @@ export function useChatClient() {
             ...parts.map((part) => part.artifact).filter(Boolean),
             ...fileChanges.map((change) => change.artifact).filter(Boolean),
           ].slice(-MAX_RUN_ARTIFACTS);
+      run.artifacts.forEach((artifact) => applyToolArtifactToParts(run, artifact));
       run.fileChanges = fileChanges;
       run.traceLoaded = true;
     } catch (error) {
