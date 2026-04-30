@@ -11,7 +11,7 @@ from opensprite.channels.web import WebAdapter
 from opensprite.config import Config
 from opensprite.context.paths import get_session_workspace
 from opensprite.cron import CronManager, CronSchedule, CronService
-from opensprite.storage import MemoryStorage, StoredMessage
+from opensprite.storage import MemoryStorage, StoredMessage, StoredWorkState
 
 
 class EchoAgent:
@@ -407,6 +407,52 @@ async def _run_web_run_events_api():
             assert trace_payload["file_changes"][0]["before_content"] == "old\n"
             assert trace_payload["file_changes"][0]["after_content"] == "new\n"
 
+            async with session.get(
+                f"http://127.0.0.1:{port}/api/runs/run-1/summary",
+                params={"session_id": "web:browser-1"},
+            ) as resp:
+                assert resp.status == 200
+                summary_payload = await resp.json()
+
+            assert summary_payload == {
+                "run_id": "run-1",
+                "session_id": "web:browser-1",
+                "status": "completed",
+                "objective": "inspect run timeline",
+                "created_at": 100.0,
+                "updated_at": 100.0,
+                "finished_at": None,
+                "duration_seconds": None,
+                "tools": [{"name": "apply_patch", "count": 1}],
+                "file_changes": [
+                    {
+                        "change_id": 1,
+                        "path": "notes.txt",
+                        "action": "modify",
+                        "tool_name": "apply_patch",
+                        "diff_len": 32,
+                        "diff": "--- a/notes.txt\n+++ b/notes.txt\n",
+                        "snapshots_available": {"before": True, "after": True},
+                    }
+                ],
+                "verification": {
+                    "attempted": False,
+                    "passed": False,
+                    "status": "not_attempted",
+                    "name": None,
+                    "summary": "",
+                },
+                "completion": {"status": "complete"},
+                "next_action": None,
+                "warnings": [],
+                "counts": {
+                    "events": 2,
+                    "parts": 1,
+                    "tool_calls": 1,
+                    "file_changes": 1,
+                },
+            }
+
             async with session.get(f"http://127.0.0.1:{port}/api/runs/run-1/events") as resp:
                 assert resp.status == 400
 
@@ -427,6 +473,12 @@ async def _run_web_run_events_api():
 
             async with session.get(
                 f"http://127.0.0.1:{port}/api/runs/missing-run",
+                params={"session_id": "web:browser-1"},
+            ) as resp:
+                assert resp.status == 404
+
+            async with session.get(
+                f"http://127.0.0.1:{port}/api/runs/missing-run/summary",
                 params={"session_id": "web:browser-1"},
             ) as resp:
                 assert resp.status == 404
@@ -455,6 +507,32 @@ async def _run_web_sessions_api():
     await storage.add_message(
         "web:browser-new",
         StoredMessage(role="user", content="new hello", timestamp=200.0, metadata={"sender_name": "Tester"}),
+    )
+    await storage.upsert_work_state(
+        StoredWorkState(
+            session_id="web:browser-new",
+            objective="ship session work card",
+            kind="implementation",
+            status="active",
+            steps=("inspect", "build", "verify"),
+            current_step="build",
+            next_step="verify",
+            pending_steps=("build", "verify"),
+            file_change_count=2,
+            touched_paths=("apps/web/src/App.vue",),
+            verification_attempted=True,
+            verification_passed=False,
+            resume_hint="Continue with frontend validation.",
+            created_at=190.0,
+            updated_at=201.0,
+        )
+    )
+    await storage.create_run(
+        "web:browser-new",
+        "run-new-latest",
+        status="completed",
+        metadata={"objective": "ship session work card"},
+        created_at=202.0,
     )
     await storage.add_message(
         "telegram:123",
@@ -493,6 +571,48 @@ async def _run_web_sessions_api():
         assert payload["sessions"][0]["external_chat_id"] == "browser-new"
         assert payload["sessions"][0]["title"] == "new hello"
         assert payload["sessions"][0]["message_count"] == 1
+        assert payload["sessions"][0]["runs"] == [
+            {
+                "run_id": "run-new-latest",
+                "session_id": "web:browser-new",
+                "status": "completed",
+                "created_at": 202.0,
+                "updated_at": 202.0,
+                "finished_at": None,
+                "metadata": {"objective": "ship session work card"},
+            }
+        ]
+        assert payload["sessions"][0]["work_state"] == {
+            "session_id": "web:browser-new",
+            "objective": "ship session work card",
+            "kind": "implementation",
+            "status": "active",
+            "steps": ["inspect", "build", "verify"],
+            "constraints": [],
+            "done_criteria": [],
+            "long_running": False,
+            "coding_task": False,
+            "expects_code_change": False,
+            "expects_verification": False,
+            "current_step": "build",
+            "next_step": "verify",
+            "completed_steps": [],
+            "pending_steps": ["build", "verify"],
+            "blockers": [],
+            "verification_targets": [],
+            "resume_hint": "Continue with frontend validation.",
+            "last_progress_signals": [],
+            "file_change_count": 2,
+            "touched_paths": ["apps/web/src/App.vue"],
+            "verification_attempted": True,
+            "verification_passed": False,
+            "last_next_action": "",
+            "active_delegate_task_id": None,
+            "active_delegate_prompt_type": None,
+            "metadata": {},
+            "created_at": 190.0,
+            "updated_at": 201.0,
+        }
         assert payload["sessions"][0]["messages"] == [
             {
                 "role": "user",

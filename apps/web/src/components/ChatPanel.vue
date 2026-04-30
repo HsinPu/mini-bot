@@ -40,6 +40,32 @@
 
         <MessageList :copy="copy" :messages="messages" :display-name="displayName" />
 
+        <WorkStateCard v-if="workState" :copy="copy" :work-state="workState" />
+
+        <section v-if="runs.length > 1 || runsLoading || runsError" class="run-history" aria-live="polite">
+          <div class="run-history__title">
+            <span>{{ copy.runHistory.title }}</span>
+            <small v-if="runsLoading">{{ copy.runHistory.loading }}</small>
+            <small v-else-if="runsError">{{ copy.runHistory.unavailable }}</small>
+          </div>
+
+          <label v-if="runs.length" class="run-history__select">
+            <span class="sr-only">{{ copy.runHistory.select }}</span>
+            <select :value="currentRun?.runId || ''" @change="$emit('select-run', $event.target.value)">
+              <option v-for="(run, index) in runs" :key="run.runId" :value="run.runId">
+                {{ runOptionLabel(run, index) }}
+              </option>
+            </select>
+          </label>
+        </section>
+
+        <RunSummaryCard
+          v-if="currentRun && (currentRun.summary || currentRun.summaryLoading || currentRun.summaryError)"
+          :copy="copy"
+          :run="currentRun"
+          @inspect-file="selectedFileChange = $event"
+        />
+
         <RunTimeline
           v-if="showRunTimeline && runSummary"
           :copy="copy"
@@ -62,17 +88,30 @@
       @keydown="$emit('composer-keydown', $event)"
       @submit="$emit('submit-message', $event)"
     />
+
+    <RunFileChangeDrawer
+      v-if="currentRun && selectedFileChange"
+      :copy="copy"
+      :run="currentRun"
+      :change="selectedFileChange"
+      @close="selectedFileChange = null"
+    />
   </main>
 </template>
 
 <script setup>
+import { ref, watch } from "vue";
+
 import ChatComposer from "./ChatComposer.vue";
 import EmptyState from "./EmptyState.vue";
 import MessageList from "./MessageList.vue";
+import RunFileChangeDrawer from "./RunFileChangeDrawer.vue";
+import RunSummaryCard from "./RunSummaryCard.vue";
 import RunTimeline from "./RunTimeline.vue";
 import RunTraceViewer from "./RunTraceViewer.vue";
+import WorkStateCard from "./WorkStateCard.vue";
 
-defineProps({
+const props = defineProps({
   copy: {
     type: Object,
     required: true,
@@ -84,6 +123,22 @@ defineProps({
   messages: {
     type: Array,
     required: true,
+  },
+  workState: {
+    type: Object,
+    default: null,
+  },
+  runs: {
+    type: Array,
+    required: true,
+  },
+  runsLoading: {
+    type: Boolean,
+    required: true,
+  },
+  runsError: {
+    type: String,
+    default: "",
   },
   currentRun: {
     type: Object,
@@ -163,5 +218,26 @@ defineEmits([
   "composer-keydown",
   "submit-message",
   "cancel-run",
+  "select-run",
 ]);
+
+const selectedFileChange = ref(null);
+
+watch(
+  () => props.currentRun?.runId,
+  () => {
+    selectedFileChange.value = null;
+  },
+);
+
+function shortRunId(runId) {
+  const normalized = String(runId || "run").replace(/^run[_-]?/, "");
+  return normalized.length > 8 ? normalized.slice(0, 8) : normalized;
+}
+
+function runOptionLabel(run, index) {
+  const statusLabel = props.copy.run.statusLabels[run.status] || run.status;
+  const prefix = index === 0 ? props.copy.runHistory.latest : `#${index + 1}`;
+  return `${prefix} · Run ${shortRunId(run.runId)} · ${statusLabel}`;
+}
 </script>

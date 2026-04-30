@@ -23,6 +23,9 @@ const LANGUAGE_ATTRIBUTES = {
 
 const MAX_RUN_EVENTS = 80;
 const MAX_TIMELINE_EVENTS = 8;
+const RUN_HISTORY_LIMIT = 10;
+const RUN_SUMMARY_FETCH_DELAY_MS = 500;
+const TERMINAL_RUN_STATUSES = new Set(["completed", "failed", "cancelled"]);
 const MCP_TRANSPORT_TYPES = new Set(["stdio", "sse", "streamableHttp"]);
 const TIMELINE_EVENT_TYPES = new Set([
   "run_started",
@@ -133,8 +136,70 @@ function createSession(externalChatId) {
     title: "New chat",
     updatedAt: Date.now(),
     messages: [],
+    workState: null,
     activeRunId: null,
     runs: [],
+    runsLoaded: false,
+    runsLoading: false,
+    runsError: "",
+  };
+}
+
+function coerceStringList(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item) => String(item || "").trim()).filter(Boolean);
+}
+
+function coerceBoolean(value) {
+  return value === true || value === "true" || value === 1;
+}
+
+function coerceNonNegativeInteger(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) {
+    return 0;
+  }
+  return Math.floor(number);
+}
+
+function normalizeWorkState(payload) {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+  const objective = String(payload.objective || "").trim();
+  if (!objective) {
+    return null;
+  }
+  return {
+    sessionId: String(payload.session_id || payload.sessionId || "").trim() || null,
+    objective,
+    kind: String(payload.kind || "task").trim() || "task",
+    status: String(payload.status || "active").trim() || "active",
+    steps: coerceStringList(payload.steps),
+    constraints: coerceStringList(payload.constraints),
+    doneCriteria: coerceStringList(payload.done_criteria || payload.doneCriteria),
+    longRunning: coerceBoolean(payload.long_running ?? payload.longRunning),
+    codingTask: coerceBoolean(payload.coding_task ?? payload.codingTask),
+    expectsCodeChange: coerceBoolean(payload.expects_code_change ?? payload.expectsCodeChange),
+    expectsVerification: coerceBoolean(payload.expects_verification ?? payload.expectsVerification),
+    currentStep: String(payload.current_step || payload.currentStep || "not set").trim() || "not set",
+    nextStep: String(payload.next_step || payload.nextStep || "not set").trim() || "not set",
+    completedSteps: coerceStringList(payload.completed_steps || payload.completedSteps),
+    pendingSteps: coerceStringList(payload.pending_steps || payload.pendingSteps),
+    blockers: coerceStringList(payload.blockers),
+    verificationTargets: coerceStringList(payload.verification_targets || payload.verificationTargets),
+    resumeHint: String(payload.resume_hint || payload.resumeHint || "").trim(),
+    lastProgressSignals: coerceStringList(payload.last_progress_signals || payload.lastProgressSignals),
+    fileChangeCount: coerceNonNegativeInteger(payload.file_change_count ?? payload.fileChangeCount),
+    touchedPaths: coerceStringList(payload.touched_paths || payload.touchedPaths),
+    verificationAttempted: coerceBoolean(payload.verification_attempted ?? payload.verificationAttempted),
+    verificationPassed: coerceBoolean(payload.verification_passed ?? payload.verificationPassed),
+    lastNextAction: String(payload.last_next_action || payload.lastNextAction || "").trim(),
+    activeDelegateTaskId: String(payload.active_delegate_task_id || payload.activeDelegateTaskId || "").trim() || null,
+    activeDelegatePromptType: String(payload.active_delegate_prompt_type || payload.activeDelegatePromptType || "").trim() || null,
+    updatedAt: normalizeEventTimestamp(payload.updated_at ?? payload.updatedAt),
   };
 }
 
@@ -186,6 +251,22 @@ function buildRunCancelUrl(wsUrl, runId, sessionId) {
   return url.toString();
 }
 
+function isTerminalRunStatus(status) {
+  return TERMINAL_RUN_STATUSES.has(status);
+}
+
+function buildRunSummaryPath(runId, sessionId) {
+  return `/api/runs/${encodeURIComponent(runId)}/summary?session_id=${encodeURIComponent(sessionId)}`;
+}
+
+function buildRunTracePath(runId, sessionId) {
+  return `/api/runs/${encodeURIComponent(runId)}?session_id=${encodeURIComponent(sessionId)}`;
+}
+
+function buildRunsPath(sessionId) {
+  return `/api/runs?session_id=${encodeURIComponent(sessionId)}&limit=${RUN_HISTORY_LIMIT}`;
+}
+
 function statusFromRunEvent(eventType, payload) {
   if (eventType === "run_started") {
     return "running";
@@ -211,6 +292,64 @@ function formatRunFinishDetail(payload, copy) {
     parts.push(copy.run.toolWarning);
   }
   return parts.join(" · ");
+}
+
+function normalizeRunSummary(payload) {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const verification = payload.verification && typeof payload.verification === "object" ? payload.verification : {};
+  const counts = payload.counts && typeof payload.counts === "object" ? payload.counts : {};
+  return {
+    runId: String(payload.run_id || payload.runId || "").trim(),
+    sessionId: String(payload.session_id || payload.sessionId || "").trim(),
+    status: String(payload.status || "completed").trim() || "completed",
+    objective: String(payload.objective || "").trim(),
+    durationSeconds: Number.isFinite(Number(payload.duration_seconds ?? payload.durationSeconds))
+      ? Number(payload.duration_seconds ?? payload.durationSeconds)
+      : null,
+    tools: Array.isArray(payload.tools)
+      ? payload.tools
+          .map((tool) => ({
+            name: String(tool?.name || "").trim(),
+            count: coerceNonNegativeInteger(tool?.count),
+          }))
+          .filter((tool) => tool.name)
+      : [],
+    fileChanges: Array.isArray(payload.file_changes || payload.fileChanges)
+      ? (payload.file_changes || payload.fileChanges)
+          .map((change) => ({
+            changeId: String(change?.change_id || change?.changeId || "").trim(),
+            path: String(change?.path || "").trim(),
+            action: String(change?.action || "").trim(),
+            toolName: String(change?.tool_name || change?.toolName || "").trim(),
+            diffLen: coerceNonNegativeInteger(change?.diff_len ?? change?.diffLen),
+            diff: String(change?.diff || ""),
+            snapshotsAvailable: {
+              before: coerceBoolean(change?.snapshots_available?.before ?? change?.snapshotsAvailable?.before),
+              after: coerceBoolean(change?.snapshots_available?.after ?? change?.snapshotsAvailable?.after),
+            },
+          }))
+          .filter((change) => change.path)
+      : [],
+    verification: {
+      attempted: coerceBoolean(verification.attempted),
+      passed: coerceBoolean(verification.passed),
+      status: String(verification.status || "not_attempted").trim() || "not_attempted",
+      name: String(verification.name || "").trim(),
+      summary: String(verification.summary || "").trim(),
+    },
+    completion: payload.completion && typeof payload.completion === "object" ? payload.completion : {},
+    nextAction: String(payload.next_action || payload.nextAction || "").trim(),
+    warnings: coerceStringList(payload.warnings),
+    counts: {
+      events: coerceNonNegativeInteger(counts.events),
+      parts: coerceNonNegativeInteger(counts.parts),
+      toolCalls: coerceNonNegativeInteger(counts.tool_calls ?? counts.toolCalls),
+      fileChanges: coerceNonNegativeInteger(counts.file_changes ?? counts.fileChanges),
+    },
+  };
 }
 
 function describeRunEvent(eventType, payload, copy) {
@@ -431,6 +570,7 @@ export function useChatClient() {
   let activeSocket = null;
   let colorSchemeMediaQuery = null;
   let clientDisposed = false;
+  const runSummaryTimers = new Map();
 
   function applyDocumentPreferences() {
     if (typeof document === "undefined") {
@@ -475,7 +615,15 @@ export function useChatClient() {
     return state.sessions.find((session) => session.externalChatId === state.activeExternalChatId) || null;
   });
 
+  const currentWorkState = computed(() => currentSession.value?.workState || null);
+
   const currentMessages = computed(() => currentSession.value?.messages || []);
+
+  const currentRuns = computed(() => currentSession.value?.runs || []);
+
+  const currentRunsLoading = computed(() => Boolean(currentSession.value?.runsLoading));
+
+  const currentRunsError = computed(() => currentSession.value?.runsError || "");
 
   const currentRun = computed(() => {
     const session = currentSession.value;
@@ -596,6 +744,23 @@ export function useChatClient() {
     },
   );
 
+  watch(
+    () => [currentSession.value?.externalChatId, currentSession.value?.sessionId],
+    () => {
+      void loadCurrentSessionRuns();
+    },
+    { immediate: true },
+  );
+
+  watch(
+    () => [currentSession.value?.externalChatId, currentRun.value?.runId, currentRun.value?.status],
+    () => {
+      maybeLoadRunSummaryForSession(currentSession.value);
+      maybeLoadRunTraceForSession(currentSession.value);
+    },
+    { immediate: true },
+  );
+
   watch(sidebarOpen, (isOpen) => {
     document.body.classList.toggle("sidebar-open", isOpen);
   });
@@ -683,16 +848,89 @@ export function useChatClient() {
     if (!run) {
       run = {
         runId,
+        sessionId: session.sessionId,
         status: "running",
         createdAt,
         updatedAt: createdAt,
         events: [],
         rawEvents: [],
+        fileChanges: [],
+        summary: null,
+        summaryLoading: false,
+        summaryError: "",
+        traceLoaded: false,
+        traceLoading: false,
+        traceError: "",
       };
       session.runs.unshift(run);
     }
+    run.sessionId = run.sessionId || session.sessionId;
     session.activeRunId = runId;
     return run;
+  }
+
+  function mergeSessionWorkState(session, updates) {
+    if (!session || !updates) {
+      return;
+    }
+    const normalized = normalizeWorkState({
+      ...(session.workState || {}),
+      ...updates,
+    });
+    if (normalized) {
+      session.workState = normalized;
+    }
+  }
+
+  function applyWorkPlanEvent(session, payload, createdAt) {
+    const steps = coerceStringList(payload.steps);
+    mergeSessionWorkState(session, {
+      objective: payload.objective,
+      kind: payload.kind,
+      status: "active",
+      steps,
+      constraints: payload.constraints,
+      doneCriteria: payload.done_criteria,
+      longRunning: payload.long_running,
+      codingTask: payload.coding_task,
+      expectsCodeChange: payload.expects_code_change,
+      expectsVerification: payload.expects_verification,
+      currentStep: steps[0] || "not set",
+      nextStep: steps[1] || "not set",
+      pendingSteps: steps,
+      updatedAt: createdAt,
+    });
+  }
+
+  function applyWorkProgressEvent(session, payload, createdAt) {
+    if (!session?.workState) {
+      return;
+    }
+    const progress = payload?.work_progress && typeof payload.work_progress === "object" ? payload.work_progress : payload;
+    const touchedPaths = [
+      ...session.workState.touchedPaths,
+      ...coerceStringList(progress.touched_paths),
+    ];
+    mergeSessionWorkState(session, {
+      status: progress.status || session.workState.status,
+      fileChangeCount: session.workState.fileChangeCount + coerceNonNegativeInteger(progress.file_change_count),
+      touchedPaths: [...new Set(touchedPaths)],
+      verificationAttempted: session.workState.verificationAttempted || coerceBoolean(progress.verification_attempted),
+      verificationPassed: session.workState.verificationPassed || coerceBoolean(progress.verification_passed),
+      lastNextAction: progress.next_action || session.workState.lastNextAction,
+      lastProgressSignals: progress.progress_signals || session.workState.lastProgressSignals,
+      updatedAt: createdAt,
+    });
+  }
+
+  function applyWorkStateFromRunEvent(session, eventType, payload, createdAt) {
+    if (eventType === "work_plan.created") {
+      applyWorkPlanEvent(session, payload, createdAt);
+      return;
+    }
+    if (eventType === "work_progress.updated") {
+      applyWorkProgressEvent(session, payload, createdAt);
+    }
   }
 
   function handleRunEvent(payload) {
@@ -703,6 +941,7 @@ export function useChatClient() {
     const eventPayload = coerceEventPayload(payload.payload);
     const createdAt = normalizeEventTimestamp(payload.created_at);
     const run = findOrCreateRun(session, runId, createdAt);
+    applyWorkStateFromRunEvent(session, eventType, eventPayload, createdAt);
     const nextStatus = statusFromRunEvent(eventType, eventPayload);
     run.rawEvents.push({
       id: `${runId}-raw-${eventType}-${createdAt}-${randomToken()}`,
@@ -738,6 +977,9 @@ export function useChatClient() {
     session.updatedAt = createdAt;
     session.runs.sort((left, right) => right.updatedAt - left.updatedAt);
     sortSessions();
+    if (isTerminalRunStatus(run.status) || eventType === "run_finished" || eventType === "run_failed") {
+      scheduleRunSummaryFetch(session, run);
+    }
   }
 
   function setNotice(text, tone) {
@@ -749,6 +991,17 @@ export function useChatClient() {
     state.activeExternalChatId = externalChatId;
     writeStoredValue(STORAGE_KEYS.activeExternalChatId, externalChatId);
     closeSidebar();
+  }
+
+  function selectRun(runId) {
+    const session = currentSession.value;
+    const normalizedRunId = String(runId || "").trim();
+    if (!session || !normalizedRunId || !session.runs.some((run) => run.runId === normalizedRunId)) {
+      return;
+    }
+    session.activeRunId = normalizedRunId;
+    maybeLoadRunSummaryForSession(session);
+    maybeLoadRunTraceForSession(session);
   }
 
   function persistActiveSession() {
@@ -840,6 +1093,165 @@ export function useChatClient() {
       throw new Error(text || `HTTP ${response.status}`);
     }
     return response.json();
+  }
+
+  function normalizeTraceEvent(event) {
+    const eventType = String(event?.event_type || event?.eventType || "run_event");
+    const createdAt = normalizeEventTimestamp(event?.created_at ?? event?.createdAt);
+    return {
+      id: String(event?.event_id || event?.eventId || `${eventType}-${createdAt}-${randomToken()}`),
+      eventType,
+      createdAt,
+      payload: coerceEventPayload(event?.payload),
+    };
+  }
+
+  function normalizeTraceFileChange(change) {
+    const path = String(change?.path || "").trim();
+    if (!path) {
+      return null;
+    }
+    const beforeContent = change?.before_content ?? change?.beforeContent ?? null;
+    const afterContent = change?.after_content ?? change?.afterContent ?? null;
+    return {
+      changeId: String(change?.change_id || change?.changeId || "").trim(),
+      path,
+      action: String(change?.action || "").trim(),
+      toolName: String(change?.tool_name || change?.toolName || "").trim(),
+      diffLen: coerceNonNegativeInteger(change?.diff_len ?? change?.diffLen),
+      diff: String(change?.diff || ""),
+      beforeContent,
+      afterContent,
+      snapshotsAvailable: {
+        before: coerceBoolean(change?.snapshots_available?.before ?? change?.snapshotsAvailable?.before ?? beforeContent !== null),
+        after: coerceBoolean(change?.snapshots_available?.after ?? change?.snapshotsAvailable?.after ?? afterContent !== null),
+      },
+    };
+  }
+
+  function localizeRawRunEvents(rawEvents) {
+    return rawEvents
+      .map((event) => {
+        const description = describeRunEvent(event.eventType, event.payload, copy.value);
+        return description
+          ? {
+              id: `${event.id}-localized`,
+              eventType: event.eventType,
+              createdAt: event.createdAt,
+              payload: event.payload,
+              ...description,
+            }
+          : null;
+      })
+      .filter(Boolean)
+      .slice(-MAX_RUN_EVENTS);
+  }
+
+  function runSummaryTimerKey(sessionId, runId) {
+    return `${sessionId}\u0000${runId}`;
+  }
+
+  function clearRunSummaryTimer(sessionId, runId) {
+    const key = runSummaryTimerKey(sessionId, runId);
+    const timer = runSummaryTimers.get(key);
+    if (timer) {
+      clearTimeout(timer);
+      runSummaryTimers.delete(key);
+    }
+  }
+
+  async function loadRunSummary(session, run) {
+    const sessionId = run?.sessionId || session?.sessionId || "";
+    if (!sessionId || !run?.runId || clientDisposed) {
+      return;
+    }
+
+    clearRunSummaryTimer(sessionId, run.runId);
+    run.summaryLoading = true;
+    run.summaryError = "";
+    try {
+      const payload = await requestSettingsJson(buildRunSummaryPath(run.runId, sessionId));
+      const summary = normalizeRunSummary(payload);
+      if (summary) {
+        run.summary = summary;
+        run.status = summary.status || run.status;
+        maybeLoadRunTraceForSession(session);
+      }
+    } catch (error) {
+      run.summaryError = error?.message || copy.value.notices.runSummaryLoadFailed;
+    } finally {
+      run.summaryLoading = false;
+    }
+  }
+
+  async function loadRunTrace(session, run) {
+    const sessionId = run?.sessionId || session?.sessionId || "";
+    if (!sessionId || !run?.runId || clientDisposed) {
+      return;
+    }
+
+    run.traceLoading = true;
+    run.traceError = "";
+    try {
+      const payload = await requestSettingsJson(buildRunTracePath(run.runId, sessionId));
+      const rawEvents = Array.isArray(payload?.events)
+        ? payload.events.map(normalizeTraceEvent).slice(-MAX_RUN_EVENTS)
+        : [];
+      const fileChanges = Array.isArray(payload?.file_changes || payload?.fileChanges)
+        ? (payload.file_changes || payload.fileChanges).map(normalizeTraceFileChange).filter(Boolean)
+        : [];
+      run.rawEvents = rawEvents;
+      run.events = localizeRawRunEvents(rawEvents);
+      run.fileChanges = fileChanges;
+      run.traceLoaded = true;
+    } catch (error) {
+      run.traceError = error?.message || copy.value.notices.runTraceLoadFailed;
+    } finally {
+      run.traceLoading = false;
+    }
+  }
+
+  function scheduleRunSummaryFetch(session, run) {
+    const sessionId = run?.sessionId || session?.sessionId || "";
+    if (!sessionId || !run?.runId) {
+      return;
+    }
+
+    clearRunSummaryTimer(sessionId, run.runId);
+    run.summaryError = "";
+    run.summaryLoading = true;
+    const key = runSummaryTimerKey(sessionId, run.runId);
+    const timer = setTimeout(() => {
+      runSummaryTimers.delete(key);
+      void loadRunSummary(session, run);
+    }, RUN_SUMMARY_FETCH_DELAY_MS);
+    runSummaryTimers.set(key, timer);
+  }
+
+  function maybeLoadRunSummaryForSession(session) {
+    if (!session?.runs?.length) {
+      return;
+    }
+    const run = session.runs.find((entry) => entry.runId === session.activeRunId) || session.runs[0];
+    if (!run || !isTerminalRunStatus(run.status) || run.summary || run.summaryLoading || run.summaryError) {
+      return;
+    }
+    scheduleRunSummaryFetch(session, run);
+  }
+
+  function maybeLoadRunTraceForSession(session) {
+    if (!session?.runs?.length) {
+      return;
+    }
+    const run = session.runs.find((entry) => entry.runId === session.activeRunId) || session.runs[0];
+    if (!run || run.traceLoading) {
+      return;
+    }
+    const hasNeededFileChanges = (run.fileChanges || []).length > 0 || !(run.summary?.fileChanges || []).length;
+    if (run.traceLoaded && hasNeededFileChanges) {
+      return;
+    }
+    void loadRunTrace(session, run);
   }
 
   function getActiveCronSessionId() {
@@ -1080,6 +1492,86 @@ export function useChatClient() {
     };
   }
 
+  function normalizeHistoryRun(payload) {
+    const runId = String(payload?.run_id || payload?.runId || "").trim();
+    if (!runId) {
+      return null;
+    }
+    const finishedAt = Number(payload?.finished_at ?? payload?.finishedAt);
+    return {
+      runId,
+      sessionId: String(payload?.session_id || payload?.sessionId || "").trim(),
+      status: String(payload?.status || "running").trim() || "running",
+      createdAt: normalizeEventTimestamp(payload?.created_at ?? payload?.createdAt),
+      updatedAt: normalizeEventTimestamp(payload?.updated_at ?? payload?.updatedAt),
+      finishedAt: Number.isFinite(finishedAt) && finishedAt > 0 ? normalizeEventTimestamp(finishedAt) : null,
+      events: [],
+      rawEvents: [],
+      fileChanges: [],
+      summary: null,
+      summaryLoading: false,
+      summaryError: "",
+      traceLoaded: false,
+      traceLoading: false,
+      traceError: "",
+    };
+  }
+
+  function mergeSessionRuns(session, runs) {
+    const existingRuns = new Map((session.runs || []).map((run) => [run.runId, run]));
+    const mergedRuns = [];
+
+    for (const run of runs) {
+      const existing = existingRuns.get(run.runId);
+      if (existing) {
+        existing.sessionId = existing.sessionId || run.sessionId;
+        existing.status = run.status || existing.status;
+        existing.createdAt = run.createdAt || existing.createdAt;
+        existing.updatedAt = Math.max(Number(existing.updatedAt || 0), Number(run.updatedAt || 0));
+        existing.finishedAt = run.finishedAt || existing.finishedAt;
+        mergedRuns.push(existing);
+        existingRuns.delete(run.runId);
+      } else {
+        mergedRuns.push(run);
+      }
+    }
+
+    for (const run of existingRuns.values()) {
+      if (run.status === "running" || run.summary || run.rawEvents?.length) {
+        mergedRuns.push(run);
+      }
+    }
+
+    session.runs = mergedRuns.sort((left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0));
+    if (!session.runs.some((run) => run.runId === session.activeRunId)) {
+      session.activeRunId = session.runs[0]?.runId || null;
+    }
+  }
+
+  async function loadCurrentSessionRuns({ force = false } = {}) {
+    const session = currentSession.value;
+    if (!session?.sessionId || session.runsLoading || (session.runsLoaded && !force)) {
+      return;
+    }
+
+    session.runsLoading = true;
+    session.runsError = "";
+    try {
+      const payload = await requestSettingsJson(buildRunsPath(session.sessionId));
+      const runs = Array.isArray(payload?.runs)
+        ? payload.runs.map(normalizeHistoryRun).filter(Boolean)
+        : [];
+      mergeSessionRuns(session, runs);
+      session.runsLoaded = true;
+      maybeLoadRunSummaryForSession(session);
+      maybeLoadRunTraceForSession(session);
+    } catch (error) {
+      session.runsError = error?.message || copy.value.notices.runHistoryLoadFailed;
+    } finally {
+      session.runsLoading = false;
+    }
+  }
+
   function normalizeHistorySession(payload) {
     const sessionId = String(payload?.session_id || "").trim();
     const externalChatId = String(payload?.external_chat_id || "").trim()
@@ -1092,6 +1584,11 @@ export function useChatClient() {
     session.messages = Array.isArray(payload?.messages)
       ? payload.messages.map(makeHistoryMessage).filter((message) => message.text.trim())
       : [];
+    session.runs = Array.isArray(payload?.runs)
+      ? payload.runs.map(normalizeHistoryRun).filter(Boolean)
+      : [];
+    session.activeRunId = session.runs[0]?.runId || null;
+    session.workState = normalizeWorkState(payload?.work_state);
     return session;
   }
 
@@ -1981,6 +2478,10 @@ export function useChatClient() {
 
   onBeforeUnmount(() => {
     clientDisposed = true;
+    for (const timer of runSummaryTimers.values()) {
+      clearTimeout(timer);
+    }
+    runSummaryTimers.clear();
     removeColorSchemeListener();
     document.removeEventListener("keydown", handleGlobalKeydown);
     document.body.classList.remove("settings-open", "sidebar-open");
@@ -2004,6 +2505,10 @@ export function useChatClient() {
     settingsForm,
     settingsState,
     currentMessages,
+    currentWorkState,
+    currentRuns,
+    currentRunsLoading,
+    currentRunsError,
     currentRun,
     currentRunTimeline,
     currentRunSummary,
@@ -2020,6 +2525,7 @@ export function useChatClient() {
     getSessionDisplayId,
     getSessionTitle,
     setActiveSession,
+    selectRun,
     selectSettingsSection,
     openSettings,
     closeSettings,

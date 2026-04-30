@@ -26,6 +26,10 @@
       :copy="copy"
       :prompts="prompts"
       :messages="currentMessages"
+      :work-state="currentWorkState"
+      :runs="currentRuns"
+      :runs-loading="currentRunsLoading"
+      :runs-error="currentRunsError"
       :current-run="currentRun"
       :run-timeline="currentRunTimeline"
       :run-summary="currentRunSummary"
@@ -50,6 +54,7 @@
       @composer-keydown="handleComposerKeydown"
       @submit-message="submitMessage"
       @cancel-run="cancelRun"
+      @select-run="selectRun"
     />
   </div>
 
@@ -111,6 +116,10 @@ const {
   settingsForm,
   settingsState,
   currentMessages,
+  currentWorkState,
+  currentRuns,
+  currentRunsLoading,
+  currentRunsError,
   currentRun,
   currentRunTimeline,
   currentRunSummary,
@@ -127,6 +136,7 @@ const {
   getSessionDisplayId,
   getSessionTitle,
   setActiveSession,
+  selectRun,
   selectSettingsSection,
   openSettings,
   closeSettings,

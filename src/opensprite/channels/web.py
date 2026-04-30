@@ -631,6 +631,41 @@ class WebAdapter(MessageAdapter):
             "created_at": float(getattr(message, "timestamp", 0) or 0),
         }
 
+    def _serialize_work_state(self, state: Any) -> dict[str, Any] | None:
+        if state is None:
+            return None
+        return {
+            "session_id": state.session_id,
+            "objective": state.objective,
+            "kind": state.kind,
+            "status": state.status,
+            "steps": list(state.steps or ()),
+            "constraints": list(state.constraints or ()),
+            "done_criteria": list(state.done_criteria or ()),
+            "long_running": bool(state.long_running),
+            "coding_task": bool(state.coding_task),
+            "expects_code_change": bool(state.expects_code_change),
+            "expects_verification": bool(state.expects_verification),
+            "current_step": state.current_step,
+            "next_step": state.next_step,
+            "completed_steps": list(state.completed_steps or ()),
+            "pending_steps": list(state.pending_steps or ()),
+            "blockers": list(state.blockers or ()),
+            "verification_targets": list(state.verification_targets or ()),
+            "resume_hint": state.resume_hint,
+            "last_progress_signals": list(state.last_progress_signals or ()),
+            "file_change_count": int(state.file_change_count or 0),
+            "touched_paths": list(state.touched_paths or ()),
+            "verification_attempted": bool(state.verification_attempted),
+            "verification_passed": bool(state.verification_passed),
+            "last_next_action": state.last_next_action,
+            "active_delegate_task_id": state.active_delegate_task_id,
+            "active_delegate_prompt_type": state.active_delegate_prompt_type,
+            "metadata": self._json_safe(dict(state.metadata or {})),
+            "created_at": float(state.created_at or 0),
+            "updated_at": float(state.updated_at or 0),
+        }
+
     @staticmethod
     def _session_title(messages: list[Any], fallback: str) -> str:
         for message in messages:
@@ -650,6 +685,8 @@ class WebAdapter(MessageAdapter):
         messages = await storage.get_messages(session_id, limit=message_limit)
         display_messages = [message for message in messages if str(getattr(message, "role", "") or "") in {"user", "assistant"}]
         latest_runs = await storage.get_runs(session_id, limit=1)
+        get_work_state = getattr(storage, "get_work_state", None)
+        work_state = await get_work_state(session_id) if callable(get_work_state) else None
         external_chat_id = self._external_chat_id_from_session(session_id)
         fallback_title = external_chat_id or session_id
         return {
@@ -659,6 +696,8 @@ class WebAdapter(MessageAdapter):
             "updated_at": self._session_updated_at(messages, latest_runs),
             "message_count": await storage.get_message_count(session_id),
             "messages": [self._serialize_message(message) for message in display_messages],
+            "runs": [self._serialize_run(run) for run in latest_runs],
+            "work_state": self._serialize_work_state(work_state),
         }
 
     def _serialize_run_event(self, event: Any) -> dict[str, Any]:
@@ -698,6 +737,134 @@ class WebAdapter(MessageAdapter):
             "diff": change.diff,
             "metadata": self._json_safe(dict(change.metadata or {})),
             "created_at": change.created_at,
+        }
+
+    @staticmethod
+    def _latest_event_payload(events: list[Any], event_type: str) -> dict[str, Any] | None:
+        for event in reversed(events):
+            if event.event_type == event_type:
+                return dict(event.payload or {})
+        return None
+
+    @staticmethod
+    def _latest_work_progress(events: list[Any]) -> dict[str, Any] | None:
+        for event in reversed(events):
+            payload = dict(event.payload or {})
+            if event.event_type == "work_progress.updated":
+                return payload
+            if event.event_type == "run_finished" and isinstance(payload.get("work_progress"), dict):
+                return dict(payload["work_progress"])
+        return None
+
+    @staticmethod
+    def _metadata_bool(metadata: dict[str, Any], key: str) -> bool:
+        return metadata.get(key) is True or metadata.get(key) == "true" or metadata.get(key) == 1
+
+    def _summarize_tools(self, parts: list[Any], events: list[Any]) -> list[dict[str, Any]]:
+        counts: dict[str, int] = {}
+        for part in parts:
+            if part.part_type != "tool_call" or not part.tool_name:
+                continue
+            counts[part.tool_name] = counts.get(part.tool_name, 0) + 1
+
+        if not counts:
+            for event in events:
+                if event.event_type != "tool_started":
+                    continue
+                tool_name = str((event.payload or {}).get("tool_name") or "").strip()
+                if not tool_name:
+                    continue
+                counts[tool_name] = counts.get(tool_name, 0) + 1
+
+        return [{"name": name, "count": count} for name, count in counts.items()]
+
+    def _summarize_file_changes(self, file_changes: list[Any]) -> list[dict[str, Any]]:
+        return [
+            {
+                "change_id": change.change_id,
+                "path": change.path,
+                "action": change.action,
+                "tool_name": change.tool_name,
+                "diff_len": int((change.metadata or {}).get("diff_len") or len(change.diff or "")),
+                "diff": change.diff or "",
+                "snapshots_available": {
+                    "before": change.before_content is not None,
+                    "after": change.after_content is not None,
+                },
+            }
+            for change in file_changes
+        ]
+
+    def _summarize_verification(self, run_metadata: dict[str, Any], events: list[Any]) -> dict[str, Any]:
+        latest = self._latest_event_payload(events, "verification_result")
+        attempted = self._metadata_bool(run_metadata, "verification_attempted") or latest is not None
+        passed = self._metadata_bool(run_metadata, "verification_passed")
+        if latest is not None:
+            passed = latest.get("ok") is not False and str(latest.get("verification_status") or "").lower() not in {"failed", "error"}
+
+        status = "not_attempted"
+        name = None
+        summary = ""
+        if attempted:
+            status = "passed" if passed else "failed"
+        if latest is not None:
+            status = str(latest.get("verification_status") or status)
+            name = latest.get("verification_name")
+            summary = str(latest.get("result_preview") or "")
+
+        return {
+            "attempted": attempted,
+            "passed": passed,
+            "status": status,
+            "name": name,
+            "summary": summary,
+        }
+
+    def _serialize_run_summary(self, trace: Any) -> dict[str, Any]:
+        run = trace.run
+        events = list(trace.events or [])
+        parts = list(trace.parts or [])
+        file_changes = list(trace.file_changes or [])
+        run_metadata = dict(run.metadata or {})
+        task_intent = self._latest_event_payload(events, "task_intent.detected") or {}
+        completion = self._latest_event_payload(events, "completion_gate.evaluated") or {}
+        work_progress = self._latest_work_progress(events) or {}
+        verification = self._summarize_verification(run_metadata, events)
+        had_tool_error = self._metadata_bool(run_metadata, "had_tool_error")
+        warnings: list[str] = []
+        if had_tool_error:
+            warnings.append("tool_error")
+        if verification["attempted"] and not verification["passed"]:
+            warnings.append("verification_not_passed")
+        if run.status in {"failed", "cancelled"}:
+            warnings.append(run.status)
+
+        duration_seconds = None
+        if run.finished_at is not None:
+            duration_seconds = max(0.0, float(run.finished_at) - float(run.created_at))
+
+        objective = str(task_intent.get("objective") or run_metadata.get("objective") or "").strip()
+        return {
+            "run_id": run.run_id,
+            "session_id": run.session_id,
+            "status": run.status,
+            "objective": objective or None,
+            "created_at": run.created_at,
+            "updated_at": run.updated_at,
+            "finished_at": run.finished_at,
+            "duration_seconds": duration_seconds,
+            "tools": self._summarize_tools(parts, events),
+            "file_changes": self._summarize_file_changes(file_changes),
+            "verification": verification,
+            "completion": self._json_safe(completion),
+            "next_action": work_progress.get("next_action"),
+            "warnings": warnings,
+            "counts": {
+                "events": len(events),
+                "parts": len(parts),
+                "tool_calls": sum(1 for part in parts if part.part_type == "tool_call"),
+                "file_changes": len(file_changes),
+            },
         }
 
     def _require_storage(self) -> Any:
@@ -891,6 +1058,19 @@ class WebAdapter(MessageAdapter):
                 "file_changes": [self._serialize_file_change(change) for change in trace.file_changes],
             }
         )
+
+    async def _handle_run_summary(self, request: web.Request) -> web.Response:
+        storage = self._require_storage()
+        run_id = self._coerce_optional_text(request.match_info.get("run_id"))
+        session_id = self._coerce_optional_text(request.query.get("session_id"))
+        if run_id is None or session_id is None:
+            raise web.HTTPBadRequest(text="Both run_id and session_id are required")
+
+        trace = await storage.get_run_trace(session_id, run_id)
+        if trace is None:
+            raise web.HTTPNotFound(text="Run not found")
+
+        return web.json_response(self._serialize_run_summary(trace))
 
     async def _handle_run_cancel(self, request: web.Request) -> web.Response:
         storage = self._require_storage()
@@ -1328,6 +1508,7 @@ class WebAdapter(MessageAdapter):
         self.app.router.add_get(health_path, self._handle_health)
         self.app.router.add_get("/api/sessions", self._handle_sessions)
         self.app.router.add_get("/api/runs", self._handle_runs)
+        self.app.router.add_get("/api/runs/{run_id}/summary", self._handle_run_summary)
         self.app.router.add_get("/api/runs/{run_id}", self._handle_run_trace)
         self.app.router.add_get("/api/runs/{run_id}/events", self._handle_run_events)
         self.app.router.add_post("/api/runs/{run_id}/cancel", self._handle_run_cancel)
