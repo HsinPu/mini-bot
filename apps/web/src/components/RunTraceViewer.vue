@@ -26,6 +26,7 @@
       <div class="run-trace__summary" aria-label="Run event summary">
         <span>{{ events.length }} {{ copy.trace.events }}</span>
         <span>{{ artifactCount }} {{ copy.trace.artifacts }}</span>
+        <span>{{ parts.length }} {{ copy.trace.parts }}</span>
         <span>{{ toolEventCount }} {{ copy.trace.tool }}</span>
         <span>{{ verificationEventCount }} {{ copy.trace.verification }}</span>
       </div>
@@ -71,6 +72,36 @@
 
         <p v-else class="run-trace__empty">{{ copy.trace.noArtifacts }}</p>
       </div>
+
+      <section class="run-trace__parts" aria-label="Message parts">
+        <div class="run-trace__section-head">
+          <strong>{{ copy.trace.messageParts }}</strong>
+          <span>{{ parts.length }} {{ copy.trace.parts }}</span>
+        </div>
+
+        <div v-if="visibleParts.length" class="run-trace__part-list">
+          <details
+            v-for="part in visibleParts"
+            :key="part.partId || `${part.partType}:${part.createdAt}`"
+            class="run-trace__part"
+            :data-kind="part.kind"
+          >
+            <summary>
+              <span class="run-trace__part-type">{{ part.partType }}</span>
+              <span v-if="part.state" class="run-trace__part-state">{{ part.state }}</span>
+              <span v-if="partSummary(part)" class="run-trace__part-summary">{{ partSummary(part) }}</span>
+              <time>{{ formatEventTime(part.createdAt) }}</time>
+            </summary>
+            <div class="run-trace__part-body">
+              <pre v-if="part.content">{{ part.content }}</pre>
+              <pre v-if="hasMetadata(part)">{{ formatMetadata(part.metadata) }}</pre>
+              <p v-if="!part.content && !hasMetadata(part)">{{ copy.trace.noPartContent }}</p>
+            </div>
+          </details>
+        </div>
+
+        <p v-else class="run-trace__empty">{{ copy.trace.noParts }}</p>
+      </section>
 
       <section class="run-trace__debug" aria-label="Debug trace events">
         <div class="run-trace__section-head">
@@ -137,6 +168,8 @@ const expanded = ref(false);
 
 const events = computed(() => props.run?.rawEvents || props.run?.events || []);
 const artifacts = computed(() => props.run?.artifacts || []);
+const parts = computed(() => props.run?.parts || []);
+const visibleParts = computed(() => parts.value.slice(-8));
 
 const filteredEvents = computed(() => {
   if (selectedFilter.value === "all") {
@@ -241,6 +274,31 @@ function eventSummary(event) {
     return payload.error;
   }
   return "";
+}
+
+function partSummary(part) {
+  const values = [part.toolName, previewText(part.content), part.artifact?.detail].filter(Boolean);
+  return values[0] || "";
+}
+
+function previewText(value) {
+  const normalized = String(value || "").replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return "";
+  }
+  return normalized.length > 96 ? `${normalized.slice(0, 96)}...` : normalized;
+}
+
+function hasMetadata(part) {
+  return part?.metadata && typeof part.metadata === "object" && Object.keys(part.metadata).length > 0;
+}
+
+function formatMetadata(metadata) {
+  try {
+    return JSON.stringify(metadata || {}, null, 2);
+  } catch {
+    return String(metadata || "");
+  }
 }
 
 function artifactTitle(artifact) {
