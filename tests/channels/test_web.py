@@ -1,6 +1,7 @@
 import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from aiohttp import ClientSession
 
@@ -850,6 +851,144 @@ async def _run_web_run_cancel_api():
 
 def test_web_adapter_exposes_run_cancel_api():
     asyncio.run(_run_web_run_cancel_api())
+
+
+async def _run_web_permissions_api():
+    permission = SimpleNamespace(
+        request_id="perm-1",
+        tool_name="apply_patch",
+        params={"path": Path("notes.txt")},
+        reason="tool requires approval",
+        status="pending",
+        session_id="web:browser-1",
+        run_id="run-1",
+        channel="web",
+        external_chat_id="browser-1",
+        created_at=100.0,
+        expires_at=160.0,
+        resolved_at=None,
+        resolution_reason="",
+        timed_out=False,
+    )
+    deny_permission = SimpleNamespace(
+        request_id="perm-2",
+        tool_name="exec",
+        params={"command": "pytest"},
+        reason="tool requires approval",
+        status="created",
+        session_id="web:browser-1",
+        run_id="run-1",
+        channel="web",
+        external_chat_id="browser-1",
+        created_at=101.0,
+        expires_at=161.0,
+        resolved_at=None,
+        resolution_reason="",
+        timed_out=False,
+    )
+    missing_calls = []
+
+    class PermissionAgent(EchoAgent):
+        def pending_permission_requests(self):
+            return [item for item in [permission, deny_permission] if item.status == "pending"]
+
+        async def approve_permission_request(self, request_id):
+            if request_id != permission.request_id or permission.status != "pending":
+                missing_calls.append(("approve", request_id))
+                return None
+            permission.status = "approved"
+            permission.resolved_at = 120.0
+            permission.resolution_reason = "approved once"
+            deny_permission.status = "pending"
+            return permission
+
+        async def deny_permission_request(self, request_id, reason="user denied approval"):
+            if request_id != deny_permission.request_id or deny_permission.status != "pending":
+                missing_calls.append(("deny", request_id))
+                return None
+            deny_permission.status = "denied"
+            deny_permission.resolved_at = 121.0
+            deny_permission.resolution_reason = reason
+            return deny_permission
+
+    queue = MessageQueue(PermissionAgent())
+    adapter = WebAdapter(
+        mq=queue,
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "path": "/ws",
+            "health_path": "/healthz",
+            "frontend_auto_build": False,
+        },
+    )
+    adapter_task = asyncio.create_task(adapter.run())
+
+    try:
+        await adapter.wait_until_started()
+        port = adapter.bound_port
+        assert port is not None
+
+        async with ClientSession() as session:
+            async with session.get(f"http://127.0.0.1:{port}/api/permissions") as resp:
+                assert resp.status == 200
+                payload = await resp.json()
+
+            assert payload == {
+                "permissions": [
+                    {
+                        "request_id": "perm-1",
+                        "tool_name": "apply_patch",
+                        "params": {"path": "notes.txt"},
+                        "reason": "tool requires approval",
+                        "status": "pending",
+                        "session_id": "web:browser-1",
+                        "run_id": "run-1",
+                        "channel": "web",
+                        "external_chat_id": "browser-1",
+                        "created_at": 100.0,
+                        "expires_at": 160.0,
+                        "resolved_at": None,
+                        "resolution_reason": "",
+                        "timed_out": False,
+                    }
+                ]
+            }
+
+            async with session.post(f"http://127.0.0.1:{port}/api/permissions/perm-1/approve") as resp:
+                assert resp.status == 200
+                approved_payload = await resp.json()
+            assert approved_payload["ok"] is True
+            assert approved_payload["permission"]["status"] == "approved"
+            assert approved_payload["permission"]["resolution_reason"] == "approved once"
+
+            async with session.post(
+                f"http://127.0.0.1:{port}/api/permissions/perm-2/deny",
+                json={"reason": "not now"},
+            ) as resp:
+                assert resp.status == 200
+                denied_payload = await resp.json()
+            assert denied_payload["ok"] is True
+            assert denied_payload["permission"]["status"] == "denied"
+            assert denied_payload["permission"]["resolution_reason"] == "not now"
+
+            async with session.post(
+                f"http://127.0.0.1:{port}/api/permissions/missing/deny",
+                json={"reason": "not now"},
+            ) as resp:
+                assert resp.status == 404
+    finally:
+        adapter_task.cancel()
+        try:
+            await adapter_task
+        except asyncio.CancelledError:
+            pass
+
+    assert missing_calls == [("deny", "missing")]
+
+
+def test_web_adapter_exposes_permissions_api():
+    asyncio.run(_run_web_permissions_api())
 
 
 async def _run_web_settings_provider_api(tmp_path: Path):

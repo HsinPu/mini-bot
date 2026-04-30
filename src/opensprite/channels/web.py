@@ -724,6 +724,24 @@ class WebAdapter(MessageAdapter):
             "metadata": self._json_safe(dict(item.metadata or {})),
         }
 
+    def _serialize_permission_request(self, request: Any) -> dict[str, Any]:
+        return {
+            "request_id": request.request_id,
+            "tool_name": request.tool_name,
+            "params": self._json_safe(request.params),
+            "reason": request.reason,
+            "status": request.status,
+            "session_id": request.session_id,
+            "run_id": request.run_id,
+            "channel": request.channel,
+            "external_chat_id": request.external_chat_id,
+            "created_at": request.created_at,
+            "expires_at": request.expires_at,
+            "resolved_at": request.resolved_at,
+            "resolution_reason": request.resolution_reason,
+            "timed_out": request.timed_out,
+        }
+
     def _require_storage(self) -> Any:
         storage = self._get_storage()
         if storage is None:
@@ -1001,6 +1019,44 @@ class WebAdapter(MessageAdapter):
             await cancel_session(session_id)
 
         return web.json_response({"ok": True, "session_id": session_id, "run_id": run_id, "status": "cancelling"})
+
+    async def _handle_permissions(self, request: web.Request) -> web.Response:
+        agent = self._get_agent()
+        pending_requests = getattr(agent, "pending_permission_requests", None) if agent is not None else None
+        if not callable(pending_requests):
+            raise web.HTTPServiceUnavailable(text="Permission requests are not available")
+        permissions = [self._serialize_permission_request(item) for item in pending_requests()]
+        return web.json_response({"permissions": permissions})
+
+    async def _handle_permission_approve(self, request: web.Request) -> web.Response:
+        agent = self._get_agent()
+        approve = getattr(agent, "approve_permission_request", None) if agent is not None else None
+        if not callable(approve):
+            raise web.HTTPServiceUnavailable(text="Permission approvals are not available")
+
+        request_id = self._coerce_optional_text(request.match_info.get("request_id"))
+        if request_id is None:
+            raise web.HTTPBadRequest(text="request_id is required")
+        permission = await approve(request_id)
+        if permission is None:
+            raise web.HTTPNotFound(text="Permission request not found")
+        return web.json_response({"ok": True, "permission": self._serialize_permission_request(permission)})
+
+    async def _handle_permission_deny(self, request: web.Request) -> web.Response:
+        agent = self._get_agent()
+        deny = getattr(agent, "deny_permission_request", None) if agent is not None else None
+        if not callable(deny):
+            raise web.HTTPServiceUnavailable(text="Permission denials are not available")
+
+        request_id = self._coerce_optional_text(request.match_info.get("request_id"))
+        if request_id is None:
+            raise web.HTTPBadRequest(text="request_id is required")
+        body = await self._read_json_body(request)
+        reason = self._coerce_optional_text(body.get("reason"), default="user denied approval") or "user denied approval"
+        permission = await deny(request_id, reason=reason)
+        if permission is None:
+            raise web.HTTPNotFound(text="Permission request not found")
+        return web.json_response({"ok": True, "permission": self._serialize_permission_request(permission)})
 
     async def _handle_settings_providers(self, request: web.Request) -> web.Response:
         try:
@@ -1417,6 +1473,9 @@ class WebAdapter(MessageAdapter):
         self.app.router.add_get("/api/runs/{run_id}", self._handle_run_trace)
         self.app.router.add_get("/api/runs/{run_id}/events", self._handle_run_events)
         self.app.router.add_post("/api/runs/{run_id}/cancel", self._handle_run_cancel)
+        self.app.router.add_get("/api/permissions", self._handle_permissions)
+        self.app.router.add_post("/api/permissions/{request_id}/approve", self._handle_permission_approve)
+        self.app.router.add_post("/api/permissions/{request_id}/deny", self._handle_permission_deny)
         self.app.router.add_get("/api/settings/channels", self._handle_settings_channels)
         self.app.router.add_post("/api/settings/channels", self._handle_settings_channel_create)
         self.app.router.add_put("/api/settings/channels/{channel_id}", self._handle_settings_channel_update)
