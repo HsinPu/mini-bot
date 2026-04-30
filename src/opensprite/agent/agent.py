@@ -507,6 +507,8 @@ class AgentLoop:
             apply_work_progress=lambda session_id, progress, state: self._maybe_apply_work_progress(session_id, progress, state),
             schedule_post_response_maintenance=lambda session_id: self._schedule_post_response_maintenance(session_id),
             maybe_schedule_skill_review=lambda session_id, result: self._maybe_schedule_skill_review(session_id, result),
+            worktree_sandbox_enabled=lambda: self.config.worktree_sandbox_enabled,
+            workspace_root=lambda: Path(self.tool_workspace or getattr(self._context_builder, "workspace", Path.cwd())),
         )
         self.permission_events = PermissionEventRecorder(
             emit_run_event=self._emit_run_event,

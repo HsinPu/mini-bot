@@ -298,6 +298,8 @@ def run_part_kind(part_type: str) -> str:
         return "task"
     if normalized == "llm_step":
         return "llm"
+    if normalized == "worktree_sandbox":
+        return "work"
     return "other"
 
 
@@ -370,6 +372,9 @@ def run_part_artifact(
     if part_type == "llm_step":
         title = _text(safe_metadata.get("model")) or "LLM step"
         detail = f"attempt {safe_metadata.get('attempt')} · {safe_metadata.get('estimated_input_tokens')} input tokens"
+    if part_type == "worktree_sandbox":
+        title = "Worktree sandbox"
+        detail = _text(safe_metadata.get("status") or safe_metadata.get("reason"))
     if not detail and kind == "text":
         detail = str(content or "")[:240]
     artifact_id = f"part:{part_id}" if part_id is not None else None

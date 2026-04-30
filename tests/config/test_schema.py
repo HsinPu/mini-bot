@@ -406,6 +406,7 @@ def test_config_load_defaults_agent_when_section_missing(tmp_path):
     assert config.agent.context_compaction_min_messages == 8
     assert config.agent.context_compaction_strategy == "deterministic"
     assert config.agent.context_compaction_llm.max_tokens == 4096
+    assert config.agent.worktree_sandbox_enabled is False
     assert config.tools.exec_tool.timeout == 60
     assert config.tools.web_search.max_results == 25
     assert config.tools.web_fetch.timeout == 30

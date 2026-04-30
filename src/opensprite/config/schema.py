@@ -104,6 +104,7 @@ class AgentConfig(BaseModel):
     skill_review_min_tool_calls: int = Field(ge=1)
     skill_review_max_tool_iterations: int = Field(ge=1, le=100)
     skill_review_transcript_messages: int = Field(ge=5, le=500)
+    worktree_sandbox_enabled: bool = False
 
 
 class StorageConfig(BaseModel):
@@ -1301,6 +1302,7 @@ class Config:
                 "skill_review_min_tool_calls": self.agent.skill_review_min_tool_calls,
                 "skill_review_max_tool_iterations": self.agent.skill_review_max_tool_iterations,
                 "skill_review_transcript_messages": self.agent.skill_review_transcript_messages,
+                "worktree_sandbox_enabled": self.agent.worktree_sandbox_enabled,
             },
             "memory": {
                 "threshold": self.memory.threshold,

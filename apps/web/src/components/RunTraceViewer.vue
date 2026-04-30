@@ -256,7 +256,8 @@ const artifactGroups = computed(() => {
   const verificationArtifacts = artifacts.value.filter((artifact) => artifact.kind === "verification");
   const permissionArtifacts = artifacts.value.filter((artifact) => artifact.kind === "permission");
   const taskArtifacts = artifacts.value.filter((artifact) => artifact.kind === "task");
-  const grouped = new Set([...toolArtifacts, ...fileArtifacts, ...verificationArtifacts, ...permissionArtifacts, ...taskArtifacts]);
+  const workArtifacts = artifacts.value.filter((artifact) => artifact.kind === "work");
+  const grouped = new Set([...toolArtifacts, ...fileArtifacts, ...verificationArtifacts, ...permissionArtifacts, ...taskArtifacts, ...workArtifacts]);
   const otherArtifacts = artifacts.value.filter((artifact) => !grouped.has(artifact));
 
   return [
@@ -284,6 +285,11 @@ const artifactGroups = computed(() => {
       kind: "task",
       label: props.copy.trace.artifactSections.task,
       items: taskArtifacts,
+    },
+    {
+      kind: "work",
+      label: props.copy.trace.artifactSections.work,
+      items: workArtifacts,
     },
     {
       kind: "other",

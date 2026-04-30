@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Awaitable, Callable
 from uuid import uuid4
 
@@ -20,6 +21,7 @@ from .task_intent import TaskIntent, TaskIntentService
 from .turn_context import TurnContextService
 from .turn_input import PreparedTurnInput
 from .work_progress import WorkPlan, WorkProgressService, WorkProgressUpdate
+from .worktree import WorktreeSandboxInspector
 
 
 class AgentTurnRunner:
@@ -50,6 +52,8 @@ class AgentTurnRunner:
         apply_work_progress: Callable[[str, WorkProgressUpdate, StoredWorkState | None], Awaitable[None]],
         schedule_post_response_maintenance: Callable[[str], None],
         maybe_schedule_skill_review: Callable[[str, ExecutionResult], None],
+        worktree_sandbox_enabled: Callable[[], bool],
+        workspace_root: Callable[[], Path],
     ):
         self.run_trace = run_trace
         self.response_finalizer = response_finalizer
@@ -73,6 +77,8 @@ class AgentTurnRunner:
         self._apply_work_progress = apply_work_progress
         self._schedule_post_response_maintenance = schedule_post_response_maintenance
         self._maybe_schedule_skill_review = maybe_schedule_skill_review
+        self._worktree_sandbox_enabled = worktree_sandbox_enabled
+        self._workspace_root = workspace_root
 
     @staticmethod
     def is_media_only_message(user_message: UserMessage) -> bool:
@@ -83,6 +89,18 @@ class AgentTurnRunner:
             audios=user_message.audios,
             videos=user_message.videos,
         )
+
+    async def _maybe_record_worktree_sandbox(self, session_id: str, run_id: str, task_intent: TaskIntent) -> None:
+        enabled = self._worktree_sandbox_enabled()
+        if not enabled and not task_intent.expects_code_change:
+            return
+        metadata = WorktreeSandboxInspector(
+            enabled=enabled,
+            workspace_root=self._workspace_root(),
+        ).inspect().to_payload()
+        metadata["task_kind"] = task_intent.kind
+        metadata["expects_code_change"] = task_intent.expects_code_change
+        await self.run_trace.record_worktree_sandbox_part(session_id, run_id, metadata)
 
     async def run_user_turn(
         self,
@@ -115,6 +133,7 @@ class AgentTurnRunner:
         )
         existing_work_state = await self._get_work_state(turn.session_id)
         task_intent = self.work_progress.resolve_intent(task_intent, existing_work_state)
+        await self._maybe_record_worktree_sandbox(turn.session_id, run_id, task_intent)
         await self._emit_run_event(
             turn.session_id,
             run_id,

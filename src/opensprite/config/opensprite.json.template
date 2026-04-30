@@ -74,7 +74,8 @@
     "skill_review_enabled": true,
     "skill_review_min_tool_calls": 5,
     "skill_review_max_tool_iterations": 6,
-    "skill_review_transcript_messages": 50
+    "skill_review_transcript_messages": 50,
+    "worktree_sandbox_enabled": false
   },
   "memory": {
     "threshold": 80,

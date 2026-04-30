@@ -298,6 +298,21 @@ class RunTraceRecorder:
         )
         return todos
 
+    async def record_worktree_sandbox_part(
+        self,
+        session_id: str,
+        run_id: str,
+        metadata: dict[str, Any],
+    ) -> None:
+        """Persist worktree sandbox readiness metadata for one run."""
+        await self.add_part(
+            session_id,
+            run_id,
+            "worktree_sandbox",
+            content=str(metadata.get("status") or "unknown"),
+            metadata=metadata,
+        )
+
     async def complete_run(
         self,
         session_id: str,

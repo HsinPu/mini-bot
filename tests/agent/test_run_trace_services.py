@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from opensprite.agent.run_hooks import RunHookService
 from opensprite.agent.execution import LlmStepEvent
 from opensprite.agent.run_trace import RUN_PART_CONTENT_MAX_CHARS, RunEventSink, RunTraceRecorder, truncate_run_part_content
+from opensprite.agent.worktree import WorktreeSandboxInspector
 from opensprite.bus import MessageBus
 from opensprite.run_schema import (
     compact_run_events,
@@ -115,6 +116,34 @@ def test_run_trace_recorder_persists_llm_step_part():
     assert parts[0].metadata["model"] == "fake-model"
     assert parts[0].metadata["estimated_input_tokens"] == 42
     assert serialize_run_part(parts[0])["artifact"]["kind"] == "llm"
+
+
+def test_worktree_sandbox_inspector_reports_disabled(tmp_path):
+    metadata = WorktreeSandboxInspector(enabled=False, workspace_root=tmp_path).inspect().to_payload()
+
+    assert metadata["enabled"] is False
+    assert metadata["status"] == "disabled"
+    assert metadata["workspace_root"] == str(tmp_path.resolve())
+
+
+def test_run_trace_recorder_persists_worktree_sandbox_part():
+    async def scenario():
+        storage = MemoryStorage()
+        recorder = RunTraceRecorder(storage=storage, message_bus_getter=lambda: None)
+        await storage.create_run("web:browser-1", "run-1")
+        await recorder.record_worktree_sandbox_part(
+            "web:browser-1",
+            "run-1",
+            {"enabled": True, "status": "ready", "base_branch": "main", "base_commit": "abc123"},
+        )
+        return await storage.get_run_parts("web:browser-1", "run-1")
+
+    parts = asyncio.run(scenario())
+
+    assert len(parts) == 1
+    assert parts[0].part_type == "worktree_sandbox"
+    assert parts[0].metadata["base_branch"] == "main"
+    assert serialize_run_part(parts[0])["artifact"]["kind"] == "work"
 
 
 def test_run_event_sink_persists_and_publishes_safe_payloads():
