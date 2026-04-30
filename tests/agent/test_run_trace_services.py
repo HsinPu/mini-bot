@@ -2,6 +2,7 @@ import asyncio
 from types import SimpleNamespace
 
 from opensprite.agent.run_hooks import RunHookService
+from opensprite.agent.execution import LlmStepEvent
 from opensprite.agent.run_trace import RUN_PART_CONTENT_MAX_CHARS, RunEventSink, RunTraceRecorder, truncate_run_part_content
 from opensprite.bus import MessageBus
 from opensprite.run_schema import (
@@ -79,6 +80,41 @@ def test_run_trace_recorder_persists_task_checklist_part():
     assert "[in_progress] build artifact" in parts[0].content
     assert parts[0].metadata["objective"] == "Ship task artifacts"
     assert parts[0].metadata["todos"] == todos
+
+
+def test_run_trace_recorder_persists_llm_step_part():
+    async def scenario():
+        storage = MemoryStorage()
+        recorder = RunTraceRecorder(storage=storage, message_bus_getter=lambda: None)
+        await storage.create_run("web:browser-1", "run-1")
+        await recorder.record_llm_step_parts(
+            "web:browser-1",
+            "run-1",
+            [
+                LlmStepEvent(
+                    iteration=1,
+                    attempt=1,
+                    status="completed",
+                    model="fake-model",
+                    duration_ms=12,
+                    estimated_input_tokens=42,
+                    message_tokens=40,
+                    tool_schema_tokens=2,
+                    output_tokens=7,
+                    total_tokens=49,
+                    finish_reason="stop",
+                )
+            ],
+        )
+        return await storage.get_run_parts("web:browser-1", "run-1")
+
+    parts = asyncio.run(scenario())
+
+    assert len(parts) == 1
+    assert parts[0].part_type == "llm_step"
+    assert parts[0].metadata["model"] == "fake-model"
+    assert parts[0].metadata["estimated_input_tokens"] == 42
+    assert serialize_run_part(parts[0])["artifact"]["kind"] == "llm"
 
 
 def test_run_event_sink_persists_and_publishes_safe_payloads():

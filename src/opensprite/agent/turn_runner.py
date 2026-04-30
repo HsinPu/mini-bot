@@ -315,6 +315,11 @@ class AgentTurnRunner:
                 run_id,
                 exec_result.context_compaction_events,
             )
+            await self.run_trace.record_llm_step_parts(
+                turn.session_id,
+                run_id,
+                exec_result.llm_step_events,
+            )
             aggregate_result = self._aggregate_execution_results(execution_results, content=response)
             completion_result = self.completion_gate.evaluate(
                 task_intent=task_intent,
@@ -507,6 +512,11 @@ class AgentTurnRunner:
                 event
                 for result in results
                 for event in result.context_compaction_events
+            ],
+            llm_step_events=[
+                event
+                for result in results
+                for event in result.llm_step_events
             ],
         )
 

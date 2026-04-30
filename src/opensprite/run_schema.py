@@ -296,6 +296,8 @@ def run_part_kind(part_type: str) -> str:
         return "system"
     if normalized == "task_checklist":
         return "task"
+    if normalized == "llm_step":
+        return "llm"
     return "other"
 
 
@@ -365,6 +367,9 @@ def run_part_artifact(
         completed = sum(1 for item in todos if isinstance(item, dict) and item.get("status") == "completed")
         total = len(todos)
         detail = f"{completed}/{total} completed" if total else "No task steps"
+    if part_type == "llm_step":
+        title = _text(safe_metadata.get("model")) or "LLM step"
+        detail = f"attempt {safe_metadata.get('attempt')} · {safe_metadata.get('estimated_input_tokens')} input tokens"
     if not detail and kind == "text":
         detail = str(content or "")[:240]
     artifact_id = f"part:{part_id}" if part_id is not None else None

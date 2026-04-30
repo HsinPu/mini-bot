@@ -256,6 +256,27 @@ class RunTraceRecorder:
                 metadata=compaction_metadata,
             )
 
+    async def record_llm_step_parts(
+        self,
+        session_id: str,
+        run_id: str,
+        step_events: list[Any],
+    ) -> None:
+        """Persist LLM request attempts as ordered run artifacts."""
+        for step_event in step_events:
+            metadata = vars(step_event)
+            content = (
+                f"iteration={step_event.iteration} attempt={step_event.attempt} "
+                f"status={step_event.status} model={step_event.model or 'unknown'}"
+            )
+            await self.add_part(
+                session_id,
+                run_id,
+                "llm_step",
+                content=content,
+                metadata=metadata,
+            )
+
     async def record_task_checklist_part(
         self,
         session_id: str,

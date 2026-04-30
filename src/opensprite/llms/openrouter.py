@@ -27,6 +27,23 @@ def _coerce_content(content: Any) -> str:
     return str(content)
 
 
+def _usage_payload(usage: Any) -> dict[str, Any]:
+    if usage is None:
+        return {}
+    if hasattr(usage, "model_dump"):
+        try:
+            return dict(usage.model_dump(exclude_none=True))
+        except Exception:
+            pass
+    if isinstance(usage, dict):
+        return dict(usage)
+    return {
+        key: getattr(usage, key)
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+        if getattr(usage, key, None) is not None
+    }
+
+
 class OpenRouterLLM(LLMProvider):
     """
     OpenRouter LLM 實作
@@ -155,6 +172,7 @@ class OpenRouterLLM(LLMProvider):
                 content="",
                 model=getattr(response, "model", model or self.default_model),
                 tool_calls=[],
+                usage=_usage_payload(getattr(response, "usage", None)),
             )
 
         try:
@@ -172,6 +190,7 @@ class OpenRouterLLM(LLMProvider):
                 content="",
                 model=getattr(response, "model", model or self.default_model),
                 tool_calls=[],
+                usage=_usage_payload(getattr(response, "usage", None)),
             )
 
         if message is None:
@@ -180,6 +199,7 @@ class OpenRouterLLM(LLMProvider):
                 content="",
                 model=getattr(response, "model", model or self.default_model),
                 tool_calls=[],
+                usage=_usage_payload(getattr(response, "usage", None)),
             )
         
         # 解析 tool calls
@@ -205,7 +225,9 @@ class OpenRouterLLM(LLMProvider):
         return LLMResponse(
             content=_coerce_content(getattr(message, "content", "")),
             model=getattr(response, "model", model or self.default_model),
-            tool_calls=tool_calls
+            tool_calls=tool_calls,
+            usage=_usage_payload(getattr(response, "usage", None)),
+            finish_reason=str(getattr(choices[0], "finish_reason", "") or "") or None,
         )
     
     def get_default_model(self) -> str:

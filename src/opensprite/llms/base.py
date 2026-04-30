@@ -29,6 +29,8 @@ class LLMResponse:
     content: str  # 回覆的文字內容
     model: str    # 使用的模型名稱
     tool_calls: list[ToolCall] = field(default_factory=list)  # Tool calls (if any)
+    usage: dict[str, Any] = field(default_factory=dict)  # Provider token/cost usage if available
+    finish_reason: str | None = None
 
 
 @dataclass

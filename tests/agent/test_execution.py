@@ -132,6 +132,34 @@ def test_execution_engine_runs_tool_loop_and_persists_tool_result():
     assert messages[1].tool_calls[0]["function"]["name"] == "demo_tool"
 
 
+def test_execution_engine_records_llm_step_usage_metadata():
+    provider = FakeProvider([
+        LLMResponse(
+            content="done",
+            model="fake-model",
+            usage={"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18},
+            finish_reason="stop",
+        )
+    ])
+    engine = _make_engine(provider, ToolRegistry(), [])
+
+    result = asyncio.run(
+        engine.execute_messages("chat-1", [ChatMessage(role="user", content="hi")], allow_tools=False)
+    )
+
+    assert result.content == "done"
+    assert len(result.llm_step_events) == 1
+    step = result.llm_step_events[0]
+    assert step.iteration == 1
+    assert step.attempt == 1
+    assert step.status == "completed"
+    assert step.model == "fake-model"
+    assert step.output_tokens == 7
+    assert step.total_tokens == 18
+    assert step.finish_reason == "stop"
+    assert step.estimated_input_tokens >= 1
+
+
 def test_execution_engine_projects_final_response_as_deltas():
     provider = FakeProvider([LLMResponse(content="hello streaming world", model="fake-model")])
     save_calls = []

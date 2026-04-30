@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
@@ -39,6 +40,27 @@ class ContextCompactionEvent:
 
 
 @dataclass
+class LlmStepEvent:
+    """Structured telemetry for one LLM request attempt."""
+
+    iteration: int
+    attempt: int
+    status: str
+    model: str | None
+    duration_ms: int
+    estimated_input_tokens: int
+    message_tokens: int
+    tool_schema_tokens: int
+    output_tokens: int | None = None
+    total_tokens: int | None = None
+    reasoning_tokens: int | None = None
+    cached_tokens: int | None = None
+    finish_reason: str | None = None
+    tool_calls: int = 0
+    error: str | None = None
+
+
+@dataclass
 class ExecutionResult:
     """Outcome of one execute_messages run (visible reply plus tool-use telemetry)."""
 
@@ -54,6 +76,7 @@ class ExecutionResult:
     verification_passed: bool = False
     context_compactions: int = 0
     context_compaction_events: list[ContextCompactionEvent] = field(default_factory=list)
+    llm_step_events: list[LlmStepEvent] = field(default_factory=list)
 
 
 @dataclass
@@ -407,6 +430,32 @@ Output exactly these sections when applicable:
         message_tokens = count_messages_tokens(chat_messages, model=model)
         tool_schema_tokens = self._estimate_tool_schema_tokens(tools, model=model)
         return message_tokens + tool_schema_tokens, message_tokens, tool_schema_tokens
+
+    @staticmethod
+    def _usage_int(usage: dict[str, Any], *keys: str) -> int | None:
+        for key in keys:
+            value = usage.get(key)
+            if value is None:
+                continue
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    @classmethod
+    def _reasoning_tokens(cls, usage: dict[str, Any]) -> int | None:
+        details = usage.get("completion_tokens_details")
+        if not isinstance(details, dict):
+            return None
+        return cls._usage_int(details, "reasoning_tokens")
+
+    @classmethod
+    def _cached_tokens(cls, usage: dict[str, Any]) -> int | None:
+        details = usage.get("prompt_tokens_details")
+        if not isinstance(details, dict):
+            return None
+        return cls._usage_int(details, "cached_tokens")
 
     async def _build_proactive_compaction(
         self,
@@ -876,6 +925,7 @@ Output exactly these sections when applicable:
         verification_passed = False
         context_compactions = 0
         context_compaction_events: list[ContextCompactionEvent] = []
+        llm_step_events: list[LlmStepEvent] = []
         proactive_context_compactions = 0
         overflow_context_compactions = 0
         iteration_limit = (
@@ -947,6 +997,9 @@ Output exactly these sections when applicable:
 
             while True:
                 self._raise_if_cancel_requested(should_cancel)
+                request_attempt = len([event for event in llm_step_events if event.iteration == iteration + 1]) + 1
+                estimated_tokens, message_tokens, tool_schema_tokens = self._estimate_request_tokens(chat_messages, tools)
+                started_at = time.perf_counter()
                 try:
                     if self.pass_decoding_params:
                         dec_temp = self.chat_temperature
@@ -967,8 +1020,43 @@ Output exactly these sections when applicable:
                         status_callback=on_llm_status,
                         response_delta_callback=_provider_response_delta if on_response_delta is not None else None,
                     )
+                    duration_ms = int((time.perf_counter() - started_at) * 1000)
+                    usage = dict(getattr(response, "usage", {}) or {})
+                    llm_step_events.append(
+                        LlmStepEvent(
+                            iteration=iteration + 1,
+                            attempt=request_attempt,
+                            status="completed",
+                            model=getattr(response, "model", None),
+                            duration_ms=duration_ms,
+                            estimated_input_tokens=estimated_tokens,
+                            message_tokens=message_tokens,
+                            tool_schema_tokens=tool_schema_tokens,
+                            output_tokens=self._usage_int(usage, "completion_tokens", "output_tokens"),
+                            total_tokens=self._usage_int(usage, "total_tokens"),
+                            reasoning_tokens=self._reasoning_tokens(usage),
+                            cached_tokens=self._cached_tokens(usage),
+                            finish_reason=getattr(response, "finish_reason", None),
+                            tool_calls=len(getattr(response, "tool_calls", None) or []),
+                        )
+                    )
                     break
                 except Exception as exc:
+                    duration_ms = int((time.perf_counter() - started_at) * 1000)
+                    error_preview = self.format_log_preview(str(exc), max_chars=240)
+                    llm_step_events.append(
+                        LlmStepEvent(
+                            iteration=iteration + 1,
+                            attempt=request_attempt,
+                            status="error",
+                            model=self._get_token_model(),
+                            duration_ms=duration_ms,
+                            estimated_input_tokens=estimated_tokens,
+                            message_tokens=message_tokens,
+                            tool_schema_tokens=tool_schema_tokens,
+                            error=error_preview,
+                        )
+                    )
                     if (
                         overflow_context_compactions < self.CONTEXT_COMPACTION_RETRY_LIMIT
                         and self._looks_like_context_overflow(exc)
@@ -982,12 +1070,7 @@ Output exactly these sections when applicable:
                             overflow_context_compactions += 1
                             context_compactions += 1
                             before_count = len(chat_messages)
-                            estimated_tokens, message_tokens, tool_schema_tokens = self._estimate_request_tokens(
-                                chat_messages,
-                                tools,
-                            )
                             compacted_tokens, _, _ = self._estimate_request_tokens(compacted_messages, tools)
-                            error_preview = self.format_log_preview(str(exc), max_chars=240)
                             chat_messages[:] = compacted_messages
                             context_compaction_events.append(
                                 ContextCompactionEvent(
@@ -1082,6 +1165,7 @@ Output exactly these sections when applicable:
                             verification_passed=verification_passed,
                             context_compactions=context_compactions,
                             context_compaction_events=context_compaction_events,
+                            llm_step_events=llm_step_events,
                         )
 
                     if response_delta_count == 0:
@@ -1101,6 +1185,7 @@ Output exactly these sections when applicable:
                         verification_passed=verification_passed,
                         context_compactions=context_compactions,
                         context_compaction_events=context_compaction_events,
+                        llm_step_events=llm_step_events,
                     )
 
                 logger.info(
@@ -1258,6 +1343,7 @@ Output exactly these sections when applicable:
                                 verification_passed=verification_passed,
                                 context_compactions=context_compactions,
                                 context_compaction_events=context_compaction_events,
+                                llm_step_events=llm_step_events,
                             )
                     else:
                         repeated_tool_error_key = None
@@ -1339,6 +1425,7 @@ Output exactly these sections when applicable:
                     verification_passed=verification_passed,
                     context_compactions=context_compactions,
                     context_compaction_events=context_compaction_events,
+                    llm_step_events=llm_step_events,
                 )
 
             if response_delta_count == 0:
@@ -1358,6 +1445,7 @@ Output exactly these sections when applicable:
                 verification_passed=verification_passed,
                 context_compactions=context_compactions,
                 context_compaction_events=context_compaction_events,
+                llm_step_events=llm_step_events,
             )
 
         logger.warning(f"[{log_id}] llm.max-iterations | limit={iteration_limit}")
@@ -1388,4 +1476,5 @@ Output exactly these sections when applicable:
             verification_passed=verification_passed,
             context_compactions=context_compactions,
             context_compaction_events=context_compaction_events,
+            llm_step_events=llm_step_events,
         )
