@@ -23,6 +23,7 @@ const LANGUAGE_ATTRIBUTES = {
 };
 
 const MAX_RUN_EVENTS = 80;
+const MAX_RUN_TEXT_EVENTS = 24;
 const MAX_RUN_ARTIFACTS = 200;
 const MAX_TIMELINE_EVENTS = 8;
 const RUN_HISTORY_LIMIT = 10;
@@ -253,6 +254,33 @@ function inferRunEventStatus(eventType, payload = {}) {
     return inferRunEventKind(normalized) === "verification" ? "failed" : "error";
   }
   return "completed";
+}
+
+function isTextRunEvent(event) {
+  const eventType = String(event?.eventType || event?.event_type || "").trim();
+  return event?.kind === "text" || eventType === "run_part_delta" || eventType === "message_part_delta";
+}
+
+function compactRunEvents(events) {
+  let textCount = 0;
+  let otherCount = 0;
+  const kept = [];
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (isTextRunEvent(event)) {
+      if (textCount >= MAX_RUN_TEXT_EVENTS) {
+        continue;
+      }
+      textCount += 1;
+    } else {
+      if (otherCount >= MAX_RUN_EVENTS) {
+        continue;
+      }
+      otherCount += 1;
+    }
+    kept.push(event);
+  }
+  return kept.reverse();
 }
 
 function normalizeRunArtifact(artifact, fallback = {}) {
@@ -1394,9 +1422,7 @@ export function useChatClient() {
       payload: eventPayload,
       artifact: eventArtifact,
     });
-    if (run.rawEvents.length > MAX_RUN_EVENTS) {
-      run.rawEvents.splice(0, run.rawEvents.length - MAX_RUN_EVENTS);
-    }
+    run.rawEvents = compactRunEvents(run.rawEvents);
 
     if (nextStatus) {
       run.status = nextStatus;
@@ -1943,7 +1969,7 @@ export function useChatClient() {
     try {
       const payload = await requestSettingsJson(buildRunTracePath(run.runId, sessionId));
       const rawEvents = Array.isArray(payload?.events)
-        ? payload.events.map(normalizeTraceEvent).slice(-MAX_RUN_EVENTS)
+        ? compactRunEvents(payload.events.map(normalizeTraceEvent))
         : [];
       const fileChanges = Array.isArray(payload?.file_changes || payload?.fileChanges)
         ? (payload.file_changes || payload.fileChanges).map(normalizeTraceFileChange).filter(Boolean)
