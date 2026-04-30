@@ -2572,6 +2572,7 @@ export function useChatClient() {
       }
       persistActiveSession();
       setNotice(copy.value.notices.liveSessionReady(payload.session_id), "success");
+      void loadCurrentSessionRuns({ force: true });
       return;
     }
 
