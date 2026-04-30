@@ -42,6 +42,44 @@
 
         <WorkStateCard v-if="workState" :copy="copy" :work-state="workState" />
 
+        <section v-if="permissionRequests.length || permissionState.loading || permissionState.error" class="permission-panel" aria-live="polite">
+          <div class="permission-panel__header">
+            <div>
+              <span>{{ copy.permissions.eyebrow }}</span>
+              <strong>{{ copy.permissions.title }}</strong>
+            </div>
+            <small v-if="permissionState.loading">{{ copy.permissions.loading }}</small>
+          </div>
+
+          <p v-if="permissionState.error" class="permission-panel__error">{{ permissionState.error }}</p>
+
+          <article v-for="request in permissionRequests" :key="request.requestId" class="permission-card">
+            <div class="permission-card__body">
+              <strong>{{ request.toolName }}</strong>
+              <p>{{ request.reason || copy.permissions.noReason }}</p>
+              <code>{{ request.requestId }}</code>
+            </div>
+            <div class="permission-card__actions">
+              <button
+                class="secondary-button"
+                type="button"
+                :disabled="Boolean(permissionState.resolvingIds[request.requestId])"
+                @click="$emit('resolve-permission', request, 'deny')"
+              >
+                {{ copy.permissions.deny }}
+              </button>
+              <button
+                class="primary-button"
+                type="button"
+                :disabled="Boolean(permissionState.resolvingIds[request.requestId])"
+                @click="$emit('resolve-permission', request, 'approve')"
+              >
+                {{ permissionState.resolvingIds[request.requestId] ? copy.permissions.resolving : copy.permissions.approve }}
+              </button>
+            </div>
+          </article>
+        </section>
+
         <section v-if="runs.length > 1 || runsLoading || runsError" class="run-history" aria-live="polite">
           <div class="run-history__title">
             <span>{{ copy.runHistory.title }}</span>
@@ -159,6 +197,14 @@ const props = defineProps({
     type: Object,
     default: null,
   },
+  permissionState: {
+    type: Object,
+    required: true,
+  },
+  permissionRequests: {
+    type: Array,
+    required: true,
+  },
   showRunTimeline: {
     type: Boolean,
     required: true,
@@ -233,6 +279,7 @@ defineEmits([
   "composer-keydown",
   "submit-message",
   "cancel-run",
+  "resolve-permission",
   "select-run",
 ]);
 

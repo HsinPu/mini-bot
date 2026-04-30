@@ -36,6 +36,8 @@
       :current-run="currentRun"
       :run-timeline="currentRunTimeline"
       :run-summary="currentRunSummary"
+      :permission-state="permissionState"
+      :permission-requests="currentPermissionRequests"
       :show-run-timeline="state.showRunTimeline"
       :show-run-summary="state.showRunSummary"
       :show-run-trace="state.showRunTrace"
@@ -59,6 +61,7 @@
       @composer-keydown="handleComposerKeydown"
       @submit-message="submitMessage"
       @cancel-run="cancelRun"
+      @resolve-permission="resolvePermissionRequest"
       @select-run="selectRun"
     />
   </div>
@@ -122,6 +125,7 @@ const {
   settingsSection,
   settingsForm,
   settingsState,
+  permissionState,
   currentMessages,
   currentWorkState,
   currentRuns,
@@ -130,6 +134,7 @@ const {
   currentRun,
   currentRunTimeline,
   currentRunSummary,
+  currentPermissionRequests,
   settingsTitle,
   sessionMeta,
   composerHint,
@@ -181,6 +186,7 @@ const {
   resizeComposer,
   createNewChat,
   cancelRun,
+  resolvePermissionRequest,
   toggleSettingsConnection,
   submitMessage,
   handleComposerKeydown,

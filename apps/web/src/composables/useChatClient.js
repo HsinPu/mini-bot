@@ -805,6 +805,12 @@ export function useChatClient() {
       jsonText: "",
     },
   });
+  const permissionState = reactive({
+    loading: false,
+    error: "",
+    requests: [],
+    resolvingIds: {},
+  });
 
   let activeSocket = null;
   let colorSchemeMediaQuery = null;
@@ -893,6 +899,24 @@ export function useChatClient() {
       title: latestEvent.label,
       tone: runTone(run.status, latestEvent.tone),
     };
+  });
+
+  const currentPermissionRequests = computed(() => {
+    const session = currentSession.value;
+    if (!session) {
+      return permissionState.requests;
+    }
+    const sessionIds = new Set([
+      session.sessionId,
+      session.externalChatId,
+      session.transportExternalChatId,
+    ].filter(Boolean));
+    return permissionState.requests.filter((request) => {
+      if (request.status && request.status !== "pending") {
+        return false;
+      }
+      return !request.sessionId || sessionIds.has(request.sessionId) || sessionIds.has(request.externalChatId);
+    });
   });
 
   const settingsTitle = computed(() => copy.value.settingsTitles[settingsSection.value] || copy.value.settingsTitles.general);
@@ -1496,6 +1520,62 @@ export function useChatClient() {
       throw error;
     }
     return response.json();
+  }
+
+  function normalizePermissionRequest(payload) {
+    const requestId = String(payload?.request_id || payload?.requestId || "").trim();
+    if (!requestId) {
+      return null;
+    }
+    return {
+      requestId,
+      toolName: String(payload?.tool_name || payload?.toolName || copy.value.run.unknownTool).trim() || copy.value.run.unknownTool,
+      reason: String(payload?.reason || "").trim(),
+      status: String(payload?.status || "pending").trim() || "pending",
+      sessionId: String(payload?.session_id || payload?.sessionId || "").trim(),
+      externalChatId: String(payload?.external_chat_id || payload?.externalChatId || "").trim(),
+      createdAt: normalizeEventTimestamp(payload?.created_at ?? payload?.createdAt),
+      params: payload?.params && typeof payload.params === "object" ? payload.params : {},
+    };
+  }
+
+  async function loadPermissionRequests() {
+    permissionState.loading = true;
+    permissionState.error = "";
+    try {
+      const payload = await requestSettingsJson("/api/permissions");
+      permissionState.requests = Array.isArray(payload?.permissions)
+        ? payload.permissions.map(normalizePermissionRequest).filter(Boolean)
+        : [];
+    } catch (error) {
+      permissionState.error = error?.message || copy.value.permissions.loadFailed;
+    } finally {
+      permissionState.loading = false;
+    }
+  }
+
+  async function resolvePermissionRequest(request, decision) {
+    if (!request?.requestId || !["approve", "deny"].includes(decision)) {
+      return;
+    }
+    permissionState.resolvingIds[request.requestId] = true;
+    try {
+      await requestSettingsJson(`/api/permissions/${encodeURIComponent(request.requestId)}/${decision}`, {
+        method: "POST",
+        body: JSON.stringify({ reason: "" }),
+      });
+      permissionState.requests = permissionState.requests.filter((entry) => entry.requestId !== request.requestId);
+      setNotice(
+        decision === "approve" ? copy.value.permissions.approved(request.toolName) : copy.value.permissions.denied(request.toolName),
+        decision === "approve" ? "success" : "warning",
+      );
+      void loadCurrentSessionRuns({ force: true });
+    } catch (error) {
+      setNotice(error?.message || copy.value.permissions.resolveFailed, "error");
+      void loadPermissionRequests();
+    } finally {
+      delete permissionState.resolvingIds[request.requestId];
+    }
   }
 
   function normalizeTraceEvent(event) {
@@ -2739,6 +2819,9 @@ export function useChatClient() {
 
     if (payload.type === "run_event") {
       handleRunEvent(payload);
+      if (String(payload.event_type || "").startsWith("permission_")) {
+        void loadPermissionRequests();
+      }
       scrollMessagesToBottom();
       return;
     }
@@ -2966,6 +3049,7 @@ export function useChatClient() {
     if (clientDisposed) {
       return;
     }
+    void loadPermissionRequests();
     persistActiveSession();
     connectSocket();
   }
@@ -3024,6 +3108,7 @@ export function useChatClient() {
     settingsSection,
     settingsForm,
     settingsState,
+    permissionState,
     currentMessages,
     currentWorkState,
     currentRuns,
@@ -3032,6 +3117,7 @@ export function useChatClient() {
     currentRun,
     currentRunTimeline,
     currentRunSummary,
+    currentPermissionRequests,
     settingsTitle,
     sessionMeta,
     runtimeHint,
@@ -3090,6 +3176,7 @@ export function useChatClient() {
     resizeComposer,
     createNewChat,
     cancelRun,
+    resolvePermissionRequest,
     toggleSettingsConnection,
     submitMessage,
     handleComposerKeydown,
