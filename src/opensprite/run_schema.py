@@ -390,3 +390,146 @@ def serialize_run_artifacts(trace: Any) -> list[dict[str, Any]]:
         )
     )
     return artifacts
+
+
+def _latest_event_payload(events: list[Any], event_type: str) -> dict[str, Any] | None:
+    for event in reversed(events):
+        if getattr(event, "event_type", None) == event_type:
+            return dict(getattr(event, "payload", {}) or {})
+    return None
+
+
+def _latest_work_progress(events: list[Any]) -> dict[str, Any] | None:
+    for event in reversed(events):
+        payload = dict(getattr(event, "payload", {}) or {})
+        event_type = getattr(event, "event_type", None)
+        if event_type == "work_progress.updated":
+            return payload
+        if event_type == "run_finished" and isinstance(payload.get("work_progress"), dict):
+            return dict(payload["work_progress"])
+    return None
+
+
+def _metadata_bool(metadata: dict[str, Any], key: str) -> bool:
+    return metadata.get(key) is True or metadata.get(key) == "true" or metadata.get(key) == 1
+
+
+def _summarize_tools(parts: list[Any], events: list[Any]) -> list[dict[str, Any]]:
+    counts: dict[str, int] = {}
+    for part in parts:
+        if getattr(part, "part_type", None) != "tool_call" or not getattr(part, "tool_name", None):
+            continue
+        tool_name = str(getattr(part, "tool_name"))
+        counts[tool_name] = counts.get(tool_name, 0) + 1
+
+    if not counts:
+        for event in events:
+            if getattr(event, "event_type", None) != "tool_started":
+                continue
+            tool_name = str((getattr(event, "payload", {}) or {}).get("tool_name") or "").strip()
+            if not tool_name:
+                continue
+            counts[tool_name] = counts.get(tool_name, 0) + 1
+
+    return [{"name": name, "count": count} for name, count in counts.items()]
+
+
+def _summarize_file_changes(file_changes: list[Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "change_id": getattr(change, "change_id", None),
+            "path": getattr(change, "path", None),
+            "action": getattr(change, "action", None),
+            "tool_name": getattr(change, "tool_name", None),
+            "diff_len": int((getattr(change, "metadata", {}) or {}).get("diff_len") or len(getattr(change, "diff", "") or "")),
+            "diff": getattr(change, "diff", None) or "",
+            "snapshots_available": {
+                "before": getattr(change, "before_content", None) is not None,
+                "after": getattr(change, "after_content", None) is not None,
+            },
+        }
+        for change in file_changes
+    ]
+
+
+def _summarize_verification(run_metadata: dict[str, Any], events: list[Any]) -> dict[str, Any]:
+    latest = _latest_event_payload(events, "verification_result")
+    attempted = _metadata_bool(run_metadata, "verification_attempted") or latest is not None
+    passed = _metadata_bool(run_metadata, "verification_passed")
+    if latest is not None:
+        passed = latest.get("ok") is not False and str(latest.get("verification_status") or "").lower() not in {"failed", "error"}
+
+    status = "not_attempted"
+    name = None
+    summary = ""
+    if attempted:
+        status = "passed" if passed else "failed"
+    if latest is not None:
+        status = str(latest.get("verification_status") or status)
+        name = latest.get("verification_name")
+        summary = str(latest.get("result_preview") or "")
+
+    return {
+        "attempted": attempted,
+        "passed": passed,
+        "status": status,
+        "name": name,
+        "summary": summary,
+    }
+
+
+def serialize_run_summary(trace: Any) -> dict[str, Any]:
+    """Serialize the compact run summary used by Web inspector cards."""
+    run = trace.run
+    events = list(getattr(trace, "events", None) or [])
+    parts = list(getattr(trace, "parts", None) or [])
+    file_changes = list(getattr(trace, "file_changes", None) or [])
+    run_metadata = dict(getattr(run, "metadata", {}) or {})
+    task_intent = _latest_event_payload(events, "task_intent.detected") or {}
+    completion = _latest_event_payload(events, "completion_gate.evaluated") or {}
+    work_progress = _latest_work_progress(events) or {}
+    verification = _summarize_verification(run_metadata, events)
+    had_tool_error = _metadata_bool(run_metadata, "had_tool_error")
+    warnings: list[str] = []
+    if had_tool_error:
+        warnings.append("tool_error")
+    if verification["attempted"] and not verification["passed"]:
+        warnings.append("verification_not_passed")
+    if getattr(run, "status", None) in {"failed", "cancelled"}:
+        warnings.append(run.status)
+
+    duration_seconds = None
+    if getattr(run, "finished_at", None) is not None:
+        duration_seconds = max(0.0, float(run.finished_at) - float(run.created_at))
+
+    objective = str(task_intent.get("objective") or run_metadata.get("objective") or "").strip()
+    artifacts = serialize_run_artifacts(trace)
+    return {
+        "schema_version": RUN_SCHEMA_VERSION,
+        "run_id": getattr(run, "run_id", None),
+        "session_id": getattr(run, "session_id", None),
+        "status": getattr(run, "status", None),
+        "objective": objective or None,
+        "created_at": getattr(run, "created_at", None),
+        "updated_at": getattr(run, "updated_at", None),
+        "finished_at": getattr(run, "finished_at", None),
+        "duration_seconds": duration_seconds,
+        "tools": _summarize_tools(parts, events),
+        "file_changes": _summarize_file_changes(file_changes),
+        "verification": verification,
+        "artifact_counts": {
+            "total": len(artifacts),
+            "tool": sum(1 for artifact in artifacts if artifact.get("kind") == "tool"),
+            "file": sum(1 for artifact in artifacts if artifact.get("kind") == "file"),
+            "verification": sum(1 for artifact in artifacts if artifact.get("kind") == "verification"),
+        },
+        "completion": json_safe_payload(completion),
+        "next_action": work_progress.get("next_action"),
+        "warnings": warnings,
+        "counts": {
+            "events": len(events),
+            "parts": len(parts),
+            "tool_calls": sum(1 for part in parts if getattr(part, "part_type", None) == "tool_call"),
+            "file_changes": len(file_changes),
+        },
+    }

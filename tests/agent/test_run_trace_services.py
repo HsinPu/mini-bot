@@ -3,7 +3,13 @@ from types import SimpleNamespace
 
 from opensprite.agent.run_trace import RUN_PART_CONTENT_MAX_CHARS, RunEventSink, RunTraceRecorder, truncate_run_part_content
 from opensprite.bus import MessageBus
-from opensprite.run_schema import serialize_file_change, serialize_run_artifacts, serialize_run_event, serialize_run_part
+from opensprite.run_schema import (
+    serialize_file_change,
+    serialize_run_artifacts,
+    serialize_run_event,
+    serialize_run_part,
+    serialize_run_summary,
+)
 from opensprite.storage import MemoryStorage
 
 
@@ -221,3 +227,85 @@ def test_serialize_run_artifacts_merges_tool_event_and_part_by_call_id():
     assert artifact["tool_call_id"] == "call-1"
     assert artifact["source"] == "part"
     assert artifact["sources"] == ["event", "part"]
+
+
+def test_serialize_run_summary_builds_stable_card_payload():
+    trace = SimpleNamespace(
+        run=SimpleNamespace(
+            run_id="run-1",
+            session_id="web:browser-1",
+            status="completed",
+            metadata={"objective": "Ship the fix", "verification_attempted": True, "verification_passed": True},
+            created_at=10.0,
+            updated_at=15.0,
+            finished_at=16.5,
+        ),
+        events=[
+            SimpleNamespace(
+                event_id=1,
+                run_id="run-1",
+                session_id="web:browser-1",
+                event_type="tool_started",
+                payload={"tool_name": "demo", "tool_call_id": "call-1"},
+                created_at=11.0,
+            ),
+            SimpleNamespace(
+                event_id=2,
+                run_id="run-1",
+                session_id="web:browser-1",
+                event_type="verification_result",
+                payload={"ok": True, "verification_status": "passed", "verification_name": "pytest", "result_preview": "ok"},
+                created_at=14.0,
+            ),
+            SimpleNamespace(
+                event_id=3,
+                run_id="run-1",
+                session_id="web:browser-1",
+                event_type="completion_gate.evaluated",
+                payload={"status": "complete"},
+                created_at=15.0,
+            ),
+        ],
+        parts=[
+            SimpleNamespace(
+                part_id=1,
+                run_id="run-1",
+                session_id="web:browser-1",
+                part_type="tool_call",
+                tool_name="demo",
+                content="{}",
+                metadata={"tool_call_id": "call-1"},
+                created_at=11.5,
+            )
+        ],
+        file_changes=[
+            SimpleNamespace(
+                change_id=5,
+                run_id="run-1",
+                session_id="web:browser-1",
+                tool_name="apply_patch",
+                path="notes.txt",
+                action="modify",
+                before_sha256="before",
+                after_sha256="after",
+                before_content="old",
+                after_content="new",
+                diff="-old\n+new",
+                metadata={"diff_len": 9},
+                created_at=13.0,
+            )
+        ],
+    )
+
+    summary = serialize_run_summary(trace)
+
+    assert summary["schema_version"] == 1
+    assert summary["run_id"] == "run-1"
+    assert summary["objective"] == "Ship the fix"
+    assert summary["duration_seconds"] == 6.5
+    assert summary["tools"] == [{"name": "demo", "count": 1}]
+    assert summary["verification"] == {"attempted": True, "passed": True, "status": "passed", "name": "pytest", "summary": "ok"}
+    assert summary["artifact_counts"] == {"total": 3, "tool": 1, "file": 1, "verification": 1}
+    assert summary["completion"] == {"status": "complete"}
+    assert summary["warnings"] == []
+    assert summary["counts"] == {"events": 3, "parts": 1, "tool_calls": 1, "file_changes": 1}

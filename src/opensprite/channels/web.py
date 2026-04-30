@@ -51,11 +51,11 @@ from ..config.schedule_settings import (
 from ..cron import CronJob, CronSchedule
 from ..cron.presentation import format_cron_timestamp, format_cron_timing
 from ..run_schema import (
-    RUN_SCHEMA_VERSION,
     serialize_file_change,
     serialize_run_artifacts,
     serialize_run_event,
     serialize_run_part,
+    serialize_run_summary,
 )
 from ..utils.log import logger
 
@@ -724,142 +724,6 @@ class WebAdapter(MessageAdapter):
             "metadata": self._json_safe(dict(item.metadata or {})),
         }
 
-    @staticmethod
-    def _latest_event_payload(events: list[Any], event_type: str) -> dict[str, Any] | None:
-        for event in reversed(events):
-            if event.event_type == event_type:
-                return dict(event.payload or {})
-        return None
-
-    @staticmethod
-    def _latest_work_progress(events: list[Any]) -> dict[str, Any] | None:
-        for event in reversed(events):
-            payload = dict(event.payload or {})
-            if event.event_type == "work_progress.updated":
-                return payload
-            if event.event_type == "run_finished" and isinstance(payload.get("work_progress"), dict):
-                return dict(payload["work_progress"])
-        return None
-
-    @staticmethod
-    def _metadata_bool(metadata: dict[str, Any], key: str) -> bool:
-        return metadata.get(key) is True or metadata.get(key) == "true" or metadata.get(key) == 1
-
-    def _summarize_tools(self, parts: list[Any], events: list[Any]) -> list[dict[str, Any]]:
-        counts: dict[str, int] = {}
-        for part in parts:
-            if part.part_type != "tool_call" or not part.tool_name:
-                continue
-            counts[part.tool_name] = counts.get(part.tool_name, 0) + 1
-
-        if not counts:
-            for event in events:
-                if event.event_type != "tool_started":
-                    continue
-                tool_name = str((event.payload or {}).get("tool_name") or "").strip()
-                if not tool_name:
-                    continue
-                counts[tool_name] = counts.get(tool_name, 0) + 1
-
-        return [{"name": name, "count": count} for name, count in counts.items()]
-
-    def _summarize_file_changes(self, file_changes: list[Any]) -> list[dict[str, Any]]:
-        return [
-            {
-                "change_id": change.change_id,
-                "path": change.path,
-                "action": change.action,
-                "tool_name": change.tool_name,
-                "diff_len": int((change.metadata or {}).get("diff_len") or len(change.diff or "")),
-                "diff": change.diff or "",
-                "snapshots_available": {
-                    "before": change.before_content is not None,
-                    "after": change.after_content is not None,
-                },
-            }
-            for change in file_changes
-        ]
-
-    def _summarize_verification(self, run_metadata: dict[str, Any], events: list[Any]) -> dict[str, Any]:
-        latest = self._latest_event_payload(events, "verification_result")
-        attempted = self._metadata_bool(run_metadata, "verification_attempted") or latest is not None
-        passed = self._metadata_bool(run_metadata, "verification_passed")
-        if latest is not None:
-            passed = latest.get("ok") is not False and str(latest.get("verification_status") or "").lower() not in {"failed", "error"}
-
-        status = "not_attempted"
-        name = None
-        summary = ""
-        if attempted:
-            status = "passed" if passed else "failed"
-        if latest is not None:
-            status = str(latest.get("verification_status") or status)
-            name = latest.get("verification_name")
-            summary = str(latest.get("result_preview") or "")
-
-        return {
-            "attempted": attempted,
-            "passed": passed,
-            "status": status,
-            "name": name,
-            "summary": summary,
-        }
-
-    def _serialize_run_summary(self, trace: Any) -> dict[str, Any]:
-        run = trace.run
-        events = list(trace.events or [])
-        parts = list(trace.parts or [])
-        file_changes = list(trace.file_changes or [])
-        run_metadata = dict(run.metadata or {})
-        task_intent = self._latest_event_payload(events, "task_intent.detected") or {}
-        completion = self._latest_event_payload(events, "completion_gate.evaluated") or {}
-        work_progress = self._latest_work_progress(events) or {}
-        verification = self._summarize_verification(run_metadata, events)
-        had_tool_error = self._metadata_bool(run_metadata, "had_tool_error")
-        warnings: list[str] = []
-        if had_tool_error:
-            warnings.append("tool_error")
-        if verification["attempted"] and not verification["passed"]:
-            warnings.append("verification_not_passed")
-        if run.status in {"failed", "cancelled"}:
-            warnings.append(run.status)
-
-        duration_seconds = None
-        if run.finished_at is not None:
-            duration_seconds = max(0.0, float(run.finished_at) - float(run.created_at))
-
-        objective = str(task_intent.get("objective") or run_metadata.get("objective") or "").strip()
-        artifacts = serialize_run_artifacts(trace)
-        return {
-            "schema_version": RUN_SCHEMA_VERSION,
-            "run_id": run.run_id,
-            "session_id": run.session_id,
-            "status": run.status,
-            "objective": objective or None,
-            "created_at": run.created_at,
-            "updated_at": run.updated_at,
-            "finished_at": run.finished_at,
-            "duration_seconds": duration_seconds,
-            "tools": self._summarize_tools(parts, events),
-            "file_changes": self._summarize_file_changes(file_changes),
-            "verification": verification,
-            "artifact_counts": {
-                "total": len(artifacts),
-                "tool": sum(1 for artifact in artifacts if artifact.get("kind") == "tool"),
-                "file": sum(1 for artifact in artifacts if artifact.get("kind") == "file"),
-                "verification": sum(1 for artifact in artifacts if artifact.get("kind") == "verification"),
-            },
-            "completion": self._json_safe(completion),
-            "next_action": work_progress.get("next_action"),
-            "warnings": warnings,
-            "counts": {
-                "events": len(events),
-                "parts": len(parts),
-                "tool_calls": sum(1 for part in parts if part.part_type == "tool_call"),
-                "file_changes": len(file_changes),
-            },
-        }
-
     def _require_storage(self) -> Any:
         storage = self._get_storage()
         if storage is None:
@@ -1106,7 +970,7 @@ class WebAdapter(MessageAdapter):
         if trace is None:
             raise web.HTTPNotFound(text="Run not found")
 
-        return web.json_response(self._serialize_run_summary(trace))
+        return web.json_response(serialize_run_summary(trace))
 
     async def _handle_run_cancel(self, request: web.Request) -> web.Response:
         storage = self._require_storage()
