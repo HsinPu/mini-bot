@@ -25,6 +25,7 @@
     <div v-show="expanded" class="run-trace__body">
       <div class="run-trace__summary" aria-label="Run event summary">
         <span>{{ eventCountLabel }}</span>
+        <span v-if="eventCompactionLabel">{{ eventCompactionLabel }}</span>
         <span>{{ artifactCount }} {{ copy.trace.artifacts }}</span>
         <span>{{ parts.length }} {{ copy.trace.parts }}</span>
         <span>{{ toolEventCount }} {{ copy.trace.tool }}</span>
@@ -239,6 +240,14 @@ const eventCountLabel = computed(() => {
     return props.copy.trace.eventsShown(returned, total);
   }
   return `${events.value.length} ${props.copy.trace.events}`;
+});
+const eventCompactionLabel = computed(() => {
+  const counts = props.run?.eventCounts || {};
+  const compacted = Number(counts.compacted || 0);
+  if (compacted <= 0 || typeof props.copy.trace.eventsCompacted !== "function") {
+    return "";
+  }
+  return props.copy.trace.eventsCompacted(compacted, Number(counts.textReturned || 0), Number(counts.textTotal || 0));
 });
 
 const artifactGroups = computed(() => {
