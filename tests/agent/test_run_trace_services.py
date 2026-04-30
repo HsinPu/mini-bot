@@ -1,7 +1,9 @@
 import asyncio
+from types import SimpleNamespace
 
 from opensprite.agent.run_trace import RUN_PART_CONTENT_MAX_CHARS, RunEventSink, RunTraceRecorder, truncate_run_part_content
 from opensprite.bus import MessageBus
+from opensprite.run_schema import serialize_run_artifacts
 from opensprite.storage import MemoryStorage
 
 
@@ -68,3 +70,51 @@ def test_run_event_sink_persists_and_publishes_safe_payloads():
     assert bus_event.payload == stored_events[0].payload
     assert bus_event.channel == "web"
     assert bus_event.external_chat_id == "browser-1"
+
+
+def test_serialize_run_artifacts_merges_tool_event_and_part_by_call_id():
+    trace = SimpleNamespace(
+        events=[
+            SimpleNamespace(
+                event_id=1,
+                run_id="run-1",
+                session_id="web:browser-1",
+                event_type="tool_started",
+                payload={"tool_name": "demo", "tool_call_id": "call-1", "args_preview": "{}"},
+                created_at=10.0,
+            ),
+            SimpleNamespace(
+                event_id=2,
+                run_id="run-1",
+                session_id="web:browser-1",
+                event_type="tool_result",
+                payload={"tool_name": "demo", "tool_call_id": "call-1", "ok": True, "result_preview": "done"},
+                created_at=11.0,
+            ),
+        ],
+        parts=[
+            SimpleNamespace(
+                part_id=7,
+                run_id="run-1",
+                session_id="web:browser-1",
+                part_type="tool_result",
+                tool_name="demo",
+                content="done",
+                metadata={"tool_call_id": "call-1", "ok": True, "result_preview": "done"},
+                created_at=12.0,
+            )
+        ],
+        file_changes=[],
+    )
+
+    artifacts = serialize_run_artifacts(trace)
+
+    assert len(artifacts) == 1
+    artifact = artifacts[0]
+    assert artifact["artifact_id"] == "tool:call-1"
+    assert artifact["kind"] == "tool"
+    assert artifact["status"] == "completed"
+    assert artifact["phase"] == "tool_result"
+    assert artifact["tool_call_id"] == "call-1"
+    assert artifact["source"] == "part"
+    assert artifact["sources"] == ["event", "part"]
