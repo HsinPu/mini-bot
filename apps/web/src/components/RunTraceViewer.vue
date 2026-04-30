@@ -229,6 +229,7 @@ const filteredEvents = computed(() => {
 const toolEventCount = computed(() => countEventsByCategory("tool"));
 const verificationEventCount = computed(() => countEventsByCategory("verification"));
 const permissionEventCount = computed(() => countEventsByCategory("permission"));
+const textEventCount = computed(() => countEventsByCategory("text"));
 const artifactCount = computed(() => artifacts.value.length);
 
 const artifactGroups = computed(() => {
@@ -277,6 +278,8 @@ const filterOptions = computed(() => [
   { value: "tool", label: props.copy.trace.filters.tool, count: toolEventCount.value },
   { value: "verification", label: props.copy.trace.filters.verification, count: verificationEventCount.value },
   { value: "permission", label: props.copy.trace.filters.permission, count: permissionEventCount.value },
+  { value: "text", label: props.copy.trace.filters.text, count: textEventCount.value },
+  { value: "system", label: props.copy.trace.filters.system, count: countEventsByCategory("system") },
   { value: "other", label: props.copy.trace.filters.other, count: countEventsByCategory("other") },
 ]);
 
@@ -286,7 +289,7 @@ function countEventsByCategory(category) {
 
 function eventCategory(eventType) {
   const event = typeof eventType === "object" ? eventType : null;
-  if (event?.kind === "run" || event?.kind === "llm" || event?.kind === "tool" || event?.kind === "verification") {
+  if (["run", "llm", "tool", "verification", "permission", "text", "system"].includes(event?.kind)) {
     return event.kind;
   }
   if (event?.kind) {
@@ -304,6 +307,12 @@ function eventCategory(eventType) {
   }
   if (eventType.startsWith("verification_")) {
     return "verification";
+  }
+  if (eventType.startsWith("permission_")) {
+    return "permission";
+  }
+  if (eventType === "run_part_delta" || eventType === "message_part_delta") {
+    return "text";
   }
   return "other";
 }
