@@ -50,7 +50,7 @@ from ..config.schedule_settings import (
 )
 from ..cron import CronJob, CronSchedule
 from ..cron.presentation import format_cron_timestamp, format_cron_timing
-from ..run_schema import serialize_run_event
+from ..run_schema import serialize_run_event, serialize_work_state_todos
 from ..utils.log import logger
 from .web_api import WebApiHandlers
 
@@ -668,6 +668,7 @@ class WebAdapter(MessageAdapter):
             "active_delegate_task_id": state.active_delegate_task_id,
             "active_delegate_prompt_type": state.active_delegate_prompt_type,
             "metadata": self._json_safe(dict(state.metadata or {})),
+            "todos": serialize_work_state_todos(state),
             "created_at": float(state.created_at or 0),
             "updated_at": float(state.updated_at or 0),
         }

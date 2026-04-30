@@ -21,6 +21,7 @@ _EVENT_KINDS = {
     "task_intent.detected": "work",
     "work_plan.created": "work",
     "work_progress.updated": "work",
+    "task_checklist.updated": "work",
     "completion_gate.evaluated": "completion",
     "auto_continue.scheduled": "run",
     "auto_continue.completed": "run",
@@ -175,6 +176,21 @@ def event_artifact(event_type: str, payload: dict[str, Any] | None) -> dict[str,
             "request_id": request_id or None,
         }
 
+    if normalized == "task_checklist.updated":
+        todos = data.get("todos") if isinstance(data.get("todos"), list) else []
+        completed = sum(1 for item in todos if isinstance(item, dict) and item.get("status") == "completed")
+        total = len(todos)
+        return {
+            "schema_version": RUN_SCHEMA_VERSION,
+            "artifact_id": "task_checklist",
+            "artifact_type": "task_checklist",
+            "kind": "task",
+            "status": status,
+            "title": "Task checklist",
+            "detail": f"{completed}/{total} completed" if total else "No task steps",
+            "metadata": data,
+        }
+
     return None
 
 
@@ -278,7 +294,46 @@ def run_part_kind(part_type: str) -> str:
         return "tool"
     if normalized == "context_compaction":
         return "system"
+    if normalized == "task_checklist":
+        return "task"
     return "other"
+
+
+def serialize_work_state_todos(state: Any) -> list[dict[str, Any]]:
+    """Project StoredWorkState steps into a stable session task checklist."""
+    if state is None:
+        return []
+
+    todos: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def add(content: Any, status: str, *, priority: str = "medium") -> None:
+        text = _text(content)
+        if not text or text == "not set" or text in seen:
+            return
+        seen.add(text)
+        todos.append(
+            {
+                "id": f"task:{len(todos) + 1}",
+                "content": text,
+                "status": status,
+                "priority": priority,
+                "updated_at": getattr(state, "updated_at", None),
+            }
+        )
+
+    for step in getattr(state, "completed_steps", ()) or ():
+        add(step, "completed")
+    add(getattr(state, "current_step", ""), "in_progress", priority="high")
+    add(getattr(state, "next_step", ""), "pending")
+    for step in getattr(state, "pending_steps", ()) or ():
+        add(step, "pending")
+    for step in getattr(state, "steps", ()) or ():
+        add(step, "pending")
+    for blocker in getattr(state, "blockers", ()) or ():
+        add(blocker, "cancelled", priority="high")
+
+    return todos
 
 
 def run_part_state(part_type: str, metadata: dict[str, Any] | None) -> str:
@@ -305,6 +360,11 @@ def run_part_artifact(
     state = run_part_state(part_type, safe_metadata)
     title = _text(tool_name) or _text(part_type) or "part"
     detail = _text(safe_metadata.get("result_preview") or safe_metadata.get("args_preview"))
+    if part_type == "task_checklist":
+        todos = safe_metadata.get("todos") if isinstance(safe_metadata.get("todos"), list) else []
+        completed = sum(1 for item in todos if isinstance(item, dict) and item.get("status") == "completed")
+        total = len(todos)
+        detail = f"{completed}/{total} completed" if total else "No task steps"
     if not detail and kind == "text":
         detail = str(content or "")[:240]
     artifact_id = f"part:{part_id}" if part_id is not None else None

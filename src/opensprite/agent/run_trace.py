@@ -6,6 +6,7 @@ import time
 from typing import Any, Callable
 
 from ..bus.events import RunEvent
+from ..run_schema import serialize_work_state_todos
 from ..storage import StorageProvider
 from ..utils.json_safe import json_safe_payload
 from ..utils.log import logger
@@ -254,6 +255,27 @@ class RunTraceRecorder:
                 ),
                 metadata=compaction_metadata,
             )
+
+    async def record_task_checklist_part(
+        self,
+        session_id: str,
+        run_id: str,
+        work_state: Any,
+    ) -> list[dict[str, Any]]:
+        """Persist the current session task checklist as a run artifact."""
+        todos = serialize_work_state_todos(work_state)
+        await self.add_part(
+            session_id,
+            run_id,
+            "task_checklist",
+            content="\n".join(f"[{item['status']}] {item['content']}" for item in todos),
+            metadata={
+                "status": getattr(work_state, "status", "active"),
+                "objective": getattr(work_state, "objective", ""),
+                "todos": todos,
+            },
+        )
+        return todos
 
     async def complete_run(
         self,

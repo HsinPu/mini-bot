@@ -14,7 +14,7 @@ from opensprite.run_schema import (
     serialize_run_part,
     serialize_run_summary,
 )
-from opensprite.storage import MemoryStorage
+from opensprite.storage import MemoryStorage, StoredWorkState
 
 
 def test_truncate_run_part_content_bounds_large_payloads():
@@ -49,6 +49,36 @@ def test_run_trace_recorder_persists_bounded_parts():
     assert len(parts[0].content) <= RUN_PART_CONTENT_MAX_CHARS
     assert parts[0].content.endswith("THE-END")
     assert parts[0].metadata["content_truncated"] is True
+
+
+def test_run_trace_recorder_persists_task_checklist_part():
+    async def scenario():
+        storage = MemoryStorage()
+        recorder = RunTraceRecorder(storage=storage, message_bus_getter=lambda: None)
+        await storage.create_run("web:browser-1", "run-1")
+        todos = await recorder.record_task_checklist_part(
+            "web:browser-1",
+            "run-1",
+            StoredWorkState(
+                session_id="web:browser-1",
+                objective="Ship task artifacts",
+                kind="implementation",
+                current_step="build artifact",
+                next_step="verify artifact",
+                completed_steps=("inspect state",),
+                updated_at=123.0,
+            ),
+        )
+        return todos, await storage.get_run_parts("web:browser-1", "run-1")
+
+    todos, parts = asyncio.run(scenario())
+
+    assert [item["status"] for item in todos] == ["completed", "in_progress", "pending"]
+    assert len(parts) == 1
+    assert parts[0].part_type == "task_checklist"
+    assert "[in_progress] build artifact" in parts[0].content
+    assert parts[0].metadata["objective"] == "Ship task artifacts"
+    assert parts[0].metadata["todos"] == todos
 
 
 def test_run_event_sink_persists_and_publishes_safe_payloads():

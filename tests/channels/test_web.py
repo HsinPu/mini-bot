@@ -765,6 +765,29 @@ async def _run_web_sessions_api():
             "active_delegate_task_id": None,
             "active_delegate_prompt_type": None,
             "metadata": {},
+            "todos": [
+                {
+                    "id": "task:1",
+                    "content": "build",
+                    "status": "in_progress",
+                    "priority": "high",
+                    "updated_at": 201.0,
+                },
+                {
+                    "id": "task:2",
+                    "content": "verify",
+                    "status": "pending",
+                    "priority": "medium",
+                    "updated_at": 201.0,
+                },
+                {
+                    "id": "task:3",
+                    "content": "inspect",
+                    "status": "pending",
+                    "priority": "medium",
+                    "updated_at": 201.0,
+                },
+            ],
             "created_at": 190.0,
             "updated_at": 201.0,
         }

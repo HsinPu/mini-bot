@@ -440,6 +440,20 @@ class AgentTurnRunner:
 
         async def after_response_saved() -> None:
             await self._save_work_state(updated_work_state)
+            if updated_work_state is not None:
+                todos = await self.run_trace.record_task_checklist_part(turn.session_id, run_id, updated_work_state)
+                await self._emit_run_event(
+                    turn.session_id,
+                    run_id,
+                    "task_checklist.updated",
+                    {
+                        "status": updated_work_state.status,
+                        "objective": updated_work_state.objective,
+                        "todos": todos,
+                    },
+                    channel=turn.channel,
+                    external_chat_id=turn.external_chat_id,
+                )
             await self._apply_work_progress(turn.session_id, work_progress, updated_work_state)
             await self._apply_completion_gate_result(turn.session_id, completion_result)
             self._schedule_post_response_maintenance(turn.session_id)

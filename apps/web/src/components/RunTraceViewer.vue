@@ -255,7 +255,8 @@ const artifactGroups = computed(() => {
   const fileArtifacts = artifacts.value.filter((artifact) => artifact.kind === "file" || artifact.path);
   const verificationArtifacts = artifacts.value.filter((artifact) => artifact.kind === "verification");
   const permissionArtifacts = artifacts.value.filter((artifact) => artifact.kind === "permission");
-  const grouped = new Set([...toolArtifacts, ...fileArtifacts, ...verificationArtifacts, ...permissionArtifacts]);
+  const taskArtifacts = artifacts.value.filter((artifact) => artifact.kind === "task");
+  const grouped = new Set([...toolArtifacts, ...fileArtifacts, ...verificationArtifacts, ...permissionArtifacts, ...taskArtifacts]);
   const otherArtifacts = artifacts.value.filter((artifact) => !grouped.has(artifact));
 
   return [
@@ -280,6 +281,11 @@ const artifactGroups = computed(() => {
       items: permissionArtifacts,
     },
     {
+      kind: "task",
+      label: props.copy.trace.artifactSections.task,
+      items: taskArtifacts,
+    },
+    {
       kind: "other",
       label: props.copy.trace.artifactSections.other,
       items: otherArtifacts,
@@ -298,6 +304,7 @@ const filterOptions = computed(() => [
   { value: "permission", label: props.copy.trace.filters.permission, count: permissionEventCount.value },
   { value: "text", label: props.copy.trace.filters.text, count: textEventCount.value },
   { value: "system", label: props.copy.trace.filters.system, count: countEventsByCategory("system") },
+  { value: "work", label: props.copy.trace.filters.work, count: countEventsByCategory("work") },
   { value: "other", label: props.copy.trace.filters.other, count: countEventsByCategory("other") },
 ]);
 
@@ -307,7 +314,7 @@ function countEventsByCategory(category) {
 
 function eventCategory(eventType) {
   const event = typeof eventType === "object" ? eventType : null;
-  if (["run", "llm", "tool", "verification", "permission", "text", "system"].includes(event?.kind)) {
+  if (["run", "llm", "tool", "verification", "permission", "text", "system", "work"].includes(event?.kind)) {
     return event.kind;
   }
   if (event?.kind) {
