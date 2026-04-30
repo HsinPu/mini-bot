@@ -666,6 +666,7 @@ export function useChatClient() {
   const messageStage = ref(null);
   const sidebarOpen = ref(false);
   const sidebarCollapsed = ref(readStoredBoolean(STORAGE_KEYS.sidebarCollapsed, false));
+  const sessionChannelFilter = ref("all");
   const settingsOpen = ref(false);
   const settingsSection = ref("general");
   const settingsForm = reactive({
@@ -821,6 +822,13 @@ export function useChatClient() {
 
   const currentSession = computed(() => {
     return state.sessions.find((session) => session.externalChatId === state.activeExternalChatId) || null;
+  });
+
+  const sidebarSessions = computed(() => {
+    if (sessionChannelFilter.value === "web") {
+      return state.sessions.filter((session) => !session.channel || session.channel === "web");
+    }
+    return state.sessions;
   });
 
   const currentWorkState = computed(() => currentSession.value?.workState || null);
@@ -1293,6 +1301,21 @@ export function useChatClient() {
     state.activeExternalChatId = externalChatId;
     writeStoredValue(STORAGE_KEYS.activeExternalChatId, externalChatId);
     closeSidebar();
+  }
+
+  function setSessionChannelFilter(value) {
+    sessionChannelFilter.value = value === "web" ? "web" : "all";
+    if (sessionChannelFilter.value !== "web") {
+      return;
+    }
+    const session = currentSession.value;
+    if (!session || session.channel === "web") {
+      return;
+    }
+    const firstWebSession = state.sessions.find((entry) => !entry.channel || entry.channel === "web");
+    if (firstWebSession) {
+      setActiveSession(firstWebSession.externalChatId);
+    }
   }
 
   function selectRun(runId) {
@@ -2902,6 +2925,8 @@ export function useChatClient() {
     copy,
     prompts,
     state,
+    sidebarSessions,
+    sessionChannelFilter,
     messageText,
     messageInput,
     messageStage,
@@ -2934,6 +2959,7 @@ export function useChatClient() {
     getSessionDisplayId,
     getSessionTitle,
     setActiveSession,
+    setSessionChannelFilter,
     selectRun,
     selectSettingsSection,
     openSettings,

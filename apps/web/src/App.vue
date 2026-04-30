@@ -13,11 +13,14 @@
     <SidebarNav
       :copy="copy"
       :state="state"
+      :sessions="sidebarSessions"
+      :session-channel-filter="sessionChannelFilter"
       :collapsed="sidebarCollapsed"
       :get-session-display-id="getSessionDisplayId"
       :get-session-title="getSessionTitle"
       @create-new-chat="createNewChat"
       @set-active-session="setActiveSession"
+      @set-session-channel-filter="setSessionChannelFilter"
       @toggle-sidebar-collapsed="toggleSidebarCollapsed"
       @open-settings="openSettings()"
     />
@@ -110,6 +113,8 @@ const {
   copy,
   prompts,
   state,
+  sidebarSessions,
+  sessionChannelFilter,
   messageText,
   sidebarOpen,
   sidebarCollapsed,
@@ -139,6 +144,7 @@ const {
   getSessionDisplayId,
   getSessionTitle,
   setActiveSession,
+  setSessionChannelFilter,
   selectRun,
   selectSettingsSection,
   openSettings,

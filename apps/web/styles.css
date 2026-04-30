@@ -528,6 +528,29 @@ button:disabled {
   font-weight: 650;
 }
 
+.session-filter {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 0 8px;
+}
+
+.session-filter button {
+  min-height: 28px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: var(--surface-subtle);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.session-filter button[aria-pressed="true"] {
+  color: var(--text);
+  background: var(--surface-active);
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border-soft));
+}
+
 .session-list {
   display: grid;
   gap: 2px;
@@ -635,6 +658,7 @@ button:disabled {
   .app-shell--sidebar-collapsed .brand-row__copy,
   .app-shell--sidebar-collapsed .new-chat-button__label,
   .app-shell--sidebar-collapsed .sidebar__section-head,
+  .app-shell--sidebar-collapsed .session-filter,
   .app-shell--sidebar-collapsed .session-tile__heading,
   .app-shell--sidebar-collapsed .session-tile__id,
   .app-shell--sidebar-collapsed .settings-button__copy {

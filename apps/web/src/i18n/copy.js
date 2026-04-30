@@ -41,6 +41,10 @@ export const DISPLAY_COPY = {
       brandSubtitle: "本機助理",
       newChat: "新對話",
       chats: "對話",
+      filters: {
+        all: "全部",
+        web: "Web",
+      },
       collapse: "收合側欄",
       expand: "展開側欄",
       settings: "設定",
@@ -590,6 +594,10 @@ export const DISPLAY_COPY = {
       brandSubtitle: "Local assistant",
       newChat: "New chat",
       chats: "Chats",
+      filters: {
+        all: "All",
+        web: "Web",
+      },
       collapse: "Collapse sidebar",
       expand: "Expand sidebar",
       settings: "Settings",

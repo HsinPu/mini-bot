@@ -27,11 +27,27 @@
       <section class="sidebar__section">
         <div class="sidebar__section-head">
           <span>{{ copy.sidebar.chats }}</span>
-          <small>{{ state.sessions.length }}</small>
+          <small>{{ sessions.length }}/{{ state.sessions.length }}</small>
+        </div>
+        <div class="session-filter" role="group" :aria-label="copy.sidebar.chats">
+          <button
+            type="button"
+            :aria-pressed="String(sessionChannelFilter === 'all')"
+            @click="$emit('set-session-channel-filter', 'all')"
+          >
+            {{ copy.sidebar.filters.all }}
+          </button>
+          <button
+            type="button"
+            :aria-pressed="String(sessionChannelFilter === 'web')"
+            @click="$emit('set-session-channel-filter', 'web')"
+          >
+            {{ copy.sidebar.filters.web }}
+          </button>
         </div>
         <div class="session-list">
           <button
-            v-for="session in state.sessions"
+            v-for="session in sessions"
             :key="session.externalChatId"
             class="session-tile"
             :class="{ 'session-tile--active': session.externalChatId === state.activeExternalChatId }"
@@ -74,6 +90,14 @@ defineProps({
     type: Object,
     required: true,
   },
+  sessions: {
+    type: Array,
+    required: true,
+  },
+  sessionChannelFilter: {
+    type: String,
+    required: true,
+  },
   collapsed: {
     type: Boolean,
     required: true,
@@ -88,5 +112,11 @@ defineProps({
   },
 });
 
-defineEmits(["create-new-chat", "set-active-session", "toggle-sidebar-collapsed", "open-settings"]);
+defineEmits([
+  "create-new-chat",
+  "set-active-session",
+  "set-session-channel-filter",
+  "toggle-sidebar-collapsed",
+  "open-settings",
+]);
 </script>
