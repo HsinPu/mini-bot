@@ -126,6 +126,11 @@ function channelFromSessionId(sessionId) {
   return separatorIndex > 0 ? normalized.slice(0, separatorIndex).trim() : "web";
 }
 
+function isExternalChannelSessionId(value) {
+  const normalized = String(value || "").trim();
+  return normalized.includes(":") && channelFromSessionId(normalized) !== "web";
+}
+
 function summarizeTitle(text) {
   const singleLine = text.trim().replace(/\s+/g, " ");
   if (!singleLine) {
@@ -639,7 +644,9 @@ export function useChatClient() {
   const initialLanguage = readStoredChoice(STORAGE_KEYS.language, DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES);
   const initialColorScheme = readStoredChoice(STORAGE_KEYS.colorScheme, DEFAULT_COLOR_SCHEME, SUPPORTED_COLOR_SCHEMES);
   const initialCopy = getDisplayCopy(initialLanguage);
-  const initialSession = createSession(storedExternalChatId || generateExternalChatId());
+  const initialSession = createSession(
+    isExternalChannelSessionId(storedExternalChatId) ? generateExternalChatId() : storedExternalChatId || generateExternalChatId(),
+  );
 
   const state = reactive({
     wsUrl: readStoredValue(STORAGE_KEYS.wsUrl, DEFAULT_WS_URL),
@@ -1303,6 +1310,25 @@ export function useChatClient() {
     closeSidebar();
   }
 
+  function getFirstWebSession() {
+    return state.sessions.find((session) => !session.channel || session.channel === "web") || null;
+  }
+
+  function ensureActiveWebSession() {
+    const session = currentSession.value;
+    if (session && session.channel === "web") {
+      return session;
+    }
+    let webSession = getFirstWebSession();
+    if (!webSession) {
+      webSession = createSession();
+      state.sessions.unshift(webSession);
+    }
+    state.activeExternalChatId = webSession.externalChatId;
+    writeStoredValue(STORAGE_KEYS.activeExternalChatId, webSession.externalChatId);
+    return webSession;
+  }
+
   function setSessionChannelFilter(value) {
     sessionChannelFilter.value = value === "web" ? "web" : "all";
     if (sessionChannelFilter.value !== "web") {
@@ -1312,7 +1338,7 @@ export function useChatClient() {
     if (!session || session.channel === "web") {
       return;
     }
-    const firstWebSession = state.sessions.find((entry) => !entry.channel || entry.channel === "web");
+    const firstWebSession = getFirstWebSession();
     if (firstWebSession) {
       setActiveSession(firstWebSession.externalChatId);
     }
@@ -2649,6 +2675,9 @@ export function useChatClient() {
     if (payload.type === "message") {
       const externalChatId = payload.external_chat_id || currentSession.value?.externalChatId || generateExternalChatId();
       const session = ensureSession(externalChatId, payload.session_id);
+      if (session.channel !== "web") {
+        return;
+      }
       addMessage(session.externalChatId, makeMessage("assistant", payload.text || "", payload.session_id || "OpenSprite"));
       scrollMessagesToBottom();
       return;
@@ -2666,7 +2695,7 @@ export function useChatClient() {
   }
 
   function connectSocket() {
-    const session = currentSession.value;
+    const session = ensureActiveWebSession();
     if (!session) {
       return;
     }
