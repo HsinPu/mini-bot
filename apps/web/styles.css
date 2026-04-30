@@ -136,6 +136,7 @@
 :root[data-color-scheme="dark"] .run-summary-card__file-button,
 :root[data-color-scheme="dark"] .run-trace__status,
 :root[data-color-scheme="dark"] .run-trace__summary span,
+:root[data-color-scheme="dark"] .run-trace__section-head small,
 :root[data-color-scheme="dark"] .run-trace__artifact-group,
 :root[data-color-scheme="dark"] .run-trace__artifact-card,
 :root[data-color-scheme="dark"] .run-trace__tool-details div,
@@ -1850,6 +1851,18 @@ button:disabled {
   gap: 10px;
 }
 
+.run-trace__section-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+}
+
 .run-trace__section-head strong {
   color: var(--text);
   font-size: 0.82rem;
@@ -1860,6 +1873,22 @@ button:disabled {
   color: var(--text-soft);
   font-size: 0.72rem;
   font-weight: 700;
+}
+
+.run-trace__section-head small {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.7);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.run-trace__section-body {
+  display: grid;
+  gap: 8px;
 }
 
 .run-trace__artifact-groups {

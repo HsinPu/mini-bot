@@ -110,70 +110,80 @@
 
       <section class="run-trace__parts" aria-label="Message parts">
         <div class="run-trace__section-head">
-          <strong>{{ copy.trace.messageParts }}</strong>
-          <span>{{ parts.length }} {{ copy.trace.parts }}</span>
+          <button class="run-trace__section-toggle" type="button" :aria-expanded="partsExpanded" @click="partsExpanded = !partsExpanded">
+            <strong>{{ copy.trace.messageParts }}</strong>
+            <span>{{ parts.length }} {{ copy.trace.parts }}</span>
+            <small>{{ partsExpanded ? copy.trace.collapse : copy.trace.expand }}</small>
+          </button>
         </div>
 
-        <div v-if="visibleParts.length" class="run-trace__part-list">
-          <details
-            v-for="part in visibleParts"
-            :key="part.partId || `${part.partType}:${part.createdAt}`"
-            class="run-trace__part"
-            :data-kind="part.kind"
-          >
-            <summary>
-              <span class="run-trace__part-type">{{ part.partType }}</span>
-              <span v-if="part.state" class="run-trace__part-state">{{ part.state }}</span>
-              <span v-if="partSummary(part)" class="run-trace__part-summary">{{ partSummary(part) }}</span>
-              <time>{{ formatEventTime(part.createdAt) }}</time>
-            </summary>
-            <div class="run-trace__part-body">
-              <pre v-if="part.content">{{ part.content }}</pre>
-              <pre v-if="hasMetadata(part)">{{ formatMetadata(part.metadata) }}</pre>
-              <p v-if="!part.content && !hasMetadata(part)">{{ copy.trace.noPartContent }}</p>
-            </div>
-          </details>
-        </div>
+        <div v-show="partsExpanded" class="run-trace__section-body">
+          <div v-if="visibleParts.length" class="run-trace__part-list">
+            <details
+              v-for="part in visibleParts"
+              :key="part.partId || `${part.partType}:${part.createdAt}`"
+              class="run-trace__part"
+              :data-kind="part.kind"
+            >
+              <summary>
+                <span class="run-trace__part-type">{{ part.partType }}</span>
+                <span v-if="part.state" class="run-trace__part-state">{{ part.state }}</span>
+                <span v-if="partSummary(part)" class="run-trace__part-summary">{{ partSummary(part) }}</span>
+                <time>{{ formatEventTime(part.createdAt) }}</time>
+              </summary>
+              <div class="run-trace__part-body">
+                <pre v-if="part.content">{{ part.content }}</pre>
+                <pre v-if="hasMetadata(part)">{{ formatMetadata(part.metadata) }}</pre>
+                <p v-if="!part.content && !hasMetadata(part)">{{ copy.trace.noPartContent }}</p>
+              </div>
+            </details>
+          </div>
 
-        <p v-else class="run-trace__empty">{{ copy.trace.noParts }}</p>
+          <p v-else class="run-trace__empty">{{ copy.trace.noParts }}</p>
+        </div>
       </section>
 
       <section class="run-trace__debug" aria-label="Debug trace events">
         <div class="run-trace__section-head">
-          <strong>{{ copy.trace.debugEvents }}</strong>
-          <span>{{ events.length }} {{ copy.trace.events }}</span>
-        </div>
-
-        <div class="run-trace__filters" aria-label="Trace event filters">
-          <button
-            v-for="option in filterOptions"
-            :key="option.value"
-            type="button"
-            :class="{ 'run-trace__filter--active': selectedFilter === option.value }"
-            @click="selectedFilter = option.value"
-          >
-            {{ option.label }}
-            <span>{{ option.count }}</span>
+          <button class="run-trace__section-toggle" type="button" :aria-expanded="debugExpanded" @click="debugExpanded = !debugExpanded">
+            <strong>{{ copy.trace.debugEvents }}</strong>
+            <span>{{ events.length }} {{ copy.trace.events }}</span>
+            <small>{{ debugExpanded ? copy.trace.collapse : copy.trace.expand }}</small>
           </button>
         </div>
 
-        <div class="run-trace__events">
-          <details
-            v-for="event in filteredEvents"
-            :key="event.id"
-            class="run-trace__event"
-            :data-category="eventCategory(event)"
-          >
-            <summary>
-              <span class="run-trace__event-type">{{ event.eventType }}</span>
-              <span v-if="event.status" class="run-trace__event-status">{{ event.status }}</span>
-              <span v-if="eventSummary(event)" class="run-trace__event-summary">{{ eventSummary(event) }}</span>
-              <time>{{ formatEventTime(event.createdAt) }}</time>
-            </summary>
-            <pre>{{ formatPayload(event) }}</pre>
-          </details>
+        <div v-show="debugExpanded" class="run-trace__section-body">
+          <div class="run-trace__filters" aria-label="Trace event filters">
+            <button
+              v-for="option in filterOptions"
+              :key="option.value"
+              type="button"
+              :class="{ 'run-trace__filter--active': selectedFilter === option.value }"
+              @click="selectedFilter = option.value"
+            >
+              {{ option.label }}
+              <span>{{ option.count }}</span>
+            </button>
+          </div>
 
-          <p v-if="filteredEvents.length === 0" class="run-trace__empty">{{ copy.trace.noEvents }}</p>
+          <div class="run-trace__events">
+            <details
+              v-for="event in filteredEvents"
+              :key="event.id"
+              class="run-trace__event"
+              :data-category="eventCategory(event)"
+            >
+              <summary>
+                <span class="run-trace__event-type">{{ event.eventType }}</span>
+                <span v-if="event.status" class="run-trace__event-status">{{ event.status }}</span>
+                <span v-if="eventSummary(event)" class="run-trace__event-summary">{{ eventSummary(event) }}</span>
+                <time>{{ formatEventTime(event.createdAt) }}</time>
+              </summary>
+              <pre>{{ formatPayload(event) }}</pre>
+            </details>
+
+            <p v-if="filteredEvents.length === 0" class="run-trace__empty">{{ copy.trace.noEvents }}</p>
+          </div>
         </div>
       </section>
     </div>
@@ -200,6 +210,8 @@ const emit = defineEmits(["cancel-run", "inspect-file"]);
 
 const selectedFilter = ref("all");
 const expanded = ref(false);
+const partsExpanded = ref(false);
+const debugExpanded = ref(false);
 
 const events = computed(() => props.run?.rawEvents || props.run?.events || []);
 const artifacts = computed(() => props.run?.artifacts || []);
