@@ -724,18 +724,6 @@ class WebAdapter(MessageAdapter):
             "metadata": self._json_safe(dict(item.metadata or {})),
         }
 
-    def _serialize_run_event(self, event: Any) -> dict[str, Any]:
-        return serialize_run_event(event)
-
-    def _serialize_run_part(self, part: Any) -> dict[str, Any]:
-        return serialize_run_part(part)
-
-    def _serialize_file_change(self, change: Any) -> dict[str, Any]:
-        return serialize_file_change(change)
-
-    def _serialize_run_artifacts(self, trace: Any) -> list[dict[str, Any]]:
-        return serialize_run_artifacts(trace)
-
     @staticmethod
     def _latest_event_payload(events: list[Any], event_type: str) -> dict[str, Any] | None:
         for event in reversed(events):
@@ -841,7 +829,7 @@ class WebAdapter(MessageAdapter):
             duration_seconds = max(0.0, float(run.finished_at) - float(run.created_at))
 
         objective = str(task_intent.get("objective") or run_metadata.get("objective") or "").strip()
-        artifacts = self._serialize_run_artifacts(trace)
+        artifacts = serialize_run_artifacts(trace)
         return {
             "schema_version": RUN_SCHEMA_VERSION,
             "run_id": run.run_id,
@@ -1039,7 +1027,7 @@ class WebAdapter(MessageAdapter):
             {
                 "run_id": run_id,
                 "session_id": session_id,
-                "events": [self._serialize_run_event(event) for event in events],
+                "events": [serialize_run_event(event) for event in events],
             }
         )
 
@@ -1100,10 +1088,10 @@ class WebAdapter(MessageAdapter):
         return web.json_response(
             {
                 "run": self._serialize_run(trace.run),
-                "events": [self._serialize_run_event(event) for event in trace.events],
-                "parts": [self._serialize_run_part(part) for part in trace.parts],
-                "file_changes": [self._serialize_file_change(change) for change in trace.file_changes],
-                "artifacts": self._serialize_run_artifacts(trace),
+                "events": [serialize_run_event(event) for event in trace.events],
+                "parts": [serialize_run_part(part) for part in trace.parts],
+                "file_changes": [serialize_file_change(change) for change in trace.file_changes],
+                "artifacts": serialize_run_artifacts(trace),
             }
         )
 
