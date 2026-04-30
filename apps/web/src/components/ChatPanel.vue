@@ -60,7 +60,7 @@
         </section>
 
         <RunSummaryCard
-          v-if="currentRun && (currentRun.summary || currentRun.summaryLoading || currentRun.summaryError)"
+          v-if="showRunSummary && currentRun && (currentRun.summary || currentRun.summaryLoading || currentRun.summaryError)"
           :copy="copy"
           :run="currentRun"
           @inspect-file="selectedFileChange = $event"
@@ -159,6 +159,10 @@ const props = defineProps({
     default: null,
   },
   showRunTimeline: {
+    type: Boolean,
+    required: true,
+  },
+  showRunSummary: {
     type: Boolean,
     required: true,
   },

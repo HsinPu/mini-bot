@@ -117,6 +117,14 @@
 
             <label class="settings-row">
               <div>
+                <strong>{{ copy.settings.general.runSummary.title }}</strong>
+                <span>{{ copy.settings.general.runSummary.description }}</span>
+              </div>
+              <input v-model="form.showRunSummary" class="switch" type="checkbox" />
+            </label>
+
+            <label class="settings-row">
+              <div>
                 <strong>{{ copy.settings.general.runTrace.title }}</strong>
                 <span>{{ copy.settings.general.runTrace.description }}</span>
               </div>

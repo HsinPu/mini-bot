@@ -252,6 +252,10 @@ export const DISPLAY_COPY = {
           title: "顯示 Run 進度",
           description: "在對話下方顯示目前執行狀態摘要。",
         },
+        runSummary: {
+          title: "顯示 Run Summary",
+          description: "顯示完成後的工具、檔案、驗證與報告摘要。",
+        },
         runTrace: {
           title: "顯示 Trace",
           description: "顯示工具、LLM、驗證事件等詳細追蹤資訊。",
@@ -779,6 +783,10 @@ export const DISPLAY_COPY = {
         runTimeline: {
           title: "Show run progress",
           description: "Show a compact status summary below the conversation.",
+        },
+        runSummary: {
+          title: "Show run summary",
+          description: "Show the completed run's tools, files, verification, and report summary.",
         },
         runTrace: {
           title: "Show trace",

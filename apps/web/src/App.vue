@@ -34,6 +34,7 @@
       :run-timeline="currentRunTimeline"
       :run-summary="currentRunSummary"
       :show-run-timeline="state.showRunTimeline"
+      :show-run-summary="state.showRunSummary"
       :show-run-trace="state.showRunTrace"
       :notice="state.notice"
       :session-meta="sessionMeta"

@@ -6,6 +6,7 @@ const STORAGE_KEYS = {
   displayName: "opensprite:web:displayName",
   activeExternalChatId: "opensprite:web:activeExternalChatId",
   showRunTimeline: "opensprite:web:showRunTimeline",
+  showRunSummary: "opensprite:web:showRunSummary",
   showRunTrace: "opensprite:web:showRunTrace",
   language: "opensprite:web:language",
   colorScheme: "opensprite:web:colorScheme",
@@ -26,6 +27,8 @@ const MAX_RUN_ARTIFACTS = 200;
 const MAX_TIMELINE_EVENTS = 8;
 const RUN_HISTORY_LIMIT = 10;
 const RUN_SUMMARY_FETCH_DELAY_MS = 500;
+const RUN_SUMMARY_NOT_FOUND_RETRY_DELAY_MS = 1200;
+const RUN_SUMMARY_NOT_FOUND_RETRY_LIMIT = 3;
 const TERMINAL_RUN_STATUSES = new Set(["completed", "failed", "cancelled"]);
 const RUN_EVENT_KINDS = new Set(["run", "llm", "tool", "verification", "work", "completion", "file", "text", "system", "other"]);
 const MCP_TRANSPORT_TYPES = new Set(["stdio", "sse", "streamableHttp"]);
@@ -583,6 +586,7 @@ export function useChatClient() {
     wsUrl: readStoredValue(STORAGE_KEYS.wsUrl, DEFAULT_WS_URL),
     displayName: readStoredValue(STORAGE_KEYS.displayName, "Local browser"),
     showRunTimeline: readStoredBoolean(STORAGE_KEYS.showRunTimeline, true),
+    showRunSummary: readStoredBoolean(STORAGE_KEYS.showRunSummary, true),
     showRunTrace: readStoredBoolean(STORAGE_KEYS.showRunTrace, true),
     language: initialLanguage,
     colorScheme: initialColorScheme,
@@ -610,6 +614,7 @@ export function useChatClient() {
     displayName: state.displayName,
     externalChatId: state.activeExternalChatId,
     showRunTimeline: state.showRunTimeline,
+    showRunSummary: state.showRunSummary,
     showRunTrace: state.showRunTrace,
     language: state.language,
     colorScheme: state.colorScheme,
@@ -837,11 +842,30 @@ export function useChatClient() {
     messageText.value = value;
   }
 
-  function saveRunPanelVisibilitySettings(showRunTimeline, showRunTrace) {
+  function saveRunPanelVisibilitySettings(showRunTimeline, showRunSummary, showRunTrace) {
     state.showRunTimeline = Boolean(showRunTimeline);
+    state.showRunSummary = Boolean(showRunSummary);
     state.showRunTrace = Boolean(showRunTrace);
     writeStoredValue(STORAGE_KEYS.showRunTimeline, String(state.showRunTimeline));
+    writeStoredValue(STORAGE_KEYS.showRunSummary, String(state.showRunSummary));
     writeStoredValue(STORAGE_KEYS.showRunTrace, String(state.showRunTrace));
+    if (state.showRunSummary) {
+      maybeLoadRunSummaryForSession(currentSession.value);
+    } else {
+      clearAllRunSummaryTimers();
+      for (const session of state.sessions) {
+        for (const run of session.runs || []) {
+          run.summaryLoading = false;
+        }
+      }
+    }
+  }
+
+  function clearAllRunSummaryTimers() {
+    for (const timer of runSummaryTimers.values()) {
+      clearTimeout(timer);
+    }
+    runSummaryTimers.clear();
   }
 
   function saveDisplaySettings(language, colorScheme) {
@@ -912,9 +936,9 @@ export function useChatClient() {
   });
 
   watch(
-    () => [settingsForm.showRunTimeline, settingsForm.showRunTrace],
-    ([showRunTimeline, showRunTrace]) => {
-      saveRunPanelVisibilitySettings(showRunTimeline, showRunTrace);
+    () => [settingsForm.showRunTimeline, settingsForm.showRunSummary, settingsForm.showRunTrace],
+    ([showRunTimeline, showRunSummary, showRunTrace]) => {
+      saveRunPanelVisibilitySettings(showRunTimeline, showRunSummary, showRunTrace);
     },
   );
 
@@ -1006,6 +1030,7 @@ export function useChatClient() {
         summary: null,
         summaryLoading: false,
         summaryError: "",
+        summaryNotFoundAttempts: 0,
         traceLoaded: false,
         traceLoading: false,
         traceError: "",
@@ -1237,6 +1262,7 @@ export function useChatClient() {
     settingsForm.displayName = state.displayName;
     settingsForm.externalChatId = currentSession.value?.externalChatId || "";
     settingsForm.showRunTimeline = state.showRunTimeline;
+    settingsForm.showRunSummary = state.showRunSummary;
     settingsForm.showRunTrace = state.showRunTrace;
     settingsForm.language = state.language;
     settingsForm.colorScheme = state.colorScheme;
@@ -1307,7 +1333,10 @@ export function useChatClient() {
     });
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(text || `HTTP ${response.status}`);
+      const error = new Error(text || `HTTP ${response.status}`);
+      error.status = response.status;
+      error.statusText = response.statusText;
+      throw error;
     }
     return response.json();
   }
@@ -1436,7 +1465,7 @@ export function useChatClient() {
 
   async function loadRunSummary(session, run) {
     const sessionId = run?.sessionId || session?.sessionId || "";
-    if (!sessionId || !run?.runId || clientDisposed) {
+    if (!state.showRunSummary || !sessionId || !run?.runId || clientDisposed) {
       return;
     }
 
@@ -1449,13 +1478,37 @@ export function useChatClient() {
       if (summary) {
         run.summary = summary;
         run.status = summary.status || run.status;
+        run.summaryNotFoundAttempts = 0;
         maybeLoadRunTraceForSession(session);
       }
     } catch (error) {
+      if (error?.status === 404) {
+        run.summaryNotFoundAttempts = coerceNonNegativeInteger(run.summaryNotFoundAttempts) + 1;
+        run.summaryError = "";
+        if (run.summaryNotFoundAttempts < RUN_SUMMARY_NOT_FOUND_RETRY_LIMIT) {
+          scheduleRunSummaryRetry(session, run);
+        }
+        return;
+      }
       run.summaryError = error?.message || copy.value.notices.runSummaryLoadFailed;
     } finally {
       run.summaryLoading = false;
     }
+  }
+
+  function scheduleRunSummaryRetry(session, run) {
+    const sessionId = run?.sessionId || session?.sessionId || "";
+    if (!state.showRunSummary || !sessionId || !run?.runId || run.summary || clientDisposed) {
+      return;
+    }
+
+    clearRunSummaryTimer(sessionId, run.runId);
+    const key = runSummaryTimerKey(sessionId, run.runId);
+    const timer = setTimeout(() => {
+      runSummaryTimers.delete(key);
+      void loadRunSummary(session, run);
+    }, RUN_SUMMARY_NOT_FOUND_RETRY_DELAY_MS);
+    runSummaryTimers.set(key, timer);
   }
 
   async function loadRunTrace(session, run) {
@@ -1501,7 +1554,7 @@ export function useChatClient() {
 
   function scheduleRunSummaryFetch(session, run) {
     const sessionId = run?.sessionId || session?.sessionId || "";
-    if (!sessionId || !run?.runId) {
+    if (!state.showRunSummary || !sessionId || !run?.runId) {
       return;
     }
 
@@ -1517,11 +1570,18 @@ export function useChatClient() {
   }
 
   function maybeLoadRunSummaryForSession(session) {
-    if (!session?.runs?.length) {
+    if (!state.showRunSummary || !session?.runs?.length) {
       return;
     }
     const run = session.runs.find((entry) => entry.runId === session.activeRunId) || session.runs[0];
-    if (!run || !isTerminalRunStatus(run.status) || run.summary || run.summaryLoading || run.summaryError) {
+    if (
+      !run
+      || !isTerminalRunStatus(run.status)
+      || run.summary
+      || run.summaryLoading
+      || run.summaryError
+      || coerceNonNegativeInteger(run.summaryNotFoundAttempts) >= RUN_SUMMARY_NOT_FOUND_RETRY_LIMIT
+    ) {
       return;
     }
     scheduleRunSummaryFetch(session, run);
@@ -1801,6 +1861,7 @@ export function useChatClient() {
       summary: null,
       summaryLoading: false,
       summaryError: "",
+      summaryNotFoundAttempts: 0,
       traceLoaded: false,
       traceLoading: false,
       traceError: "",
@@ -2624,7 +2685,7 @@ export function useChatClient() {
 
     state.wsUrl = nextWsUrl;
     state.displayName = settingsForm.displayName.trim() || "Local browser";
-    saveRunPanelVisibilitySettings(settingsForm.showRunTimeline, settingsForm.showRunTrace);
+    saveRunPanelVisibilitySettings(settingsForm.showRunTimeline, settingsForm.showRunSummary, settingsForm.showRunTrace);
 
     const requestedExternalChatId = settingsForm.externalChatId.trim();
     if (requestedExternalChatId) {
