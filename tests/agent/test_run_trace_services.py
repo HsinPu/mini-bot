@@ -1,6 +1,7 @@
 import asyncio
 
-from opensprite.agent.run_trace import RUN_PART_CONTENT_MAX_CHARS, RunTraceRecorder, truncate_run_part_content
+from opensprite.agent.run_trace import RUN_PART_CONTENT_MAX_CHARS, RunEventSink, RunTraceRecorder, truncate_run_part_content
+from opensprite.bus import MessageBus
 from opensprite.storage import MemoryStorage
 
 
@@ -36,3 +37,34 @@ def test_run_trace_recorder_persists_bounded_parts():
     assert len(parts[0].content) <= RUN_PART_CONTENT_MAX_CHARS
     assert parts[0].content.endswith("THE-END")
     assert parts[0].metadata["content_truncated"] is True
+
+
+def test_run_event_sink_persists_and_publishes_safe_payloads():
+    async def scenario():
+        storage = MemoryStorage()
+        bus = MessageBus()
+        sink = RunEventSink(storage=storage, message_bus_getter=lambda: bus)
+        await storage.create_run("web:browser-1", "run-1")
+        await sink.emit(
+            "web:browser-1",
+            "run-1",
+            "tool_result",
+            {"tool_name": "demo", "value": object()},
+            channel="web",
+            external_chat_id="browser-1",
+        )
+        return (
+            await storage.get_run_events("web:browser-1", "run-1"),
+            await bus.consume_run_event(),
+        )
+
+    stored_events, bus_event = asyncio.run(scenario())
+
+    assert len(stored_events) == 1
+    assert stored_events[0].event_type == "tool_result"
+    assert stored_events[0].payload["tool_name"] == "demo"
+    assert isinstance(stored_events[0].payload["value"], str)
+    assert bus_event.event_type == "tool_result"
+    assert bus_event.payload == stored_events[0].payload
+    assert bus_event.channel == "web"
+    assert bus_event.external_chat_id == "browser-1"

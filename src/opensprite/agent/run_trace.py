@@ -31,6 +31,57 @@ def truncate_run_part_content(
     return truncated, {"content_truncated": True, "content_original_len": original_len}
 
 
+class RunEventSink:
+    """Persists run events and publishes their live bus representation."""
+
+    def __init__(
+        self,
+        *,
+        storage: StorageProvider,
+        message_bus_getter: Callable[[], Any | None],
+    ):
+        self.storage = storage
+        self._message_bus_getter = message_bus_getter
+
+    async def emit(
+        self,
+        session_id: str,
+        run_id: str,
+        event_type: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        channel: str | None = None,
+        external_chat_id: str | None = None,
+    ) -> None:
+        """Persist and publish one structured run event."""
+        created_at = time.time()
+        safe_payload = json_safe_payload(payload)
+        add_event = getattr(self.storage, "add_run_event", None)
+        if callable(add_event):
+            try:
+                await add_event(session_id, run_id, event_type, payload=safe_payload, created_at=created_at)
+            except Exception as e:
+                logger.warning("[{}] run.event.persist.failed | run_id={} type={} error={}", session_id, run_id, event_type, e)
+
+        message_bus = self._message_bus_getter()
+        if message_bus is None or not channel or external_chat_id is None:
+            return
+        try:
+            await message_bus.publish_run_event(
+                RunEvent(
+                    channel=channel,
+                    external_chat_id=str(external_chat_id),
+                    session_id=session_id,
+                    run_id=run_id,
+                    event_type=event_type,
+                    payload=safe_payload,
+                    created_at=created_at,
+                )
+            )
+        except Exception as e:
+            logger.warning("[{}] run.event.publish.failed | run_id={} type={} error={}", session_id, run_id, event_type, e)
+
+
 class RunTraceRecorder:
     """Small service for durable run lifecycle, events, and ordered parts."""
 
@@ -42,6 +93,7 @@ class RunTraceRecorder:
     ):
         self.storage = storage
         self._message_bus_getter = message_bus_getter
+        self.events = RunEventSink(storage=storage, message_bus_getter=message_bus_getter)
 
     async def create_run(
         self,
@@ -118,32 +170,14 @@ class RunTraceRecorder:
         external_chat_id: str | None = None,
     ) -> None:
         """Persist and publish one structured run event."""
-        created_at = time.time()
-        safe_payload = json_safe_payload(payload)
-        add_event = getattr(self.storage, "add_run_event", None)
-        if callable(add_event):
-            try:
-                await add_event(session_id, run_id, event_type, payload=safe_payload, created_at=created_at)
-            except Exception as e:
-                logger.warning("[{}] run.event.persist.failed | run_id={} type={} error={}", session_id, run_id, event_type, e)
-
-        message_bus = self._message_bus_getter()
-        if message_bus is None or not channel or external_chat_id is None:
-            return
-        try:
-            await message_bus.publish_run_event(
-                RunEvent(
-                    channel=channel,
-                    external_chat_id=str(external_chat_id),
-                    session_id=session_id,
-                    run_id=run_id,
-                    event_type=event_type,
-                    payload=safe_payload,
-                    created_at=created_at,
-                )
-            )
-        except Exception as e:
-            logger.warning("[{}] run.event.publish.failed | run_id={} type={} error={}", session_id, run_id, event_type, e)
+        await self.events.emit(
+            session_id,
+            run_id,
+            event_type,
+            payload,
+            channel=channel,
+            external_chat_id=external_chat_id,
+        )
 
     async def start_turn_run(
         self,
