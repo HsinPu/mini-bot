@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 from opensprite.agent.run_trace import RUN_PART_CONTENT_MAX_CHARS, RunEventSink, RunTraceRecorder, truncate_run_part_content
 from opensprite.bus import MessageBus
-from opensprite.run_schema import serialize_run_artifacts
+from opensprite.run_schema import serialize_file_change, serialize_run_artifacts, serialize_run_event, serialize_run_part
 from opensprite.storage import MemoryStorage
 
 
@@ -70,6 +70,109 @@ def test_run_event_sink_persists_and_publishes_safe_payloads():
     assert bus_event.payload == stored_events[0].payload
     assert bus_event.channel == "web"
     assert bus_event.external_chat_id == "browser-1"
+
+
+def test_serialize_run_event_builds_stable_envelope():
+    event = SimpleNamespace(
+        event_id=42,
+        run_id="run-1",
+        session_id="web:browser-1",
+        event_type="tool_result",
+        payload={"tool_name": "demo", "tool_call_id": "call-1", "ok": False, "result_preview": "failed"},
+        created_at=12.5,
+    )
+
+    payload = serialize_run_event(event)
+
+    assert payload == {
+        "schema_version": 1,
+        "event_id": 42,
+        "run_id": "run-1",
+        "session_id": "web:browser-1",
+        "event_type": "tool_result",
+        "kind": "tool",
+        "status": "error",
+        "payload": {"tool_name": "demo", "tool_call_id": "call-1", "ok": False, "result_preview": "failed"},
+        "artifact": {
+            "schema_version": 1,
+            "artifact_id": "tool:call-1",
+            "artifact_type": "tool",
+            "kind": "tool",
+            "status": "error",
+            "phase": "result",
+            "tool_name": "demo",
+            "tool_call_id": "call-1",
+            "iteration": None,
+            "title": "demo",
+            "detail": "failed",
+        },
+        "created_at": 12.5,
+    }
+
+
+def test_serialize_run_part_builds_stable_artifact_shape():
+    part = SimpleNamespace(
+        part_id=7,
+        run_id="run-1",
+        session_id="web:browser-1",
+        part_type="tool_result",
+        tool_name="demo",
+        content="failed",
+        metadata={"tool_call_id": "call-1", "ok": False, "result_preview": "failed"},
+        created_at=13.0,
+    )
+
+    payload = serialize_run_part(part)
+
+    assert payload["schema_version"] == 1
+    assert payload["part_id"] == 7
+    assert payload["kind"] == "tool"
+    assert payload["state"] == "error"
+    assert payload["metadata"] == {"tool_call_id": "call-1", "ok": False, "result_preview": "failed"}
+    assert payload["artifact"]["artifact_id"] == "tool:call-1"
+    assert payload["artifact"]["phase"] == "tool_result"
+    assert payload["artifact"]["status"] == "error"
+
+
+def test_serialize_file_change_builds_stable_snapshot_shape():
+    change = SimpleNamespace(
+        change_id=3,
+        run_id="run-1",
+        session_id="web:browser-1",
+        tool_name="apply_patch",
+        path="notes.txt",
+        action="modify",
+        before_sha256="before",
+        after_sha256="after",
+        before_content="old",
+        after_content="new",
+        diff="-old\n+new",
+        metadata={"diff_len": 9},
+        created_at=14.0,
+    )
+
+    payload = serialize_file_change(change)
+
+    assert payload["schema_version"] == 1
+    assert payload["change_id"] == 3
+    assert payload["kind"] == "file"
+    assert payload["state"] == "completed"
+    assert payload["path"] == "notes.txt"
+    assert payload["before_content"] == "old"
+    assert payload["after_content"] == "new"
+    assert payload["artifact"] == {
+        "schema_version": 1,
+        "artifact_id": "file_change:3",
+        "artifact_type": "file_change",
+        "kind": "file",
+        "status": "completed",
+        "path": "notes.txt",
+        "action": "modify",
+        "tool_name": "apply_patch",
+        "diff_len": 9,
+        "snapshots_available": {"before": True, "after": True},
+        "metadata": {"diff_len": 9},
+    }
 
 
 def test_serialize_run_artifacts_merges_tool_event_and_part_by_call_id():
