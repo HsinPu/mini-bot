@@ -195,6 +195,24 @@ class AgentLoop:
             enabled=enabled,
         )
 
+    def _make_llm_delta_hook(
+        self,
+        *,
+        channel: str | None,
+        external_chat_id: str | None,
+        session_id: str,
+        run_id: str | None,
+        enabled: bool,
+    ) -> Callable[[str, str, str, int], Awaitable[None]] | None:
+        """Publish visible assistant response chunks into the run event stream."""
+        return self.run_hooks.make_llm_delta_hook(
+            channel=channel,
+            external_chat_id=external_chat_id,
+            session_id=session_id,
+            run_id=run_id,
+            enabled=enabled,
+        )
+
     async def _create_run(
         self,
         session_id: str,
@@ -604,6 +622,7 @@ class AgentLoop:
             make_tool_progress_hook=lambda *args, **kwargs: self._make_tool_progress_hook(*args, **kwargs),
             make_tool_result_hook=lambda *args, **kwargs: self._make_tool_result_hook(*args, **kwargs),
             make_llm_status_hook=lambda *args, **kwargs: self._make_llm_status_hook(*args, **kwargs),
+            make_llm_delta_hook=lambda *args, **kwargs: self._make_llm_delta_hook(*args, **kwargs),
             execute_messages=lambda *args, **kwargs: self._execute_messages(*args, **kwargs),
         )
 
@@ -1134,6 +1153,7 @@ class AgentLoop:
         on_tool_before_execute: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
         on_tool_after_execute: Callable[[str, dict[str, Any], str], Awaitable[None]] | None = None,
         on_llm_status: Callable[[str], Awaitable[None]] | None = None,
+        on_response_delta: Callable[[str, str, str, int], Awaitable[None]] | None = None,
         refresh_system_prompt: Callable[[], str] | None = None,
         max_tool_iterations: int | None = None,
         should_cancel: Callable[[], bool] | None = None,
@@ -1149,6 +1169,7 @@ class AgentLoop:
             on_tool_before_execute=on_tool_before_execute,
             on_tool_after_execute=on_tool_after_execute,
             on_llm_status=on_llm_status,
+            on_response_delta=on_response_delta,
             refresh_system_prompt=refresh_system_prompt,
             max_tool_iterations=max_tool_iterations,
             should_cancel=should_cancel,

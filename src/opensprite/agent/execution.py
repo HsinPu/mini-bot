@@ -135,6 +135,7 @@ class ExecutionEngine:
     )
     CONTEXT_COMPACTION_RETRY_LIMIT = 1
     PROACTIVE_CONTEXT_COMPACTION_LIMIT = 1
+    RESPONSE_DELTA_CHARS = 240
     COMPACTED_MESSAGE_MAX_CHARS = 900
     COMPACTED_LATEST_USER_MAX_CHARS = 1600
     COMPACTED_TRANSCRIPT_MAX_CHARS = 10_000
@@ -271,6 +272,26 @@ Output exactly these sections when applicable:
             elif line.startswith("Subagent: "):
                 prompt_type = line.split(": ", 1)[1].strip() or None
         return task_id, prompt_type
+
+    @classmethod
+    async def _emit_response_deltas(
+        cls,
+        content: str,
+        *,
+        part_id: str,
+        on_response_delta: Callable[[str, str, str, int], Awaitable[None]] | None,
+    ) -> None:
+        """Project a completed visible response into streaming-compatible chunks."""
+        if on_response_delta is None:
+            return
+        text = str(content or "")
+        if not text:
+            return
+        sequence = 0
+        for start in range(0, len(text), cls.RESPONSE_DELTA_CHARS):
+            sequence += 1
+            state = "completed" if start + cls.RESPONSE_DELTA_CHARS >= len(text) else "running"
+            await on_response_delta(part_id, text[start:start + cls.RESPONSE_DELTA_CHARS], state, sequence)
 
     @classmethod
     def _summarize_tool_result_for_context(cls, tool_name: str, result: str) -> str:
@@ -823,6 +844,7 @@ Output exactly these sections when applicable:
         on_tool_before_execute: Callable[..., Awaitable[None]] | None = None,
         on_tool_after_execute: Callable[..., Awaitable[None]] | None = None,
         on_llm_status: Callable[[str], Awaitable[None]] | None = None,
+        on_response_delta: Callable[[str, str, str, int], Awaitable[None]] | None = None,
         refresh_system_prompt: Callable[[], str] | None = None,
         max_tool_iterations: int | None = None,
         should_cancel: Callable[[], bool] | None = None,
@@ -1020,8 +1042,14 @@ Output exactly these sections when applicable:
                         f"[{log_id}] llm.tool-calls-ignored | iter={iteration + 1} count={len(response.tool_calls)} tools=off"
                     )
                     if not response.content:
+                        content = self.empty_response_fallback
+                        await self._emit_response_deltas(
+                            content,
+                            part_id=f"assistant:{log_id}:{iteration + 1}",
+                            on_response_delta=on_response_delta,
+                        )
                         return ExecutionResult(
-                            content=self.empty_response_fallback,
+                            content=content,
                             executed_tool_calls=executed_tool_calls,
                             used_configure_skill=used_configure_skill,
                             had_tool_error=had_tool_error,
@@ -1033,6 +1061,11 @@ Output exactly these sections when applicable:
                             context_compaction_events=context_compaction_events,
                         )
 
+                    await self._emit_response_deltas(
+                        response.content,
+                        part_id=f"assistant:{log_id}:{iteration + 1}",
+                        on_response_delta=on_response_delta,
+                    )
                     return ExecutionResult(
                         content=response.content,
                         executed_tool_calls=executed_tool_calls,
@@ -1181,11 +1214,17 @@ Output exactly these sections when applicable:
                             logger.warning(
                                 f"[{log_id}] tool.repeated-error | name={tool_name} count={repeated_tool_error_count} stopping_early=true"
                             )
+                            content = (
+                                "我重複嘗試呼叫工具，但工具參數仍然無效而無法繼續。"
+                                f"最新錯誤：{result}"
+                            )
+                            await self._emit_response_deltas(
+                                content,
+                                part_id=f"assistant:{log_id}:{iteration + 1}",
+                                on_response_delta=on_response_delta,
+                            )
                             return ExecutionResult(
-                                content=(
-                                    "我重複嘗試呼叫工具，但工具參數仍然無效而無法繼續。"
-                                    f"最新錯誤：{result}"
-                                ),
+                                content=content,
                                 executed_tool_calls=executed_tool_calls,
                                 used_configure_skill=used_configure_skill,
                                 had_tool_error=had_tool_error,
@@ -1259,8 +1298,14 @@ Output exactly these sections when applicable:
                     f"sanitized_from_nonempty={'true' if sanitized_became_empty else 'false'} "
                     f"tool_history_count={len(tool_results_history)}"
                 )
+                content = self.empty_response_fallback
+                await self._emit_response_deltas(
+                    content,
+                    part_id=f"assistant:{log_id}:{iteration + 1}",
+                    on_response_delta=on_response_delta,
+                )
                 return ExecutionResult(
-                    content=self.empty_response_fallback,
+                    content=content,
                     executed_tool_calls=executed_tool_calls,
                     used_configure_skill=used_configure_skill,
                     had_tool_error=had_tool_error,
@@ -1272,6 +1317,11 @@ Output exactly these sections when applicable:
                     context_compaction_events=context_compaction_events,
                 )
 
+            await self._emit_response_deltas(
+                response.content,
+                part_id=f"assistant:{log_id}:{iteration + 1}",
+                on_response_delta=on_response_delta,
+            )
             return ExecutionResult(
                 content=response.content,
                 executed_tool_calls=executed_tool_calls,
@@ -1293,11 +1343,17 @@ Output exactly these sections when applicable:
                 f"- {result}" for result in tool_results_history[-5:]
             )
 
+        content = (
+            f"我嘗試完成你的請求，但超過了最大迭代次數（{iteration_limit}次）。"
+            f"請將任務拆分為較小的步驟。{history_msg}"
+        )
+        await self._emit_response_deltas(
+            content,
+            part_id=f"assistant:{log_id}:max-iterations",
+            on_response_delta=on_response_delta,
+        )
         return ExecutionResult(
-            content=(
-                f"我嘗試完成你的請求，但超過了最大迭代次數（{iteration_limit}次）。"
-                f"請將任務拆分為較小的步驟。{history_msg}"
-            ),
+            content=content,
             executed_tool_calls=executed_tool_calls,
             used_configure_skill=used_configure_skill,
             had_tool_error=had_tool_error,

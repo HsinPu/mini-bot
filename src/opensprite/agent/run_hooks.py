@@ -294,3 +294,41 @@ class RunHookService:
             )
 
         return _hook
+
+    def make_llm_delta_hook(
+        self,
+        *,
+        channel: str | None,
+        external_chat_id: str | None,
+        session_id: str,
+        run_id: str | None,
+        enabled: bool,
+    ) -> Callable[[str, str, str, int], Awaitable[None]] | None:
+        """Publish visible assistant response chunks into the run event stream."""
+        if not enabled or run_id is None:
+            return None
+        ch = channel
+        tid = str(external_chat_id) if external_chat_id is not None else None
+        sid = session_id
+        rid = run_id
+
+        async def _hook(part_id: str, delta: str, state: str = "running", sequence: int = 0) -> None:
+            text = str(delta or "")
+            if not text:
+                return
+            await self._emit_run_event(
+                sid,
+                rid,
+                "run_part_delta",
+                {
+                    "part_id": part_id,
+                    "part_type": "assistant_message",
+                    "content_delta": text,
+                    "state": state,
+                    "sequence": int(sequence),
+                },
+                channel=ch,
+                external_chat_id=tid,
+            )
+
+        return _hook

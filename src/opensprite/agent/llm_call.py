@@ -41,6 +41,7 @@ class LlmCallService:
         make_tool_progress_hook: Callable[..., Callable[[str, dict[str, Any]], Awaitable[None]] | None],
         make_tool_result_hook: Callable[..., Callable[[str, dict[str, Any], str], Awaitable[None]] | None],
         make_llm_status_hook: Callable[..., Callable[[str], Awaitable[None]] | None],
+        make_llm_delta_hook: Callable[..., Callable[[str, str, str, int], Awaitable[None]] | None],
         execute_messages: Callable[..., Awaitable[ExecutionResult]],
     ):
         self.config = config
@@ -65,6 +66,7 @@ class LlmCallService:
         self._make_tool_progress_hook = make_tool_progress_hook
         self._make_tool_result_hook = make_tool_result_hook
         self._make_llm_status_hook = make_llm_status_hook
+        self._make_llm_delta_hook = make_llm_delta_hook
         self._execute_messages = execute_messages
 
     async def call_llm(
@@ -207,12 +209,20 @@ class LlmCallService:
             run_id=run_id,
             enabled=emit_tool_progress,
         )
+        on_response_delta = self._make_llm_delta_hook(
+            channel=channel,
+            external_chat_id=external_chat_id,
+            session_id=session_id,
+            run_id=run_id,
+            enabled=emit_tool_progress,
+        )
         execute_kwargs = {
             "allow_tools": allow_tools,
             "tool_result_session_id": session_id if allow_tools else None,
             "tool_registry": selected_tool_registry,
             "on_tool_before_execute": on_tool_before_execute,
             "on_llm_status": on_llm_status,
+            "on_response_delta": on_response_delta,
             "refresh_system_prompt": lambda: self._build_system_prompt(session_id),
             "should_cancel": lambda: self._should_cancel_run(session_id, run_id),
             "work_state_summary": work_state_summary,
@@ -222,8 +232,10 @@ class LlmCallService:
         try:
             return await self._execute_messages(session_id, chat_messages, **execute_kwargs)
         except TypeError as exc:
-            if "work_state_summary" not in str(exc) and "should_cancel" not in str(exc):
+            message = str(exc)
+            if "work_state_summary" not in message and "should_cancel" not in message and "on_response_delta" not in message:
                 raise
             execute_kwargs.pop("work_state_summary", None)
             execute_kwargs.pop("should_cancel", None)
+            execute_kwargs.pop("on_response_delta", None)
             return await self._execute_messages(session_id, chat_messages, **execute_kwargs)

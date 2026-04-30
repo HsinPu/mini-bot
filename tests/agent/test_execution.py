@@ -120,6 +120,30 @@ def test_execution_engine_runs_tool_loop_and_persists_tool_result():
     assert messages[1].tool_calls[0]["function"]["name"] == "demo_tool"
 
 
+def test_execution_engine_projects_final_response_as_deltas():
+    provider = FakeProvider([LLMResponse(content="hello streaming world", model="fake-model")])
+    save_calls = []
+    engine = _make_engine(provider, ToolRegistry(), save_calls)
+    messages = [ChatMessage(role="user", content="hi")]
+    deltas = []
+
+    async def on_delta(part_id, delta, state, sequence):
+        deltas.append((part_id, delta, state, sequence))
+
+    result = asyncio.run(
+        engine.execute_messages(
+            "chat-1",
+            messages,
+            allow_tools=False,
+            on_response_delta=on_delta,
+        )
+    )
+
+    assert result.content == "hello streaming world"
+    assert "".join(item[1] for item in deltas) == "hello streaming world"
+    assert deltas == [("assistant:chat-1:1", "hello streaming world", "completed", 1)]
+
+
 def test_execution_engine_calls_on_tool_before_execute_before_tool_run():
     registry = ToolRegistry()
     registry.register(DummyTool())
