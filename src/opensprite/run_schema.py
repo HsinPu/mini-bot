@@ -290,3 +290,27 @@ def file_change_artifact(change: Any) -> dict[str, Any]:
         },
         "metadata": metadata,
     }
+
+
+def serialize_file_change(change: Any) -> dict[str, Any]:
+    """Serialize one durable file change using the shared artifact projection."""
+    metadata = json_safe_payload(dict(getattr(change, "metadata", {}) or {}))
+    return {
+        "schema_version": RUN_SCHEMA_VERSION,
+        "change_id": getattr(change, "change_id", None),
+        "run_id": getattr(change, "run_id", None),
+        "session_id": getattr(change, "session_id", None),
+        "kind": "file",
+        "state": "completed",
+        "tool_name": getattr(change, "tool_name", None),
+        "path": getattr(change, "path", None),
+        "action": getattr(change, "action", None),
+        "before_sha256": getattr(change, "before_sha256", None),
+        "after_sha256": getattr(change, "after_sha256", None),
+        "before_content": getattr(change, "before_content", None),
+        "after_content": getattr(change, "after_content", None),
+        "diff": getattr(change, "diff", None),
+        "metadata": metadata,
+        "artifact": file_change_artifact(change),
+        "created_at": getattr(change, "created_at", None),
+    }

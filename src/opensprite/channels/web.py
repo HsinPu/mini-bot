@@ -52,7 +52,7 @@ from ..cron import CronJob, CronSchedule
 from ..cron.presentation import format_cron_timestamp, format_cron_timing
 from ..run_schema import (
     RUN_SCHEMA_VERSION,
-    file_change_artifact,
+    serialize_file_change,
     serialize_run_event,
     serialize_run_part,
 )
@@ -730,26 +730,7 @@ class WebAdapter(MessageAdapter):
         return serialize_run_part(part)
 
     def _serialize_file_change(self, change: Any) -> dict[str, Any]:
-        artifact = file_change_artifact(change)
-        return {
-            "schema_version": RUN_SCHEMA_VERSION,
-            "change_id": change.change_id,
-            "run_id": change.run_id,
-            "session_id": change.session_id,
-            "kind": "file",
-            "state": "completed",
-            "tool_name": change.tool_name,
-            "path": change.path,
-            "action": change.action,
-            "before_sha256": change.before_sha256,
-            "after_sha256": change.after_sha256,
-            "before_content": change.before_content,
-            "after_content": change.after_content,
-            "diff": change.diff,
-            "metadata": self._json_safe(dict(change.metadata or {})),
-            "artifact": artifact,
-            "created_at": change.created_at,
-        }
+        return serialize_file_change(change)
 
     def _serialize_run_artifacts(self, trace: Any) -> list[dict[str, Any]]:
         artifacts_by_key: dict[str, dict[str, Any]] = {}
