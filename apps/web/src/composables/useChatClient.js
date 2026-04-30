@@ -158,6 +158,7 @@ function createSession(externalChatId) {
     title: "New chat",
     updatedAt: Date.now(),
     messages: [],
+    status: { status: "idle", updatedAt: Date.now(), metadata: {} },
     workState: null,
     activeRunId: null,
     runs: [],
@@ -1090,6 +1091,30 @@ export function useChatClient() {
     session.transportExternalChatId = resolvedExternalChatId;
     session.updatedAt = Date.now();
     return session;
+  }
+
+  function applySessionStatus(payload) {
+    const sessionId = String(payload?.session_id || payload?.sessionId || "").trim();
+    if (!sessionId) {
+      return;
+    }
+    const channel = String(payload?.channel || channelFromSessionId(sessionId) || "web").trim() || "web";
+    const transportExternalChatId = String(payload?.external_chat_id || payload?.externalChatId || "").trim()
+      || externalChatIdFromSessionId(sessionId)
+      || generateExternalChatId();
+    const externalChatId = channel === "web" ? transportExternalChatId : sessionId;
+    const session = ensureSession(externalChatId, sessionId);
+    session.channel = channel;
+    session.transportExternalChatId = transportExternalChatId;
+    session.status = {
+      status: String(payload?.status || "idle").trim() || "idle",
+      updatedAt: normalizeEventTimestamp(payload?.updated_at ?? payload?.updatedAt),
+      metadata: payload?.metadata && typeof payload.metadata === "object" ? payload.metadata : {},
+    };
+    if (session.status.status !== "idle") {
+      session.updatedAt = session.status.updatedAt;
+      sortSessions();
+    }
   }
 
   function addMessage(externalChatId, message) {
@@ -2037,6 +2062,12 @@ export function useChatClient() {
       : [];
     session.activeRunId = session.runs[0]?.runId || null;
     session.workState = normalizeWorkState(payload?.work_state);
+    const status = payload?.status && typeof payload.status === "object" ? payload.status : {};
+    session.status = {
+      status: String(status.status || "idle").trim() || "idle",
+      updatedAt: normalizeEventTimestamp(status.updated_at ?? status.updatedAt),
+      metadata: status.metadata && typeof status.metadata === "object" ? status.metadata : {},
+    };
     return session;
   }
 
@@ -2686,6 +2717,11 @@ export function useChatClient() {
     if (payload.type === "run_event") {
       handleRunEvent(payload);
       scrollMessagesToBottom();
+      return;
+    }
+
+    if (payload.type === "session_status") {
+      applySessionStatus(payload);
       return;
     }
 

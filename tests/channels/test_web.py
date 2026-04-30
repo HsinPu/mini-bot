@@ -5,7 +5,7 @@ from pathlib import Path
 from aiohttp import ClientSession
 
 from opensprite.bus.dispatcher import MessageQueue
-from opensprite.bus.events import RunEvent
+from opensprite.bus.events import RunEvent, SessionStatusEvent
 from opensprite.bus.message import AssistantMessage
 from opensprite.channels.web import WebAdapter
 from opensprite.config import Config
@@ -91,8 +91,33 @@ async def _run_web_roundtrip():
                     "created_at": 123.0,
                 }
 
+                await queue.bus.publish_session_status(
+                    SessionStatusEvent(
+                        session_id=session_frame["session_id"],
+                        status="busy",
+                        metadata={"channel": "web", "external_chat_id": session_frame["external_chat_id"]},
+                        updated_at=124.0,
+                    )
+                )
+                status_frame = await ws.receive_json(timeout=2)
+                assert status_frame == {
+                    "type": "session_status",
+                    "channel": "web",
+                    "session_id": session_frame["session_id"],
+                    "status": "busy",
+                    "updated_at": 124.0,
+                    "metadata": {"channel": "web", "external_chat_id": session_frame["external_chat_id"]},
+                }
+
+                async def receive_message_frame():
+                    for _ in range(5):
+                        frame = await ws.receive_json(timeout=2)
+                        if frame.get("type") == "message":
+                            return frame
+                    raise AssertionError("message frame not received")
+
                 await ws.send_str("hello from browser")
-                reply = await ws.receive_json(timeout=2)
+                reply = await receive_message_frame()
                 assert reply == {
                     "type": "message",
                     "channel": "web",
@@ -104,7 +129,7 @@ async def _run_web_roundtrip():
                 }
 
                 await ws.send_json({"external_chat_id": "browser-2", "text": "second round"})
-                second_reply = await ws.receive_json(timeout=2)
+                second_reply = await receive_message_frame()
                 assert second_reply["external_chat_id"] == "browser-2"
                 assert second_reply["session_id"] == "web:browser-2"
                 assert second_reply["text"] == "echo:second round"

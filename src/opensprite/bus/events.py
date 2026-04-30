@@ -60,3 +60,13 @@ class RunEvent:
     event_type: str
     payload: dict[str, Any] = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)
+
+
+@dataclass
+class SessionStatusEvent:
+    """Transient status update for one normalized session."""
+
+    session_id: str
+    status: str
+    metadata: dict[str, Any] = field(default_factory=dict)
+    updated_at: float = field(default_factory=time.time)

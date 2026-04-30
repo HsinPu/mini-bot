@@ -10,7 +10,7 @@ opensprite/bus/message_bus.py - 非同步訊息匯流排
 
 import asyncio
 
-from .events import InboundMessage, OutboundMessage, RunEvent
+from .events import InboundMessage, OutboundMessage, RunEvent, SessionStatusEvent
 
 
 class MessageBus:
@@ -25,6 +25,7 @@ class MessageBus:
         self.inbound: asyncio.Queue[InboundMessage] = asyncio.Queue()
         self.outbound: asyncio.Queue[OutboundMessage] = asyncio.Queue()
         self.run_events: asyncio.Queue[RunEvent] = asyncio.Queue()
+        self.session_status_events: asyncio.Queue[SessionStatusEvent] = asyncio.Queue()
 
     async def publish_inbound(self, msg: InboundMessage) -> None:
         """Publish a message from a channel to the agent."""
@@ -50,6 +51,14 @@ class MessageBus:
         """Consume the next run event (blocks until available)."""
         return await self.run_events.get()
 
+    async def publish_session_status(self, event: SessionStatusEvent) -> None:
+        """Publish a transient session status update."""
+        await self.session_status_events.put(event)
+
+    async def consume_session_status(self) -> SessionStatusEvent:
+        """Consume the next session status update (blocks until available)."""
+        return await self.session_status_events.get()
+
     @property
     def inbound_size(self) -> int:
         """Number of pending inbound messages."""
@@ -64,3 +73,8 @@ class MessageBus:
     def run_events_size(self) -> int:
         """Number of pending run events."""
         return self.run_events.qsize()
+
+    @property
+    def session_status_events_size(self) -> int:
+        """Number of pending session status updates."""
+        return self.session_status_events.qsize()

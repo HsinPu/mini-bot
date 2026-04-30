@@ -20,7 +20,7 @@ from uuid import uuid4
 from aiohttp import WSMsgType, web
 
 from .identity import build_session_id, normalize_identifier
-from ..bus.events import RunEvent
+from ..bus.events import RunEvent, SessionStatusEvent
 from ..bus.message import AssistantMessage, MessageAdapter, UserMessage
 from ..config import Config, MessagesConfig
 from ..config.channel_settings import (
@@ -1127,6 +1127,29 @@ class WebAdapter(MessageAdapter):
             }
         )
 
+    async def send_session_status(self, event: SessionStatusEvent) -> None:
+        """Send one session status update to interested browser sockets."""
+        payload = {
+            "type": "session_status",
+            "channel": self._channel_from_session(event.session_id),
+            "session_id": event.session_id,
+            "status": event.status,
+            "updated_at": event.updated_at,
+            "metadata": self._json_safe(dict(event.metadata or {})),
+        }
+        sent: set[web.WebSocketResponse] = set()
+        session_ws = self._session_connections.get(event.session_id)
+        if session_ws is not None and not session_ws.closed:
+            await session_ws.send_json(payload)
+            sent.add(session_ws)
+
+        # The Web UI can inspect external-channel sessions through history, so
+        # broadcast non-web status changes to connected browser inspectors too.
+        for ws in list(self._socket_sessions.keys()):
+            if ws in sent or ws.closed:
+                continue
+            await ws.send_json(payload)
+
     async def _handle_health(self, request: web.Request) -> web.Response:
         return web.json_response({"ok": True, "channel": self.channel_instance_id, "channel_type": self.channel_type})
 
@@ -1633,6 +1656,9 @@ class WebAdapter(MessageAdapter):
     async def _on_run_event(self, event: RunEvent) -> None:
         await self.send_run_event(event)
 
+    async def _on_session_status(self, event: SessionStatusEvent) -> None:
+        await self.send_session_status(event)
+
     async def _shutdown(self) -> None:
         for ws in list(self._socket_sessions):
             self._unbind_socket(ws)
@@ -1642,6 +1668,7 @@ class WebAdapter(MessageAdapter):
         if self.mq is not None:
             self.mq.unregister_response_handler(self.channel_instance_id)
             self.mq.unregister_run_event_handler(self.channel_instance_id)
+            self.mq.unregister_session_status_handler(self.channel_instance_id)
 
         if self.runner is not None:
             await self.runner.cleanup()
@@ -1700,6 +1727,7 @@ class WebAdapter(MessageAdapter):
 
         self.mq.register_response_handler(self.channel_instance_id, self._on_response)
         self.mq.register_run_event_handler(self.channel_instance_id, self._on_run_event)
+        self.mq.register_session_status_handler(self.channel_instance_id, self._on_session_status)
         self.runner = web.AppRunner(self.app)
         await self.runner.setup()
         self.site = web.TCPSite(self.runner, host=host, port=port)

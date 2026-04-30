@@ -22,9 +22,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 import shlex
 from typing import Any, Awaitable, Callable
-from . import MessageBus, InboundMessage, OutboundMessage, RunEvent
+from . import MessageBus, InboundMessage, OutboundMessage, RunEvent, SessionStatusEvent
 from .message import UserMessage, AssistantMessage
-from .session_status import SessionStatusService
+from .session_status import SessionStatusService, SessionStatusType
 from ..config import MessagesConfig
 from ..cron.presentation import render_cron_jobs
 from ..cron.types import CronSchedule
@@ -45,6 +45,7 @@ class Conversation:
 
 ResponseHandler = Callable[[AssistantMessage, str, str | None], Awaitable[None]]
 RunEventHandler = Callable[[RunEvent], Awaitable[None]]
+SessionStatusHandler = Callable[[SessionStatusEvent], Awaitable[None]]
 ErrorHandler = Callable[[str, str], Awaitable[None]]
 
 
@@ -95,10 +96,12 @@ class MessageQueue:
         self._session_tails: dict[str, asyncio.Task] = {}
         self._response_handlers: dict[str, ResponseHandler] = {}
         self._run_event_handlers: dict[str, RunEventHandler] = {}
+        self._session_status_handlers: dict[str, SessionStatusHandler] = {}
         self._error_handlers: dict[str, ErrorHandler] = {}
         # Outbound 消費者任務
         self._outbound_task: asyncio.Task | None = None
         self._run_event_task: asyncio.Task | None = None
+        self._session_status_task: asyncio.Task | None = None
 
     @staticmethod
     def normalize_channel(channel: str | None) -> str:
@@ -142,6 +145,11 @@ class MessageQueue:
         """Register the structured run event handler for a channel."""
         normalized_channel = self.normalize_channel(channel)
         self._run_event_handlers[normalized_channel] = handler
+
+    def register_session_status_handler(self, channel: str, handler: SessionStatusHandler) -> None:
+        """Register a handler for transient session status updates."""
+        normalized_channel = self.normalize_channel(channel)
+        self._session_status_handlers[normalized_channel] = handler
 
     def register_error_handler(self, channel: str, handler: ErrorHandler) -> None:
         """Register the processing error handler for a channel instance."""
@@ -626,10 +634,32 @@ class MessageQueue:
         normalized_channel = self.normalize_channel(channel)
         self._run_event_handlers.pop(normalized_channel, None)
 
+    def unregister_session_status_handler(self, channel: str) -> None:
+        """Remove a transient session status handler."""
+        normalized_channel = self.normalize_channel(channel)
+        self._session_status_handlers.pop(normalized_channel, None)
+
     def unregister_error_handler(self, channel: str) -> None:
         """Remove the processing error handler for a channel instance."""
         normalized_channel = self.normalize_channel(channel)
         self._error_handlers.pop(normalized_channel, None)
+
+    async def _set_session_status(
+        self,
+        session_id: str,
+        status: SessionStatusType,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Update in-memory status and publish the change for live inspectors."""
+        item = self.session_status.set(session_id, status, metadata)
+        await self.bus.publish_session_status(
+            SessionStatusEvent(
+                session_id=item.session_id,
+                status=item.status,
+                metadata=dict(item.metadata or {}),
+                updated_at=item.updated_at,
+            )
+        )
     
     async def enqueue(self, user_message: UserMessage) -> None:
         """
@@ -751,7 +781,7 @@ class MessageQueue:
         session_id = inbound.session_id or self.build_session_id(inbound.channel, external_chat_id)
         metadata = dict(inbound.metadata)
         suppress_outbound = bool(metadata.pop("_suppress_outbound", False))
-        self.session_status.set(
+        await self._set_session_status(
             session_id,
             "busy",
             {
@@ -814,7 +844,7 @@ class MessageQueue:
             elif hasattr(self, 'on_error'):
                 await self.on_error(session_id, str(e))
         finally:
-            self.session_status.set(session_id, "idle")
+            await self._set_session_status(session_id, "idle")
 
     async def _run_session_message(
         self,
@@ -888,6 +918,21 @@ class MessageQueue:
                 continue
             except Exception as e:
                 logger.exception(f"Run event consumer 發生錯誤: {e}")
+
+    async def _consume_session_status_events(self) -> None:
+        """Consume session status updates and dispatch them to live inspectors."""
+        while self.running:
+            try:
+                event = await asyncio.wait_for(
+                    self.bus.consume_session_status(),
+                    timeout=1.0,
+                )
+                for handler in list(self._session_status_handlers.values()):
+                    await handler(event)
+            except asyncio.TimeoutError:
+                continue
+            except Exception as e:
+                logger.exception(f"Session status consumer 發生錯誤: {e}")
     
     async def process_queue(self) -> None:
         """
@@ -901,6 +946,7 @@ class MessageQueue:
         # 啟動 outbound 消費者
         self._outbound_task = asyncio.create_task(self._consume_outbound())
         self._run_event_task = asyncio.create_task(self._consume_run_events())
+        self._session_status_task = asyncio.create_task(self._consume_session_status_events())
         
         while self.running:
             try:
@@ -955,7 +1001,7 @@ class MessageQueue:
         cancelled = 0
         cancellable_tasks = [task for task in tasks if not task.done()]
         if cancellable_tasks:
-            self.session_status.set(session_id, "cancelling")
+            await self._set_session_status(session_id, "cancelling")
         for task in tasks:
             if not task.done():
                 task.cancel()
@@ -965,7 +1011,7 @@ class MessageQueue:
                 except asyncio.CancelledError:
                     pass
         if cancelled == 0:
-            self.session_status.set(session_id, "idle")
+            await self._set_session_status(session_id, "idle")
         return cancelled
     
     async def cancel_all(self) -> int:
@@ -997,6 +1043,13 @@ class MessageQueue:
             self._run_event_task.cancel()
             try:
                 await self._run_event_task
+            except asyncio.CancelledError:
+                pass
+
+        if self._session_status_task and not self._session_status_task.done():
+            self._session_status_task.cancel()
+            try:
+                await self._session_status_task
             except asyncio.CancelledError:
                 pass
         
