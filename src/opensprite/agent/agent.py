@@ -1392,9 +1392,13 @@ class AgentLoop:
         external_chat_id: str | None = None,
     ) -> bool:
         """Request cooperative cancellation for one active run."""
+        current = self.run_state.get_active(session_id)
+        already_requested = bool(current is not None and current.run_id == run_id and current.cancel_requested)
         active = self.run_state.request_cancel(session_id, run_id)
         if active is None:
             return False
+        if already_requested:
+            return True
         killed_sessions = await self._cancel_owned_background_sessions(session_id, run_id)
         await self._emit_run_event(
             session_id,

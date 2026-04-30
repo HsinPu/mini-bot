@@ -997,6 +997,22 @@ class MessageQueue:
             int: 被取消的任務數量
         """
         session_id = self.resolve_session_id(session_or_external_chat_id, channel)
+        active_run = getattr(self.agent, "get_active_run", lambda _session_id: None)(session_id)
+        request_run_cancel = getattr(self.agent, "request_run_cancel", None)
+        if active_run is not None and callable(request_run_cancel):
+            event_channel, external_chat_id = (
+                session_id.split(":", 1) if ":" in session_id else (channel or "unknown", session_id)
+            )
+            try:
+                await request_run_cancel(
+                    session_id,
+                    active_run.run_id,
+                    channel=event_channel,
+                    external_chat_id=external_chat_id,
+                )
+            except Exception as exc:
+                logger.warning("[{}] run.cancel.request.failed | run_id={} error={}", session_id, active_run.run_id, exc)
+
         tasks = self._active_tasks.pop(session_id, [])
         cancelled = 0
         cancellable_tasks = [task for task in tasks if not task.done()]

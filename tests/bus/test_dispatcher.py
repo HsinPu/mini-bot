@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import dataclass
 
 from opensprite.bus.dispatcher import MessageQueue
 from opensprite.bus.message import AssistantMessage
@@ -32,6 +33,11 @@ class ReplyProvider:
 
     def get_default_model(self) -> str:
         return "fake-model"
+
+
+@dataclass
+class FakeActiveRun:
+    run_id: str
 
 
 class ToolReplyProvider:
@@ -175,6 +181,54 @@ def test_message_queue_tracks_session_status_during_processing():
     assert idle.status == "idle"
     assert idle.session_id == "telegram:status-chat"
     assert final_list == []
+
+
+def test_message_queue_cancel_session_requests_active_run_cancel_first():
+    class CancellableAgent(FakeAgent):
+        def __init__(self):
+            super().__init__(response_channel="telegram")
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
+            self.cancel_calls = []
+            self.active_by_session = {}
+
+        def get_active_run(self, session_id):
+            return self.active_by_session.get(session_id)
+
+        async def request_run_cancel(self, session_id, run_id, *, channel=None, external_chat_id=None):
+            self.cancel_calls.append((session_id, run_id, channel, external_chat_id))
+            return True
+
+        async def process(self, user_message):
+            self.active_by_session[user_message.session_id] = FakeActiveRun("run-active")
+            self.started.set()
+            try:
+                await self.release.wait()
+                return await super().process(user_message)
+            finally:
+                self.active_by_session.pop(user_message.session_id, None)
+
+    async def scenario():
+        agent = CancellableAgent()
+        queue = MessageQueue(agent)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="ping", external_chat_id="cancel-chat", channel="telegram")
+            await asyncio.wait_for(agent.started.wait(), timeout=2)
+            cancelled = await queue.cancel_session("telegram:cancel-chat")
+            status = queue.session_status.get("telegram:cancel-chat")
+        finally:
+            agent.release.set()
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return cancelled, status, agent.cancel_calls
+
+    cancelled, status, cancel_calls = asyncio.run(scenario())
+
+    assert cancelled == 1
+    assert status.status == "idle"
+    assert cancel_calls == [("telegram:cancel-chat", "run-active", "telegram", "cancel-chat")]
 
 
 def test_message_queue_persists_run_trace_for_telegram_message(tmp_path):
