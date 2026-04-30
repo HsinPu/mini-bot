@@ -24,6 +24,7 @@ import shlex
 from typing import Any, Awaitable, Callable
 from . import MessageBus, InboundMessage, OutboundMessage, RunEvent
 from .message import UserMessage, AssistantMessage
+from .session_status import SessionStatusService
 from ..config import MessagesConfig
 from ..cron.presentation import render_cron_jobs
 from ..cron.types import CronSchedule
@@ -67,7 +68,13 @@ class MessageQueue:
                                              channel response handlers
     """
     
-    def __init__(self, agent, bus: MessageBus | None = None, messages_config: MessagesConfig | None = None):
+    def __init__(
+        self,
+        agent,
+        bus: MessageBus | None = None,
+        messages_config: MessagesConfig | None = None,
+        session_status: SessionStatusService | None = None,
+    ):
         """
         初始化
         
@@ -77,6 +84,7 @@ class MessageQueue:
         """
         self.agent = agent
         self.bus = bus or MessageBus()
+        self.session_status = session_status or SessionStatusService()
         if hasattr(agent, "_message_bus"):
             agent._message_bus = self.bus
         self.messages = messages_config or getattr(agent, "messages", None) or MessagesConfig()
@@ -743,6 +751,14 @@ class MessageQueue:
         session_id = inbound.session_id or self.build_session_id(inbound.channel, external_chat_id)
         metadata = dict(inbound.metadata)
         suppress_outbound = bool(metadata.pop("_suppress_outbound", False))
+        self.session_status.set(
+            session_id,
+            "busy",
+            {
+                "channel": inbound.channel,
+                "external_chat_id": external_chat_id,
+            },
+        )
         
         try:
             # 取得或建立對話
@@ -797,6 +813,8 @@ class MessageQueue:
                 await error_handler(session_id, str(e))
             elif hasattr(self, 'on_error'):
                 await self.on_error(session_id, str(e))
+        finally:
+            self.session_status.set(session_id, "idle")
 
     async def _run_session_message(
         self,
@@ -935,6 +953,9 @@ class MessageQueue:
         session_id = self.resolve_session_id(session_or_external_chat_id, channel)
         tasks = self._active_tasks.pop(session_id, [])
         cancelled = 0
+        cancellable_tasks = [task for task in tasks if not task.done()]
+        if cancellable_tasks:
+            self.session_status.set(session_id, "cancelling")
         for task in tasks:
             if not task.done():
                 task.cancel()
@@ -943,6 +964,8 @@ class MessageQueue:
                     await task
                 except asyncio.CancelledError:
                     pass
+        if cancelled == 0:
+            self.session_status.set(session_id, "idle")
         return cancelled
     
     async def cancel_all(self) -> int:

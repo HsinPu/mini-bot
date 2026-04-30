@@ -597,6 +597,7 @@ async def _run_web_sessions_api():
     agent = EchoAgent()
     agent.storage = storage
     queue = MessageQueue(agent)
+    queue.session_status.set("web:browser-new", "busy", {"channel": "web", "external_chat_id": "browser-new"})
     adapter = WebAdapter(
         mq=queue,
         config={
@@ -622,9 +623,30 @@ async def _run_web_sessions_api():
                 assert resp.status == 200
                 payload = await resp.json()
 
+            async with session.get(f"http://127.0.0.1:{port}/api/sessions/status") as resp:
+                assert resp.status == 200
+                status_payload = await resp.json()
+
+            async with session.get(
+                f"http://127.0.0.1:{port}/api/sessions/status",
+                params={"session_id": "web:missing"},
+            ) as resp:
+                assert resp.status == 200
+                idle_status_payload = await resp.json()
+
         assert [item["session_id"] for item in payload["sessions"]] == ["web:browser-new"]
         assert payload["sessions"][0]["external_chat_id"] == "browser-new"
         assert payload["sessions"][0]["title"] == "new hello"
+        assert payload["sessions"][0]["status"] == {
+            "session_id": "web:browser-new",
+            "status": "busy",
+            "updated_at": payload["sessions"][0]["status"]["updated_at"],
+            "metadata": {"channel": "web", "external_chat_id": "browser-new"},
+        }
+        assert status_payload["statuses"] == [payload["sessions"][0]["status"]]
+        assert idle_status_payload["status"]["session_id"] == "web:missing"
+        assert idle_status_payload["status"]["status"] == "idle"
+        assert idle_status_payload["status"]["metadata"] == {}
         assert payload["sessions"][0]["message_count"] == 1
         assert payload["sessions"][0]["runs"] == [
             {

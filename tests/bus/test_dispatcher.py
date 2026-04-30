@@ -130,6 +130,53 @@ def test_message_queue_accepts_empty_text_media_message():
     assert seen_messages[0].images == ["img-a"]
 
 
+def test_message_queue_tracks_session_status_during_processing():
+    class BlockingAgent(FakeAgent):
+        def __init__(self):
+            super().__init__(response_channel="telegram")
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def process(self, user_message):
+            self.started.set()
+            await self.release.wait()
+            return await super().process(user_message)
+
+    async def scenario():
+        agent = BlockingAgent()
+        queue = MessageQueue(agent)
+        response_sent = asyncio.Event()
+
+        async def handler(message, channel, external_chat_id):
+            response_sent.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="ping", external_chat_id="status-chat", channel="telegram")
+            await asyncio.wait_for(agent.started.wait(), timeout=2)
+            busy = queue.session_status.get("telegram:status-chat")
+            listed = queue.session_status.list()
+            agent.release.set()
+            await asyncio.wait_for(response_sent.wait(), timeout=2)
+            idle = queue.session_status.get("telegram:status-chat")
+            final_list = queue.session_status.list()
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return busy, listed, idle, final_list
+
+    busy, listed, idle, final_list = asyncio.run(scenario())
+
+    assert busy.status == "busy"
+    assert busy.metadata == {"channel": "telegram", "external_chat_id": "status-chat"}
+    assert [item.session_id for item in listed] == ["telegram:status-chat"]
+    assert idle.status == "idle"
+    assert idle.session_id == "telegram:status-chat"
+    assert final_list == []
+
+
 def test_message_queue_persists_run_trace_for_telegram_message(tmp_path):
     async def scenario():
         storage = MemoryStorage()

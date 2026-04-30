@@ -319,6 +319,9 @@ class WebAdapter(MessageAdapter):
     def _get_agent(self) -> Any | None:
         return getattr(self.mq, "agent", None)
 
+    def _get_session_status_service(self) -> Any | None:
+        return getattr(self.mq, "session_status", None)
+
     def _get_config_path(self) -> Path:
         agent = self._get_agent()
         raw_path = getattr(agent, "config_path", None) if agent is not None else None
@@ -702,10 +705,23 @@ class WebAdapter(MessageAdapter):
             "external_chat_id": external_chat_id,
             "title": self._session_title(display_messages, fallback_title),
             "updated_at": self._session_updated_at(messages, latest_runs),
+            "status": self._serialize_session_status(session_id),
             "message_count": await storage.get_message_count(session_id),
             "messages": [self._serialize_message(message) for message in display_messages],
             "runs": [self._serialize_run(run) for run in latest_runs],
             "work_state": self._serialize_work_state(work_state),
+        }
+
+    def _serialize_session_status(self, session_id: str) -> dict[str, Any]:
+        service = self._get_session_status_service()
+        if service is None:
+            return {"session_id": session_id, "status": "idle", "metadata": {}}
+        item = service.get(session_id)
+        return {
+            "session_id": item.session_id,
+            "status": item.status,
+            "updated_at": item.updated_at,
+            "metadata": self._json_safe(dict(item.metadata or {})),
         }
 
     def _serialize_run_event(self, event: Any) -> dict[str, Any]:
@@ -1156,6 +1172,15 @@ class WebAdapter(MessageAdapter):
         ]
         sessions.sort(key=lambda item: (item["updated_at"], item["session_id"]), reverse=True)
         return web.json_response({"sessions": sessions[:session_limit]})
+
+    async def _handle_session_status(self, request: web.Request) -> web.Response:
+        session_id = self._coerce_optional_text(request.query.get("session_id"))
+        if session_id is not None:
+            return web.json_response({"status": self._serialize_session_status(session_id)})
+
+        service = self._get_session_status_service()
+        statuses = [] if service is None else [self._serialize_session_status(item.session_id) for item in service.list()]
+        return web.json_response({"statuses": statuses})
 
     async def _handle_run_trace(self, request: web.Request) -> web.Response:
         storage = self._require_storage()
@@ -1625,6 +1650,7 @@ class WebAdapter(MessageAdapter):
         self.app = web.Application()
         self.app.router.add_get(ws_path, self._handle_websocket)
         self.app.router.add_get(health_path, self._handle_health)
+        self.app.router.add_get("/api/sessions/status", self._handle_session_status)
         self.app.router.add_get("/api/sessions", self._handle_sessions)
         self.app.router.add_get("/api/runs", self._handle_runs)
         self.app.router.add_get("/api/runs/{run_id}/summary", self._handle_run_summary)
