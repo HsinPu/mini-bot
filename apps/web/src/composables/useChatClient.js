@@ -31,6 +31,7 @@ const RUN_SUMMARY_NOT_FOUND_RETRY_DELAY_MS = 1200;
 const RUN_SUMMARY_NOT_FOUND_RETRY_LIMIT = 3;
 const RUN_BACKFILL_COOLDOWN_MS = 2000;
 const TERMINAL_RUN_STATUSES = new Set(["completed", "failed", "cancelled"]);
+const TERMINAL_PART_STATES = new Set(["completed", "failed", "cancelled", "error"]);
 const RUN_EVENT_KINDS = new Set(["run", "llm", "tool", "verification", "permission", "work", "completion", "file", "text", "system", "other"]);
 const MCP_TRANSPORT_TYPES = new Set(["stdio", "sse", "streamableHttp"]);
 const TIMELINE_EVENT_TYPES = new Set([
@@ -1759,21 +1760,22 @@ export function useChatClient() {
     const partType = String(payload.part_type || payload.partType || "assistant_message").trim() || "assistant_message";
     const partId = String(payload.part_id || payload.partId || `stream:${run.runId}:${partType}`).trim();
     const delta = String(payload.content_delta ?? payload.delta ?? payload.text ?? payload.content ?? "");
-    if (!delta) {
+    const existingIndex = run.parts.findIndex((part) => part.partId === partId);
+    const existing = existingIndex >= 0 ? run.parts[existingIndex] : null;
+    const nextState = String(payload.state || payload.status || existing?.state || "running").trim() || "running";
+    if (!delta && !existing) {
       return;
     }
 
     const metadata = payload.metadata && typeof payload.metadata === "object" ? payload.metadata : {};
-    const existingIndex = run.parts.findIndex((part) => part.partId === partId);
-    const existing = existingIndex >= 0 ? run.parts[existingIndex] : null;
     const nextPart = normalizeTracePart({
       part_id: partId,
       part_type: partType,
       kind: payload.kind || existing?.kind || "text",
-      state: payload.state || payload.status || "running",
+      state: nextState,
       content: `${existing?.content || ""}${delta}`,
       tool_name: payload.tool_name || payload.toolName || existing?.toolName || "",
-      metadata: { ...(existing?.metadata || {}), ...metadata, streaming: true },
+      metadata: { ...(existing?.metadata || {}), ...metadata, streaming: !TERMINAL_PART_STATES.has(nextState) },
       created_at: existing?.createdAt || createdAt,
     });
     if (!nextPart) {

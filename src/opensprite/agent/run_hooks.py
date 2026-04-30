@@ -314,7 +314,8 @@ class RunHookService:
 
         async def _hook(part_id: str, delta: str, state: str = "running", sequence: int = 0) -> None:
             text = str(delta or "")
-            if not text:
+            normalized_state = str(state or "running")
+            if not text and normalized_state == "running":
                 return
             await self._emit_run_event(
                 sid,
@@ -324,7 +325,7 @@ class RunHookService:
                     "part_id": part_id,
                     "part_type": "assistant_message",
                     "content_delta": text,
-                    "state": state,
+                    "state": normalized_state,
                     "sequence": int(sequence),
                 },
                 channel=ch,

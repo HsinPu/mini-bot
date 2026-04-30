@@ -1046,6 +1046,9 @@ Output exactly these sections when applicable:
                         f"tool_history_count={len(tool_results_history)} sanitized_from_nonempty=true"
                     )
 
+            if response_delta_count > 0 and on_response_delta is not None:
+                await on_response_delta(response_part_id, "", "completed", response_delta_count + 1)
+
             if response.tool_calls:
                 if not tools:
                     logger.warning(

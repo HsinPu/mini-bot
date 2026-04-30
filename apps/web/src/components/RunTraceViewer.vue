@@ -124,10 +124,11 @@
               :key="part.partId || `${part.partType}:${part.createdAt}`"
               class="run-trace__part"
               :data-kind="part.kind"
+              :data-state="part.state"
             >
               <summary>
                 <span class="run-trace__part-type">{{ part.partType }}</span>
-                <span v-if="part.state" class="run-trace__part-state">{{ part.state }}</span>
+                <span v-if="part.state" class="run-trace__part-state" :data-state="part.state">{{ partStateLabel(part) }}</span>
                 <span v-if="partSummary(part)" class="run-trace__part-summary">{{ partSummary(part) }}</span>
                 <time>{{ formatEventTime(part.createdAt) }}</time>
               </summary>
@@ -334,6 +335,13 @@ function eventSummary(event) {
 function partSummary(part) {
   const values = [part.toolName, previewText(part.content), part.artifact?.detail].filter(Boolean);
   return values[0] || "";
+}
+
+function partStateLabel(part) {
+  if (part?.metadata?.streaming && part.state === "running") {
+    return "streaming";
+  }
+  return part?.state || "";
 }
 
 function previewText(value) {

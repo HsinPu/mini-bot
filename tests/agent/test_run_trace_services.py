@@ -1,6 +1,7 @@
 import asyncio
 from types import SimpleNamespace
 
+from opensprite.agent.run_hooks import RunHookService
 from opensprite.agent.run_trace import RUN_PART_CONTENT_MAX_CHARS, RunEventSink, RunTraceRecorder, truncate_run_part_content
 from opensprite.bus import MessageBus
 from opensprite.run_schema import (
@@ -163,6 +164,46 @@ def test_serialize_run_event_classifies_part_delta_as_streaming_text():
     assert payload["kind"] == "text"
     assert payload["status"] == "running"
     assert payload["artifact"] is None
+
+
+def test_llm_delta_hook_emits_empty_completion_marker():
+    calls = []
+
+    async def emit_run_event(session_id, run_id, event_type, payload, **kwargs):
+        calls.append((session_id, run_id, event_type, payload, kwargs))
+
+    service = RunHookService(
+        message_bus_getter=lambda: None,
+        add_run_part=lambda *args, **kwargs: None,
+        emit_run_event=emit_run_event,
+        format_log_preview=lambda text, max_chars=200: str(text)[:max_chars],
+    )
+    hook = service.make_llm_delta_hook(
+        channel="web",
+        external_chat_id="browser-1",
+        session_id="web:browser-1",
+        run_id="run-1",
+        enabled=True,
+    )
+
+    async def scenario():
+        await hook("assistant:run-1:1", "", "running", 1)
+        await hook("assistant:run-1:1", "", "completed", 2)
+
+    asyncio.run(scenario())
+
+    assert len(calls) == 1
+    assert calls[0][0] == "web:browser-1"
+    assert calls[0][1] == "run-1"
+    assert calls[0][2] == "run_part_delta"
+    assert calls[0][3] == {
+        "part_id": "assistant:run-1:1",
+        "part_type": "assistant_message",
+        "content_delta": "",
+        "state": "completed",
+        "sequence": 2,
+    }
+    assert calls[0][4] == {"channel": "web", "external_chat_id": "browser-1"}
 
 
 def test_serialize_run_part_builds_stable_artifact_shape():
