@@ -28,6 +28,7 @@
     <ChatPanel
       :copy="copy"
       :prompts="prompts"
+      :entries="currentEntries"
       :messages="currentMessages"
       :work-state="currentWorkState"
       :runs="currentRuns"
@@ -127,6 +128,7 @@ const {
   settingsForm,
   settingsState,
   permissionState,
+  currentEntries,
   currentMessages,
   currentWorkState,
   currentRuns,

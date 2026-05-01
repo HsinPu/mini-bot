@@ -32,13 +32,13 @@
     <section :ref="setMessageStageRef" class="message-stage" aria-live="polite">
       <div class="conversation-wrap">
         <EmptyState
-          v-if="messages.length === 0"
+          v-if="entries.length === 0 && messages.length === 0"
           :copy="copy"
           :prompts="prompts"
           @apply-prompt="$emit('apply-prompt', $event)"
         />
 
-        <MessageList :copy="copy" :messages="messages" :display-name="displayName" />
+        <MessageList :copy="copy" :entries="entries" :messages="messages" :display-name="displayName" />
 
         <WorkStateCard v-if="workState" :copy="copy" :work-state="workState" />
 
@@ -181,6 +181,10 @@ const props = defineProps({
     required: true,
   },
   prompts: {
+    type: Array,
+    required: true,
+  },
+  entries: {
     type: Array,
     required: true,
   },

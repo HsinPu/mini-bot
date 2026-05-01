@@ -163,6 +163,7 @@ function createSession(externalChatId) {
     title: "New chat",
     updatedAt: Date.now(),
     messages: [],
+    entries: [],
     status: { status: "idle", updatedAt: Date.now(), metadata: {} },
     workState: null,
     activeRunId: null,
@@ -964,6 +965,8 @@ export function useChatClient() {
   const currentWorkState = computed(() => currentSession.value?.workState || null);
 
   const currentMessages = computed(() => currentSession.value?.messages || []);
+
+  const currentEntries = computed(() => currentSession.value?.entries || []);
 
   const currentRuns = computed(() => currentSession.value?.runs || []);
 
@@ -2226,6 +2229,47 @@ export function useChatClient() {
     };
   }
 
+  function normalizeSessionEntryContent(item, index) {
+    if (!item || typeof item !== "object") {
+      return null;
+    }
+    const type = String(item.type || "text").trim() || "text";
+    const artifact = item.artifact && typeof item.artifact === "object" ? normalizeRunArtifact(item.artifact) : null;
+    return {
+      id: String(item.part_id || item.partId || item.artifact_id || item.artifactId || `${type}-${index}`).trim(),
+      type,
+      status: String(item.status || "").trim(),
+      title: String(item.title || artifact?.title || type).trim(),
+      detail: String(item.detail || item.text || artifact?.detail || "").trim(),
+      text: String(item.text || ""),
+      createdAt: normalizeEventTimestamp(item.created_at ?? item.createdAt),
+      artifact,
+    };
+  }
+
+  function makeHistoryEntry(entry, index) {
+    if (!entry || typeof entry !== "object") {
+      return null;
+    }
+    const role = entry.role === "user" ? "user" : "assistant";
+    const content = Array.isArray(entry.content)
+      ? entry.content.map(normalizeSessionEntryContent).filter(Boolean)
+      : [];
+    return {
+      id: String(entry.entry_id || entry.entryId || `entry-${index}-${randomToken()}`).trim(),
+      type: String(entry.entry_type || entry.entryType || role).trim() || role,
+      role,
+      runId: String(entry.run_id || entry.runId || "").trim(),
+      status: String(entry.status || "").trim(),
+      text: String(entry.text || ""),
+      content,
+      meta: entry.metadata?.sender_name || entry.metadata?.sender_id || (role === "user" ? state.displayName : "OpenSprite"),
+      createdAt: normalizeEventTimestamp(entry.created_at ?? entry.createdAt),
+      updatedAt: normalizeEventTimestamp(entry.updated_at ?? entry.updatedAt),
+      metadata: entry.metadata && typeof entry.metadata === "object" ? entry.metadata : {},
+    };
+  }
+
   function normalizeHistoryRun(payload) {
     const runId = String(payload?.run_id || payload?.runId || "").trim();
     if (!runId) {
@@ -2325,6 +2369,9 @@ export function useChatClient() {
     session.updatedAt = normalizeEventTimestamp(payload?.updated_at);
     session.messages = Array.isArray(payload?.messages)
       ? payload.messages.map(makeHistoryMessage).filter((message) => message.text.trim())
+      : [];
+    session.entries = Array.isArray(payload?.entries)
+      ? payload.entries.map(makeHistoryEntry).filter(Boolean)
       : [];
     session.runs = Array.isArray(payload?.runs)
       ? payload.runs.map(normalizeHistoryRun).filter(Boolean)
@@ -3301,6 +3348,7 @@ export function useChatClient() {
     settingsForm,
     settingsState,
     permissionState,
+    currentEntries,
     currentMessages,
     currentWorkState,
     currentRuns,

@@ -11,17 +11,33 @@
         <div class="message__meta">
           {{ message.meta || (message.role === "user" ? displayName : "OpenSprite") }}
         </div>
-        <div class="message__bubble">{{ message.text }}</div>
+        <div v-if="message.text" class="message__bubble">{{ message.text }}</div>
+        <div v-if="message.content.length" class="message__parts">
+          <template v-for="part in message.content" :key="part.id">
+            <div v-if="part.type === 'text'" class="message__bubble">{{ part.text || part.detail }}</div>
+            <div v-else class="message__artifact" :data-type="part.type" :data-status="part.status || undefined">
+              <span class="message__artifact-type">{{ part.type }}</span>
+              <strong>{{ part.title || part.type }}</strong>
+              <p v-if="part.detail">{{ part.detail }}</p>
+            </div>
+          </template>
+        </div>
       </div>
     </article>
   </div>
 </template>
 
 <script setup>
-defineProps({
+import { computed } from "vue";
+
+const props = defineProps({
   copy: {
     type: Object,
     required: true,
+  },
+  entries: {
+    type: Array,
+    default: () => [],
   },
   messages: {
     type: Array,
@@ -31,5 +47,22 @@ defineProps({
     type: String,
     required: true,
   },
+});
+
+const messages = computed(() => {
+  if (props.entries.length) {
+    return props.entries.map((entry, index) => ({
+      id: entry.id || `entry-${index}`,
+      role: entry.role === "user" ? "user" : "assistant",
+      text: entry.text || "",
+      meta: entry.meta || (entry.role === "user" ? props.displayName : "OpenSprite"),
+      content: Array.isArray(entry.content) ? entry.content : [],
+    }));
+  }
+
+  return props.messages.map((message) => ({
+    ...message,
+    content: [],
+  }));
 });
 </script>
