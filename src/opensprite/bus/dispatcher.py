@@ -24,6 +24,13 @@ import shlex
 from typing import Any, Awaitable, Callable
 from . import MessageBus, InboundMessage, OutboundMessage, RunEvent, SessionStatusEvent
 from .message import UserMessage, AssistantMessage
+from .session_commands import (
+    CommandDef,
+    first_command_token,
+    iter_session_commands,
+    render_command_usage,
+    resolve_session_command,
+)
 from .session_status import SessionStatusService, SessionStatusType
 from ..config import MessagesConfig
 from ..cron.presentation import render_cron_jobs
@@ -159,34 +166,96 @@ class MessageQueue:
     @staticmethod
     def _first_command(text: str | None) -> str:
         """Return the first whitespace-delimited command token, or empty string."""
-        parts = (text or "").strip().split(maxsplit=1)
-        if not parts:
-            return ""
-        return parts[0].lower()
+        command = resolve_session_command(first_command_token(text))
+        return f"/{command.name}" if command is not None else ""
+
+    @staticmethod
+    def is_help_command(text: str | None) -> bool:
+        """Return whether a message should show command help."""
+        command = resolve_session_command(first_command_token(text))
+        return command is not None and command.name == "help"
 
     @staticmethod
     def is_stop_command(text: str | None) -> bool:
         """Return whether a message should interrupt the current session."""
-        command = MessageQueue._first_command(text)
-        return command in {"/stop", "/stop@openspritebot"}
+        command = resolve_session_command(first_command_token(text))
+        return command is not None and command.name == "stop"
 
     @staticmethod
     def is_reset_command(text: str | None) -> bool:
         """Return whether a message should reset the current session."""
-        command = MessageQueue._first_command(text)
-        return command in {"/reset", "/reset@openspritebot"}
+        command = resolve_session_command(first_command_token(text))
+        return command is not None and command.name == "reset"
 
     @staticmethod
     def is_cron_command(text: str | None) -> bool:
         """Return whether a message should use immediate cron command handling."""
-        command = MessageQueue._first_command(text)
-        return command in {"/cron", "/cron@openspritebot"}
+        command = resolve_session_command(first_command_token(text))
+        return command is not None and command.name == "cron"
 
     @staticmethod
     def is_task_command(text: str | None) -> bool:
         """Return whether a message should use immediate task command handling."""
-        command = MessageQueue._first_command(text)
-        return command in {"/task", "/task@openspritebot"}
+        command = resolve_session_command(first_command_token(text))
+        return command is not None and command.name == "task"
+
+    @staticmethod
+    def _command_help_lines(command: CommandDef) -> list[str]:
+        """Render one short help block for a single command."""
+        lines = [render_command_usage(command), command.description]
+        if command.aliases:
+            aliases = ", ".join(f"/{alias}" for alias in command.aliases)
+            lines.append(f"Aliases: {aliases}")
+        return lines
+
+    def _command_help_overview(self) -> str:
+        """Return the overview text for supported chat commands."""
+        lines = ["Available chat commands:"]
+        for command in iter_session_commands():
+            usage = render_command_usage(command)
+            lines.append(f"- {usage}: {command.description}")
+        lines.append("")
+        lines.append("Use /help <command> for command-specific help.")
+        return "\n".join(lines)
+
+    def _command_detail_help(self, command: CommandDef) -> str:
+        """Return detailed help text for one command."""
+        if command.name == "cron":
+            return self._cron_help_text()
+        if command.name == "task":
+            return self._task_help_text()
+        if command.name == "curator":
+            return self.messages.curator.help_text
+        return "\n".join(self._command_help_lines(command))
+
+    def _help_unknown_command_text(self, command_name: str) -> str:
+        """Return the user-facing help text for an unknown command target."""
+        unknown = str(command_name or "").strip() or "(empty)"
+        return f"Unknown command: {unknown}\n\n{self._command_help_overview()}"
+
+    @staticmethod
+    def _parse_help_command(text: str | None) -> tuple[str | None, bool]:
+        """Return the optional help target and whether parsing succeeded."""
+        try:
+            parts = shlex.split((text or "").strip())
+        except ValueError:
+            return None, False
+        if len(parts) < 2:
+            return None, True
+        return parts[1], True
+
+    def _handle_help_command(self, text: str | None) -> str:
+        """Handle `/help` and `/help <command>` requests."""
+        target, parsed = self._parse_help_command(text)
+        if not parsed:
+            return self._command_help_overview()
+        if target is None:
+            return self._command_help_overview()
+
+        command = resolve_session_command(target)
+        if command is None:
+            return self._help_unknown_command_text(target)
+        return self._command_detail_help(command)
 
     @staticmethod
     def _parse_cron_command(text: str | None) -> tuple[str, list[str]]:
@@ -546,6 +615,101 @@ class MessageQueue:
 
         return self._task_help_text()
 
+    @staticmethod
+    def _parse_curator_command(text: str | None) -> tuple[str, list[str]]:
+        """Parse the curator command into an action and remaining args."""
+        try:
+            parts = shlex.split((text or "").strip())
+        except ValueError:
+            return "error", []
+        if not parts:
+            return "help", []
+        args = parts[1:]
+        if not args:
+            return "help", []
+        return args[0].lower(), args[1:]
+
+    def _format_curator_status(self, status: dict[str, Any]) -> str:
+        """Render one user-facing curator status block."""
+        jobs = ", ".join(str(item) for item in status.get("jobs", []) if str(item).strip()) or "none"
+        paused_text = "yes" if status.get("paused") else "no"
+        rerun_text = "yes" if status.get("rerun_pending") else "no"
+        lines = [
+            self.messages.curator.status_header,
+            self.messages.curator.status_label.format(state=status.get("state") or "idle"),
+            self.messages.curator.paused_label.format(value=paused_text),
+            self.messages.curator.run_count_label.format(value=int(status.get("run_count") or 0)),
+            self.messages.curator.last_run_label.format(value=status.get("last_run_at") or "never"),
+            self.messages.curator.last_summary_label.format(value=status.get("last_run_summary") or "none"),
+            self.messages.curator.rerun_pending_label.format(value=rerun_text),
+            self.messages.curator.jobs_label.format(jobs=jobs),
+        ]
+        last_error = str(status.get("last_error") or "").strip()
+        if last_error:
+            lines.append(self.messages.curator.last_error_label.format(value=last_error))
+        run_id = str(status.get("run_id") or "").strip()
+        if run_id:
+            lines.append(self.messages.curator.attached_run_label.format(run_id=run_id))
+        return "\n".join(lines)
+
+    async def _handle_curator_command(
+        self,
+        session_id: str,
+        text: str | None,
+        *,
+        channel: str,
+        external_chat_id: str,
+    ) -> str:
+        """Handle immediate curator status and manual-run commands."""
+        action, _args = self._parse_curator_command(text)
+        if action == "error":
+            return self.messages.curator.help_text
+        if action in {"help", "--help", "-h"}:
+            return self.messages.curator.help_text
+
+        show_status = getattr(self.agent, "get_curator_status", None)
+        run_now = getattr(self.agent, "run_curator_now", None)
+        pause_curator = getattr(self.agent, "pause_curator", None)
+        resume_curator = getattr(self.agent, "resume_curator", None)
+        if action == "status":
+            if not callable(show_status):
+                return self.messages.curator.unavailable
+            status = await show_status(session_id)
+            if status is None:
+                return self.messages.curator.unavailable
+            return self._format_curator_status(status)
+
+        if action == "run":
+            if not callable(run_now):
+                return self.messages.curator.unavailable
+            status = await run_now(session_id, channel=channel, external_chat_id=external_chat_id)
+            if status is None:
+                return self.messages.curator.unavailable
+            scheduled = bool(status.get("scheduled"))
+            if status.get("paused"):
+                intro = self.messages.curator.run_paused
+            else:
+                intro = self.messages.curator.run_scheduled if scheduled else self.messages.curator.run_rerun_scheduled
+            return f"{intro}\n\n{self._format_curator_status(status)}"
+
+        if action == "pause":
+            if not callable(pause_curator):
+                return self.messages.curator.unavailable
+            status = await pause_curator(session_id)
+            if status is None:
+                return self.messages.curator.unavailable
+            return f"{self.messages.curator.paused_done}\n\n{self._format_curator_status(status)}"
+
+        if action == "resume":
+            if not callable(resume_curator):
+                return self.messages.curator.unavailable
+            status = await resume_curator(session_id)
+            if status is None:
+                return self.messages.curator.unavailable
+            return f"{self.messages.curator.resumed_done}\n\n{self._format_curator_status(status)}"
+
+        return self.messages.curator.help_text
+
     async def _publish_stop_response(
         self,
         *,
@@ -588,7 +752,7 @@ class MessageQueue:
             )
         )
 
-    async def _publish_cron_response(
+    async def _publish_text_response(
         self,
         *,
         channel: str,
@@ -596,7 +760,7 @@ class MessageQueue:
         session_id: str,
         content: str,
     ) -> None:
-        """Publish the acknowledgement for an immediate cron command."""
+        """Publish one immediate command response without entering agent history."""
         await self.bus.publish_outbound(
             OutboundMessage(
                 channel=channel,
@@ -606,23 +770,82 @@ class MessageQueue:
             )
         )
 
-    async def _publish_task_response(
+    async def _dispatch_session_command(
         self,
+        command: CommandDef,
         *,
         channel: str,
         external_chat_id: str,
         session_id: str,
-        content: str,
+        text: str | None,
     ) -> None:
-        """Publish the acknowledgement for an immediate task command."""
-        await self.bus.publish_outbound(
-            OutboundMessage(
+        """Run one known session command immediately and publish its response."""
+        if command.name == "stop":
+            cancelled = await self.cancel_session(session_id)
+            await self._publish_stop_response(
                 channel=channel,
                 external_chat_id=external_chat_id,
                 session_id=session_id,
-                content=content,
+                cancelled=cancelled,
             )
-        )
+            return
+
+        if command.name == "reset":
+            cancelled = await self.cancel_session(session_id)
+            await self.agent.reset_history(session_id)
+            await self._publish_reset_response(
+                channel=channel,
+                external_chat_id=external_chat_id,
+                session_id=session_id,
+                cancelled=cancelled,
+            )
+            return
+
+        if command.name == "help":
+            await self._publish_text_response(
+                channel=channel,
+                external_chat_id=external_chat_id,
+                session_id=session_id,
+                content=self._handle_help_command(text),
+            )
+            return
+
+        if command.name == "cron":
+            response_text = await self._handle_cron_command(session_id, text)
+            await self._publish_text_response(
+                channel=channel,
+                external_chat_id=external_chat_id,
+                session_id=session_id,
+                content=response_text,
+            )
+            return
+
+        if command.name == "task":
+            response_text = await self._handle_task_command(session_id, text)
+            await self._publish_text_response(
+                channel=channel,
+                external_chat_id=external_chat_id,
+                session_id=session_id,
+                content=response_text,
+            )
+            return
+
+        if command.name == "curator":
+            response_text = await self._handle_curator_command(
+                session_id,
+                text,
+                channel=channel,
+                external_chat_id=external_chat_id,
+            )
+            await self._publish_text_response(
+                channel=channel,
+                external_chat_id=external_chat_id,
+                session_id=session_id,
+                content=response_text,
+            )
+            return
+
+        logger.warning("Unhandled session command '{}'", command.name)
 
     def unregister_response_handler(self, channel: str) -> None:
         """Remove the outbound response handler for a channel."""
@@ -712,45 +935,14 @@ class MessageQueue:
         session_id = user_message.session_id or self.build_session_id(channel, external_chat_id)
         metadata = dict(user_message.metadata or {})
         bypass_commands = bool(metadata.pop("_bypass_commands", False))
-
-        if not bypass_commands and self.is_stop_command(user_message.text):
-            cancelled = await self.cancel_session(session_id)
-            await self._publish_stop_response(
+        command = None if bypass_commands else resolve_session_command(first_command_token(user_message.text))
+        if command is not None:
+            await self._dispatch_session_command(
+                command,
                 channel=channel,
                 external_chat_id=external_chat_id,
                 session_id=session_id,
-                cancelled=cancelled,
-            )
-            return
-
-        if not bypass_commands and self.is_reset_command(user_message.text):
-            cancelled = await self.cancel_session(session_id)
-            await self.agent.reset_history(session_id)
-            await self._publish_reset_response(
-                channel=channel,
-                external_chat_id=external_chat_id,
-                session_id=session_id,
-                cancelled=cancelled,
-            )
-            return
-
-        if not bypass_commands and self.is_cron_command(user_message.text):
-            response_text = await self._handle_cron_command(session_id, user_message.text)
-            await self._publish_cron_response(
-                channel=channel,
-                external_chat_id=external_chat_id,
-                session_id=session_id,
-                content=response_text,
-            )
-            return
-
-        if not bypass_commands and self.is_task_command(user_message.text):
-            response_text = await self._handle_task_command(session_id, user_message.text)
-            await self._publish_task_response(
-                channel=channel,
-                external_chat_id=external_chat_id,
-                session_id=session_id,
-                content=response_text,
+                text=user_message.text,
             )
             return
 

@@ -31,8 +31,10 @@ const RUN_SUMMARY_FETCH_DELAY_MS = 500;
 const RUN_SUMMARY_NOT_FOUND_RETRY_DELAY_MS = 1200;
 const RUN_SUMMARY_NOT_FOUND_RETRY_LIMIT = 3;
 const RUN_BACKFILL_COOLDOWN_MS = 2000;
+const CURATOR_POLL_INTERVAL_MS = 2500;
 const TERMINAL_RUN_STATUSES = new Set(["completed", "failed", "cancelled"]);
 const TERMINAL_PART_STATES = new Set(["completed", "failed", "cancelled", "error"]);
+const CURATOR_BUSY_STATES = new Set(["queued", "running"]);
 const RUN_EVENT_KINDS = new Set(["run", "llm", "tool", "verification", "permission", "work", "completion", "file", "text", "system", "other"]);
 const MCP_TRANSPORT_TYPES = new Set(["stdio", "sse", "streamableHttp"]);
 const TIMELINE_EVENT_TYPES = new Set([
@@ -179,6 +181,25 @@ function coerceStringList(value) {
     return [];
   }
   return value.map((item) => String(item || "").trim()).filter(Boolean);
+}
+
+function normalizeCommandCatalog(payload) {
+  const commands = Array.isArray(payload?.commands) ? payload.commands : [];
+  return commands.map((item) => {
+    const name = String(item?.name || "").trim();
+    const command = String(item?.command || (name ? `/${name}` : "")).trim();
+    if (!name || !command.startsWith("/")) {
+      return null;
+    }
+    return {
+      name,
+      command,
+      usage: String(item?.usage || command).trim() || command,
+      description: String(item?.description || "").trim(),
+      category: String(item?.category || "").trim(),
+      subcommands: coerceStringList(item?.subcommands),
+    };
+  }).filter(Boolean);
 }
 
 function coerceBoolean(value) {
@@ -543,6 +564,14 @@ function shouldLoadRunTrace(run) {
   return !(run.traceLoaded && hasNeededFileChanges);
 }
 
+function isCuratorBusy(status) {
+  if (!status || typeof status !== "object") {
+    return false;
+  }
+  const state = String(status.state || "").trim();
+  return Boolean(status.running || status.queued || status.rerun_pending || CURATOR_BUSY_STATES.has(state));
+}
+
 function createRunViewState({ runId, sessionId, status = "running", createdAt, updatedAt = createdAt, finishedAt = null }) {
   return {
     runId,
@@ -583,6 +612,14 @@ function buildRunFileChangeRevertPath(runId, sessionId, changeId) {
 
 function buildWorktreeCleanupPath() {
   return "/api/worktrees/cleanup";
+}
+
+function buildCuratorStatusPath(sessionId) {
+  return `/api/curator/status?session_id=${encodeURIComponent(sessionId)}`;
+}
+
+function buildCuratorActionPath(action, sessionId) {
+  return `/api/curator/${encodeURIComponent(action)}?session_id=${encodeURIComponent(sessionId)}`;
 }
 
 function buildRunsPath(sessionId) {
@@ -847,6 +884,11 @@ export function useChatClient() {
       text: initialCopy.notices.connectingGateway,
       tone: "info",
     },
+    commandCatalog: {
+      commands: [],
+      loading: false,
+      error: "",
+    },
   });
 
   const copy = computed(() => getDisplayCopy(state.language));
@@ -971,12 +1013,21 @@ export function useChatClient() {
     requests: [],
     resolvingIds: {},
   });
+  const curatorState = reactive({
+    loading: false,
+    action: "",
+    error: "",
+    status: null,
+  });
 
   let activeSocket = null;
   let colorSchemeMediaQuery = null;
   let clientDisposed = false;
   const runSummaryTimers = new Map();
   const runBackfillTimes = new Map();
+  let curatorPollTimer = null;
+  let curatorPollSessionId = "";
+  let curatorActionToken = "";
 
   function applyDocumentPreferences() {
     if (typeof document === "undefined") {
@@ -1081,6 +1132,8 @@ export function useChatClient() {
     });
   });
 
+  const currentCuratorStatus = computed(() => curatorState.status || null);
+
   const settingsTitle = computed(() => copy.value.settingsTitles[settingsSection.value] || copy.value.settingsTitles.general);
 
   const sessionMeta = computed(() => {
@@ -1096,6 +1149,25 @@ export function useChatClient() {
       return copy.value.composer.readOnlyChannel(session.channel);
     }
     return runtimeHint.value;
+  });
+
+  const commandHints = computed(() => {
+    const raw = messageText.value.trimStart();
+    if (!raw.startsWith("/")) {
+      return [];
+    }
+    const token = raw.split(/\s+/, 1)[0];
+    if (raw.length > token.length) {
+      return [];
+    }
+    const query = token.toLowerCase();
+    if (query.includes("@")) {
+      return [];
+    }
+    const commands = state.commandCatalog.commands || [];
+    return commands
+      .filter((command) => command.command.toLowerCase().startsWith(query))
+      .slice(0, 6);
   });
 
   const connectionLabel = computed(() => {
@@ -1211,7 +1283,13 @@ export function useChatClient() {
   watch(
     () => [currentSession.value?.externalChatId, currentSession.value?.sessionId],
     () => {
+      clearCuratorPollTimer();
+      curatorActionToken = "";
+      curatorState.action = "";
+      curatorState.status = null;
+      curatorState.error = "";
       void loadCurrentSessionRuns();
+      void loadCuratorStatus();
     },
     { immediate: true },
   );
@@ -1270,6 +1348,47 @@ export function useChatClient() {
 
   function getSessionApiId(session) {
     return session?.sessionId || "";
+  }
+
+  function getCuratorSessionId(session) {
+    if (!session) {
+      return "";
+    }
+    if (session.sessionId) {
+      return session.sessionId;
+    }
+    if (session.channel && session.channel !== "web") {
+      return "";
+    }
+    return session.externalChatId ? `web:${session.externalChatId}` : "";
+  }
+
+  function isCurrentCuratorSessionId(sessionId) {
+    return Boolean(sessionId) && getCuratorSessionId(currentSession.value) === sessionId;
+  }
+
+  function clearCuratorPollTimer() {
+    if (curatorPollTimer) {
+      clearTimeout(curatorPollTimer);
+    }
+    curatorPollTimer = null;
+    curatorPollSessionId = "";
+  }
+
+  function scheduleCuratorPoll(status = curatorState.status, sessionId = getCuratorSessionId(currentSession.value)) {
+    clearCuratorPollTimer();
+    if (clientDisposed || !sessionId || !isCuratorBusy(status)) {
+      return;
+    }
+    curatorPollSessionId = sessionId;
+    curatorPollTimer = setTimeout(() => {
+      curatorPollTimer = null;
+      if (clientDisposed || curatorPollSessionId !== sessionId || !isCurrentCuratorSessionId(sessionId)) {
+        curatorPollSessionId = "";
+        return;
+      }
+      void loadCuratorStatus({ sessionId, quiet: true });
+    }, CURATOR_POLL_INTERVAL_MS);
   }
 
   function getSessionTitle(session) {
@@ -1560,6 +1679,12 @@ export function useChatClient() {
     if (isTerminalRunStatus(run.status) || eventType === "run_finished" || eventType === "run_failed") {
       scheduleRunSummaryFetch(session, run);
     }
+    if (eventType === "curator.completed") {
+      const curatorSessionId = getCuratorSessionId(session);
+      if (curatorSessionId && isCurrentCuratorSessionId(curatorSessionId)) {
+        void loadCuratorStatus({ sessionId: curatorSessionId, quiet: true });
+      }
+    }
   }
 
   function setNotice(text, tone) {
@@ -1711,6 +1836,87 @@ export function useChatClient() {
       throw error;
     }
     return response.json();
+  }
+
+  async function loadCommandCatalog() {
+    state.commandCatalog.loading = true;
+    state.commandCatalog.error = "";
+    try {
+      const payload = await requestSettingsJson("/api/commands");
+      state.commandCatalog.commands = normalizeCommandCatalog(payload);
+    } catch (error) {
+      state.commandCatalog.error = error?.message || "Command catalog unavailable";
+    } finally {
+      state.commandCatalog.loading = false;
+    }
+  }
+
+  async function loadCuratorStatus(options = {}) {
+    const sessionId = String(options?.sessionId || getCuratorSessionId(currentSession.value)).trim();
+    const quiet = Boolean(options?.quiet);
+    if (!sessionId) {
+      clearCuratorPollTimer();
+      curatorState.loading = false;
+      curatorState.status = null;
+      curatorState.error = "";
+      return null;
+    }
+    if (!quiet) {
+      curatorState.loading = true;
+      curatorState.error = "";
+    }
+    try {
+      const payload = await requestSettingsJson(buildCuratorStatusPath(sessionId));
+      const status = payload?.status || null;
+      if (isCurrentCuratorSessionId(sessionId)) {
+        curatorState.status = status;
+        curatorState.error = "";
+        scheduleCuratorPoll(status, sessionId);
+      }
+      return status;
+    } catch (error) {
+      if (isCurrentCuratorSessionId(sessionId)) {
+        clearCuratorPollTimer();
+        curatorState.error = error?.message || copy.value.curator.unavailable;
+      }
+      return null;
+    } finally {
+      if (!quiet && isCurrentCuratorSessionId(sessionId)) {
+        curatorState.loading = false;
+      }
+    }
+  }
+
+  async function runCuratorAction(action) {
+    const normalizedAction = String(action || "").trim();
+    const sessionId = getCuratorSessionId(currentSession.value);
+    if (!normalizedAction || !sessionId) {
+      return null;
+    }
+    const actionToken = `${sessionId}\0${normalizedAction}\0${Date.now().toString(36)}-${randomToken()}`;
+    curatorActionToken = actionToken;
+    curatorState.action = normalizedAction;
+    curatorState.error = "";
+    try {
+      const payload = await requestSettingsJson(buildCuratorActionPath(normalizedAction, sessionId), { method: "POST" });
+      const status = payload?.status || null;
+      if (isCurrentCuratorSessionId(sessionId)) {
+        curatorState.status = status;
+        curatorState.error = "";
+        scheduleCuratorPoll(status, sessionId);
+      }
+      return status;
+    } catch (error) {
+      if (isCurrentCuratorSessionId(sessionId)) {
+        curatorState.error = error?.message || copy.value.curator.actionFailed;
+      }
+      return null;
+    } finally {
+      if (curatorActionToken === actionToken) {
+        curatorActionToken = "";
+        curatorState.action = "";
+      }
+    }
   }
 
   function normalizePermissionRequest(payload) {
@@ -3230,6 +3436,7 @@ export function useChatClient() {
     settingsForm.wsUrl = state.wsUrl;
     settingsForm.displayName = state.displayName;
     settingsForm.externalChatId = state.activeExternalChatId;
+    void loadCommandCatalog();
 
     if (shouldReconnect) {
       connectSocket();
@@ -3387,11 +3594,24 @@ export function useChatClient() {
     });
   }
 
+  function applyCommandHint(command) {
+    const token = String(command?.command || "").trim();
+    if (!token) {
+      return;
+    }
+    messageText.value = `${token} `;
+    nextTick(() => {
+      resizeComposer();
+      messageInput.value?.focus();
+    });
+  }
+
   async function initializeClient() {
     await loadSessionHistory();
     if (clientDisposed) {
       return;
     }
+    void loadCommandCatalog();
     void loadPermissionRequests();
     persistActiveSession();
     connectSocket();
@@ -3427,6 +3647,7 @@ export function useChatClient() {
     }
     runSummaryTimers.clear();
     runBackfillTimes.clear();
+    clearCuratorPollTimer();
     removeColorSchemeListener();
     document.removeEventListener("keydown", handleGlobalKeydown);
     document.body.classList.remove("settings-open", "sidebar-open");
@@ -3462,10 +3683,13 @@ export function useChatClient() {
     currentRunTimeline,
     currentRunSummary,
     currentPermissionRequests,
+    curatorState,
+    currentCuratorStatus,
     settingsTitle,
     sessionMeta,
     runtimeHint,
     composerHint,
+    commandHints,
     connectionLabel,
     connectButtonLabel,
     statusDotClass,
@@ -3522,10 +3746,13 @@ export function useChatClient() {
     cancelRun,
     revertRunFileChange,
     cleanupWorktreeSandbox,
+    loadCuratorStatus,
+    runCuratorAction,
     resolvePermissionRequest,
     toggleSettingsConnection,
     submitMessage,
     handleComposerKeydown,
     applyPrompt,
+    applyCommandHint,
   };
 }

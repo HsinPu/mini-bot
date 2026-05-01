@@ -157,6 +157,162 @@ def test_web_adapter_roundtrip():
     asyncio.run(_run_web_roundtrip())
 
 
+async def _run_web_command_catalog_api():
+    agent = EchoAgent()
+    queue = MessageQueue(agent)
+    adapter = WebAdapter(
+        mq=queue,
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "path": "/ws",
+            "health_path": "/healthz",
+            "frontend_auto_build": False,
+        },
+    )
+    processor = asyncio.create_task(queue.process_queue())
+    adapter_task = asyncio.create_task(adapter.run())
+
+    try:
+        await adapter.wait_until_started()
+        port = adapter.bound_port
+        assert port is not None
+
+        async with ClientSession() as session:
+            async with session.get(f"http://127.0.0.1:{port}/api/commands") as resp:
+                assert resp.status == 200
+                payload = await resp.json()
+
+        commands = {item["name"]: item for item in payload["commands"]}
+        assert commands["help"]["usage"] == "/help [command]"
+        assert commands["curator"]["subcommands"] == ["status", "run", "pause", "resume", "help"]
+        assert commands["curator"]["category"] == "Maintenance"
+    finally:
+        adapter_task.cancel()
+        try:
+            await adapter_task
+        except asyncio.CancelledError:
+            pass
+        await queue.stop()
+        await asyncio.wait_for(processor, timeout=2)
+
+
+def test_web_adapter_command_catalog_api():
+    asyncio.run(_run_web_command_catalog_api())
+
+
+async def _run_web_curator_api():
+    class CuratorAgent(EchoAgent):
+        def __init__(self):
+            super().__init__()
+            self.curator_calls = []
+
+        async def get_curator_status(self, session_id):
+            self.curator_calls.append(("status", session_id))
+            return {
+                "session_id": session_id,
+                "state": "idle",
+                "running": False,
+                "queued": False,
+                "paused": False,
+                "rerun_pending": False,
+                "jobs": [],
+                "run_count": 2,
+                "last_run_summary": "No curator changes.",
+            }
+
+        async def run_curator_now(self, session_id, *, channel=None, external_chat_id=None):
+            self.curator_calls.append(("run", session_id, channel, external_chat_id))
+            return {
+                "session_id": session_id,
+                "state": "queued",
+                "running": False,
+                "queued": True,
+                "paused": False,
+                "rerun_pending": False,
+                "jobs": ["memory"],
+                "scheduled": True,
+            }
+
+        async def pause_curator(self, session_id):
+            self.curator_calls.append(("pause", session_id))
+            return {"session_id": session_id, "state": "paused", "paused": True}
+
+        async def resume_curator(self, session_id):
+            self.curator_calls.append(("resume", session_id))
+            return {"session_id": session_id, "state": "idle", "paused": False}
+
+    agent = CuratorAgent()
+    queue = MessageQueue(agent)
+    adapter = WebAdapter(
+        mq=queue,
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "path": "/ws",
+            "health_path": "/healthz",
+            "frontend_auto_build": False,
+        },
+    )
+    processor = asyncio.create_task(queue.process_queue())
+    adapter_task = asyncio.create_task(adapter.run())
+
+    try:
+        await adapter.wait_until_started()
+        port = adapter.bound_port
+        assert port is not None
+        session_id = "web:browser-1"
+
+        async with ClientSession() as session:
+            async with session.get(f"http://127.0.0.1:{port}/api/curator/status?session_id={session_id}") as resp:
+                assert resp.status == 200
+                payload = await resp.json()
+                assert payload["status"]["run_count"] == 2
+                assert payload["status"]["last_run_summary"] == "No curator changes."
+
+            async with session.post(f"http://127.0.0.1:{port}/api/curator/run?session_id={session_id}") as resp:
+                assert resp.status == 200
+                payload = await resp.json()
+                assert payload["action"] == "run"
+                assert payload["status"]["scheduled"] is True
+
+            telegram_session_id = "telegram:chat-1"
+            async with session.post(f"http://127.0.0.1:{port}/api/curator/run?session_id={telegram_session_id}") as resp:
+                assert resp.status == 200
+                payload = await resp.json()
+                assert payload["status"]["scheduled"] is True
+
+            async with session.post(f"http://127.0.0.1:{port}/api/curator/pause?session_id={session_id}") as resp:
+                assert resp.status == 200
+                payload = await resp.json()
+                assert payload["status"]["paused"] is True
+
+            async with session.post(f"http://127.0.0.1:{port}/api/curator/resume?session_id={session_id}") as resp:
+                assert resp.status == 200
+                payload = await resp.json()
+                assert payload["status"]["paused"] is False
+
+        assert agent.curator_calls == [
+            ("status", session_id),
+            ("run", session_id, "web", "browser-1"),
+            ("run", telegram_session_id, "telegram", "chat-1"),
+            ("pause", session_id),
+            ("resume", session_id),
+        ]
+    finally:
+        adapter_task.cancel()
+        try:
+            await adapter_task
+        except asyncio.CancelledError:
+            pass
+        await queue.stop()
+        await asyncio.wait_for(processor, timeout=2)
+
+
+def test_web_adapter_curator_api():
+    asyncio.run(_run_web_curator_api())
+
+
 async def _run_web_static_serving(tmp_path: Path):
     frontend_dir = tmp_path / "frontend"
     frontend_dir.mkdir()

@@ -101,11 +101,338 @@ def test_message_queue_falls_back_to_inbound_channel_when_response_channel_unkno
 
 
 def test_command_detection_ignores_empty_text():
+    assert MessageQueue.is_help_command("") is False
     assert MessageQueue.is_stop_command("") is False
     assert MessageQueue.is_stop_command("   ") is False
     assert MessageQueue.is_reset_command("") is False
     assert MessageQueue.is_cron_command("") is False
     assert MessageQueue.is_task_command("") is False
+
+
+def test_help_command_detection_supports_mentions_and_args():
+    assert MessageQueue.is_help_command("/help") is True
+    assert MessageQueue.is_help_command("/help cron") is True
+    assert MessageQueue.is_help_command("/help@OpenSpriteBot task") is True
+    assert MessageQueue.is_help_command("help") is False
+
+
+def test_message_queue_help_command_publishes_registry_help_without_calling_agent():
+    async def scenario():
+        agent = FakeAgent()
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, external_chat_id):
+            responses.append((channel, external_chat_id, message.text))
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="/help", external_chat_id="same-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return responses, agent.seen_messages
+
+    responses, seen_messages = asyncio.run(scenario())
+
+    assert seen_messages == []
+    assert responses[0][0] == "telegram"
+    assert responses[0][1] == "same-chat"
+    assert "Available chat commands:" in responses[0][2]
+    assert "/help [command]" in responses[0][2]
+    assert "/cron <subcommand>" in responses[0][2]
+
+
+def test_message_queue_help_command_can_delegate_to_cron_help_text():
+    async def scenario():
+        agent = FakeAgent()
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, external_chat_id):
+            responses.append(message.text)
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="/help cron", external_chat_id="same-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return responses
+
+    responses = asyncio.run(scenario())
+
+    assert responses
+    assert "/cron add every <seconds> <message> [--no-deliver]" in responses[0]
+    assert "/cron help" in responses[0]
+
+
+def test_message_queue_help_overview_lists_curator_command():
+    async def scenario():
+        agent = FakeAgent()
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, external_chat_id):
+            responses.append(message.text)
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="/help", external_chat_id="same-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return responses
+
+    responses = asyncio.run(scenario())
+
+    assert responses
+    assert "/curator <status|run|pause|resume|help>" in responses[0]
+
+
+def test_curator_status_command_replies_immediately_without_running_agent_loop():
+    class CuratorAgent(FakeAgent):
+        async def get_curator_status(self, session_id):
+            return {
+                "session_id": session_id,
+                "state": "idle",
+                "running": False,
+                "queued": False,
+                "rerun_pending": False,
+                "jobs": [],
+                "run_id": None,
+            }
+
+    async def scenario():
+        agent = CuratorAgent()
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, external_chat_id):
+            responses.append((message.session_id, message.text))
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="/curator status", external_chat_id="same-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return responses, agent.seen_messages
+
+    responses, seen_messages = asyncio.run(scenario())
+
+    assert seen_messages == []
+    assert responses == [
+        (
+            "telegram:same-chat",
+            "Curator 狀態:\n- 狀態: idle\n- 已暫停: no\n- 執行次數: 0\n- 上次執行: never\n- 上次摘要: none\n- 待補跑: no\n- 工作: none",
+        )
+    ]
+
+
+def test_curator_run_command_replies_immediately_without_running_agent_loop():
+    class CuratorAgent(FakeAgent):
+        async def run_curator_now(self, session_id, *, channel=None, external_chat_id=None):
+            return {
+                "session_id": session_id,
+                "state": "running",
+                "running": True,
+                "queued": False,
+                "rerun_pending": False,
+                "jobs": ["memory", "recent_summary", "user_profile", "active_task", "skills"],
+                "run_id": "run-123",
+                "scheduled": True,
+            }
+
+    async def scenario():
+        agent = CuratorAgent()
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, external_chat_id):
+            responses.append((message.session_id, message.text))
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="/curator run", external_chat_id="same-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return responses, agent.seen_messages
+
+    responses, seen_messages = asyncio.run(scenario())
+
+    assert seen_messages == []
+    assert responses == [
+        (
+            "telegram:same-chat",
+            "已排入背景整理。\n\nCurator 狀態:\n- 狀態: running\n- 已暫停: no\n- 執行次數: 0\n- 上次執行: never\n- 上次摘要: none\n- 待補跑: no\n- 工作: memory, recent_summary, user_profile, active_task, skills\n- 關聯 run: run-123",
+        )
+    ]
+
+
+def test_curator_pause_command_replies_immediately_without_running_agent_loop():
+    class CuratorAgent(FakeAgent):
+        async def pause_curator(self, session_id):
+            return {
+                "session_id": session_id,
+                "state": "paused",
+                "running": False,
+                "queued": False,
+                "paused": True,
+                "rerun_pending": False,
+                "jobs": [],
+                "run_id": None,
+            }
+
+    async def scenario():
+        agent = CuratorAgent()
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, external_chat_id):
+            responses.append((message.session_id, message.text))
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="/curator pause", external_chat_id="same-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return responses, agent.seen_messages
+
+    responses, seen_messages = asyncio.run(scenario())
+
+    assert seen_messages == []
+    assert responses == [
+        (
+            "telegram:same-chat",
+            "已暫停背景整理。\n\nCurator 狀態:\n- 狀態: paused\n- 已暫停: yes\n- 執行次數: 0\n- 上次執行: never\n- 上次摘要: none\n- 待補跑: no\n- 工作: none",
+        )
+    ]
+
+
+def test_curator_resume_command_replies_immediately_without_running_agent_loop():
+    class CuratorAgent(FakeAgent):
+        async def resume_curator(self, session_id):
+            return {
+                "session_id": session_id,
+                "state": "idle",
+                "running": False,
+                "queued": False,
+                "paused": False,
+                "rerun_pending": False,
+                "jobs": [],
+                "run_id": None,
+            }
+
+    async def scenario():
+        agent = CuratorAgent()
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, external_chat_id):
+            responses.append((message.session_id, message.text))
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="/curator resume", external_chat_id="same-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return responses, agent.seen_messages
+
+    responses, seen_messages = asyncio.run(scenario())
+
+    assert seen_messages == []
+    assert responses == [
+        (
+            "telegram:same-chat",
+            "已恢復背景整理。\n\nCurator 狀態:\n- 狀態: idle\n- 已暫停: no\n- 執行次數: 0\n- 上次執行: never\n- 上次摘要: none\n- 待補跑: no\n- 工作: none",
+        )
+    ]
+
+
+def test_curator_run_command_reports_paused_status_when_manual_run_is_blocked():
+    class CuratorAgent(FakeAgent):
+        async def run_curator_now(self, session_id, *, channel=None, external_chat_id=None):
+            return {
+                "session_id": session_id,
+                "state": "paused",
+                "running": False,
+                "queued": False,
+                "paused": True,
+                "rerun_pending": False,
+                "jobs": [],
+                "run_id": None,
+                "scheduled": False,
+            }
+
+    async def scenario():
+        agent = CuratorAgent()
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, external_chat_id):
+            responses.append((message.session_id, message.text))
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="/curator run", external_chat_id="same-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return responses, agent.seen_messages
+
+    responses, seen_messages = asyncio.run(scenario())
+
+    assert seen_messages == []
+    assert responses == [
+        (
+            "telegram:same-chat",
+            "背景整理目前已暫停，請先恢復。\n\nCurator 狀態:\n- 狀態: paused\n- 已暫停: yes\n- 執行次數: 0\n- 上次執行: never\n- 上次摘要: none\n- 待補跑: no\n- 工作: none",
+        )
+    ]
 
 
 def test_message_queue_accepts_empty_text_media_message():

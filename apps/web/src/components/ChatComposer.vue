@@ -1,6 +1,18 @@
 <template>
   <form class="composer" @submit="$emit('submit', $event)">
     <label class="sr-only" for="messageInput">{{ copy.composer.label }}</label>
+    <div v-if="commandHints.length" class="composer__commands" :aria-label="copy.composer.commandSuggestions">
+      <button
+        v-for="command in commandHints"
+        :key="command.name"
+        type="button"
+        class="composer__command"
+        @click="$emit('apply-command-hint', command)"
+      >
+        <code>{{ command.usage }}</code>
+        <span>{{ command.description }}</span>
+      </button>
+    </div>
     <div class="composer__box">
       <textarea
         id="messageInput"
@@ -46,13 +58,17 @@ defineProps({
     type: String,
     required: true,
   },
+  commandHints: {
+    type: Array,
+    default: () => [],
+  },
   setInputRef: {
     type: Function,
     required: true,
   },
 });
 
-const emit = defineEmits(["update:modelValue", "input", "keydown", "submit"]);
+const emit = defineEmits(["update:modelValue", "input", "keydown", "submit", "apply-command-hint"]);
 
 function handleInput(event) {
   emit("update:modelValue", event.target.value);

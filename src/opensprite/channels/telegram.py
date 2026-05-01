@@ -229,7 +229,25 @@ class TelegramAdapter(MessageAdapter):
             | filters.VIDEO
             | filters.VIDEO_NOTE
             | filters.ANIMATION
-        ) & ~filters.COMMAND
+        )
+
+    @staticmethod
+    def _command_mention(text: str | None) -> str | None:
+        """Return the bot mention from a Telegram slash command token, if present."""
+        raw = str(text or "").strip()
+        if not raw.startswith("/"):
+            return None
+        token = raw.split(maxsplit=1)[0]
+        if "@" not in token:
+            return None
+        mention = token.rsplit("@", 1)[1].strip().lower()
+        return mention or None
+
+    @staticmethod
+    def _bot_username(bot: Any) -> str:
+        """Return the Telegram bot username without a leading @."""
+        username = str(getattr(bot, "username", "") or "").strip().lower()
+        return username[1:] if username.startswith("@") else username
 
     async def _shutdown_app(self) -> None:
         """Best-effort cleanup for partially started Telegram applications."""
@@ -380,6 +398,11 @@ class TelegramAdapter(MessageAdapter):
             "message_id": message.message_id,
             "chat_type": getattr(message.chat, "type", None),
         }
+        command_mention = self._command_mention(text)
+        if command_mention:
+            metadata["command_mention"] = command_mention
+            if command_mention != self._bot_username(telegram_bot):
+                metadata["_bypass_commands"] = True
         if message.from_user is not None:
             metadata["username"] = message.from_user.username
 

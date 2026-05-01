@@ -277,6 +277,40 @@ def test_serialize_run_event_projects_permission_artifacts():
     }
 
 
+def test_serialize_run_event_projects_curator_artifact():
+    event = SimpleNamespace(
+        event_id=44,
+        run_id="run-1",
+        session_id="web:browser-1",
+        event_type="curator.completed",
+        payload={
+            "status": "completed",
+            "changed": ["memory", "skills"],
+            "summary": "Updated memory and skills.",
+        },
+        created_at=13.0,
+    )
+
+    payload = serialize_run_event(event)
+
+    assert payload["kind"] == "work"
+    assert payload["status"] == "completed"
+    assert payload["artifact"] == {
+        "schema_version": 1,
+        "artifact_id": "curator",
+        "artifact_type": "curator",
+        "kind": "work",
+        "status": "completed",
+        "title": "Curator",
+        "detail": "Updated memory and skills.",
+        "metadata": {
+            "status": "completed",
+            "changed": ["memory", "skills"],
+            "summary": "Updated memory and skills.",
+        },
+    }
+
+
 def test_serialize_run_event_classifies_part_delta_as_streaming_text():
     event = SimpleNamespace(
         event_id=44,

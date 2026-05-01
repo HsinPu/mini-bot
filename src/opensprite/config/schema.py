@@ -223,6 +223,33 @@ class TaskMessagesConfig(BaseModel):
     no_next_step: str = "目前沒有可前進的下一步。"
 
 
+class CuratorMessagesConfig(BaseModel):
+    help_text: str = (
+        "背景整理命令:\n"
+        "/curator status\n"
+        "/curator run\n"
+        "/curator pause\n"
+        "/curator resume\n"
+        "/curator help"
+    )
+    unavailable: str = "背景整理功能目前不可用。"
+    run_scheduled: str = "已排入背景整理。"
+    run_rerun_scheduled: str = "背景整理目前執行中，已排入下一輪。"
+    run_paused: str = "背景整理目前已暫停，請先恢復。"
+    paused_done: str = "已暫停背景整理。"
+    resumed_done: str = "已恢復背景整理。"
+    status_header: str = "Curator 狀態:"
+    status_label: str = "- 狀態: {state}"
+    paused_label: str = "- 已暫停: {value}"
+    run_count_label: str = "- 執行次數: {value}"
+    last_run_label: str = "- 上次執行: {value}"
+    last_summary_label: str = "- 上次摘要: {value}"
+    last_error_label: str = "- 上次錯誤: {value}"
+    rerun_pending_label: str = "- 待補跑: {value}"
+    jobs_label: str = "- 工作: {jobs}"
+    attached_run_label: str = "- 關聯 run: {run_id}"
+
+
 class TelegramMessagesConfig(BaseModel):
     empty_message_fallback: str = "抱歉，我剛剛沒有產生可顯示的回覆，請再試一次。"
 
@@ -232,6 +259,7 @@ class MessagesConfig(BaseModel):
     queue: QueueMessagesConfig = Field(default_factory=QueueMessagesConfig)
     cron: CronMessagesConfig = Field(default_factory=CronMessagesConfig)
     task: TaskMessagesConfig = Field(default_factory=TaskMessagesConfig)
+    curator: CuratorMessagesConfig = Field(default_factory=CuratorMessagesConfig)
     telegram: TelegramMessagesConfig = Field(default_factory=TelegramMessagesConfig)
 
 

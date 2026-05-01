@@ -13,6 +13,7 @@ from opensprite.agent.run_state import RunBusyError
 from opensprite.bus import MessageBus
 from opensprite.bus.events import OutboundMessage
 from opensprite.config.schema import AgentConfig, Config, LogConfig, MemoryConfig, MessagesConfig, RecentSummaryConfig, SearchConfig, ToolsConfig, UserProfileConfig
+from opensprite.context.paths import get_session_skills_dir
 from opensprite.bus.message import UserMessage
 from opensprite.documents.active_task import create_active_task_store
 from opensprite.storage import MemoryStorage
@@ -164,6 +165,34 @@ def _sha256(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
+def test_curator_skill_snapshot_is_session_scoped(tmp_path):
+    workspace = tmp_path / "workspace"
+    session_a_skills = get_session_skills_dir("web:browser-a", workspace_root=workspace)
+    session_b_skills = get_session_skills_dir("web:browser-b", workspace_root=workspace)
+    skill_dir = session_a_skills / "session-a-skill"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("session a only", encoding="utf-8")
+    registry = ToolRegistry()
+    registry.register(DummyTool())
+
+    agent = AgentLoop(
+        config=Config.load_agent_template_config(),
+        provider=FakeProvider(),
+        storage=FakeStorage(),
+        context_builder=FakeContextBuilder(workspace),
+        tools=registry,
+        memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
+        tools_config=ToolsConfig(),
+        log_config=LogConfig(),
+        search_config=SearchConfig(),
+        user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+        **Config.packaged_agent_llm_chat_kwargs(),
+    )
+
+    assert agent._read_skill_snapshot("web:browser-a")
+    assert agent._read_skill_snapshot("web:browser-b") == ""
+
+
 def test_agent_process_persists_user_then_assistant_then_runs_maintenance(tmp_path):
     async def scenario():
         registry = ToolRegistry()
@@ -293,8 +322,7 @@ def test_agent_process_emits_run_lifecycle_events(tmp_path):
 
         agent.call_llm = fake_call_llm
         agent._maybe_apply_immediate_task_transition = fake_transition
-        agent._schedule_post_response_maintenance = lambda session_id: None
-        agent._maybe_schedule_skill_review = lambda session_id, result: None
+        agent._schedule_curator = lambda session_id, run_id, channel, external_chat_id, result: None
 
         response = await agent.process(
             UserMessage(
@@ -714,8 +742,7 @@ def test_agent_process_seeds_active_task_from_detected_intent(tmp_path):
             return ExecutionResult(content="seeded", executed_tool_calls=0)
 
         agent._execute_messages = fake_execute_messages
-        agent._schedule_post_response_maintenance = lambda session_id: None
-        agent._maybe_schedule_skill_review = lambda session_id, result: None
+        agent._schedule_curator = lambda session_id, run_id, channel, external_chat_id, result: None
 
         await agent.process(
             UserMessage(
@@ -764,8 +791,7 @@ def test_agent_process_emits_completion_gate_needs_verification_after_code_chang
             )
 
         agent.call_llm = fake_call_llm
-        agent._schedule_post_response_maintenance = lambda session_id: None
-        agent._maybe_schedule_skill_review = lambda session_id, result: None
+        agent._schedule_curator = lambda session_id, run_id, channel, external_chat_id, result: None
 
         await agent.process(
             UserMessage(
@@ -819,8 +845,7 @@ def test_agent_process_auto_continues_once_when_code_changes_are_missing(tmp_pat
             )
 
         agent.call_llm = fake_call_llm
-        agent._schedule_post_response_maintenance = lambda session_id: None
-        agent._maybe_schedule_skill_review = lambda session_id, result: None
+        agent._schedule_curator = lambda session_id, run_id, channel, external_chat_id, result: None
 
         response = await agent.process(
             UserMessage(
@@ -892,8 +917,7 @@ def test_agent_process_stops_auto_continue_when_continuation_has_no_progress(tmp
             return ExecutionResult(content="Completed the refactor.", executed_tool_calls=0)
 
         agent.call_llm = fake_call_llm
-        agent._schedule_post_response_maintenance = lambda session_id: None
-        agent._maybe_schedule_skill_review = lambda session_id, result: None
+        agent._schedule_curator = lambda session_id, run_id, channel, external_chat_id, result: None
 
         await agent.process(
             UserMessage(
@@ -1037,8 +1061,7 @@ def test_agent_process_updates_active_task_with_verification_step_when_work_rema
             )
 
         agent.call_llm = fake_call_llm
-        agent._schedule_post_response_maintenance = lambda session_id: None
-        agent._maybe_schedule_skill_review = lambda session_id, result: None
+        agent._schedule_curator = lambda session_id, run_id, channel, external_chat_id, result: None
         await agent.process(
             UserMessage(
                 text="Please refactor the agent and run tests.",
@@ -1084,8 +1107,7 @@ def test_agent_process_persists_work_state_with_delegate_task(tmp_path):
             )
 
         agent.call_llm = fake_call_llm
-        agent._schedule_post_response_maintenance = lambda session_id: None
-        agent._maybe_schedule_skill_review = lambda session_id, result: None
+        agent._schedule_curator = lambda session_id, run_id, channel, external_chat_id, result: None
 
         await storage.upsert_work_state(
             StoredWorkState(

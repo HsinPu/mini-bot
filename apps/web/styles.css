@@ -101,6 +101,10 @@
   background: linear-gradient(180deg, rgba(32, 201, 151, 0.12), rgba(29, 32, 39, 0.92));
 }
 
+:root[data-color-scheme="dark"] .curator-card {
+  background: linear-gradient(180deg, rgba(32, 201, 151, 0.09), rgba(29, 32, 39, 0.92));
+}
+
 :root[data-color-scheme="dark"] .permission-panel {
   background: linear-gradient(180deg, rgba(242, 184, 75, 0.12), rgba(29, 32, 39, 0.92));
 }
@@ -131,6 +135,8 @@
 :root[data-color-scheme="dark"] .permission-card,
 :root[data-color-scheme="dark"] .question-card,
 :root[data-color-scheme="dark"] .run-history__select select,
+:root[data-color-scheme="dark"] .curator-card__grid div,
+:root[data-color-scheme="dark"] .curator-card__summary,
 :root[data-color-scheme="dark"] .work-state-card__status,
 :root[data-color-scheme="dark"] .permission-card code,
 :root[data-color-scheme="dark"] .question-card code,
@@ -1100,6 +1106,93 @@ button:disabled {
 .work-state-card[data-status="complete"],
 .work-state-card[data-status="completed"] {
   border-color: rgba(16, 163, 127, 0.18);
+}
+
+.curator-card {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0 4px 46px;
+  padding: 14px;
+  border: 1px solid rgba(16, 163, 127, 0.16);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, #fbfffd, #f6faf8);
+}
+
+.curator-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.curator-card__header div {
+  display: grid;
+  gap: 3px;
+}
+
+.curator-card__header span {
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.curator-card__header strong {
+  color: var(--text);
+  font-size: 0.94rem;
+  font-weight: 680;
+}
+
+.curator-card__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.curator-card__grid div,
+.curator-card__summary {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.curator-card__grid dt {
+  margin: 0 0 3px;
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.curator-card__grid dd {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.curator-card__summary,
+.curator-card__error {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.curator-card__error {
+  color: var(--danger);
+}
+
+.curator-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .work-state-card__header {
@@ -3006,6 +3099,49 @@ button:disabled {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0), #ffffff 28%);
 }
 
+.composer__commands {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.06);
+}
+
+.composer__command {
+  display: grid;
+  grid-template-columns: minmax(120px, auto) 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  text-align: left;
+  background: transparent;
+}
+
+.composer__command:hover,
+.composer__command:focus-visible {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.composer__command code {
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.composer__command span {
+  overflow: hidden;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .composer__box {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -4088,6 +4224,11 @@ textarea:focus-visible {
     margin-bottom: 18px;
   }
 
+  .composer__command {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
+
   .message {
     grid-template-columns: 28px minmax(0, 1fr);
     gap: 10px;
@@ -4100,6 +4241,7 @@ textarea:focus-visible {
   }
 
   .work-state-card,
+  .curator-card,
   .permission-panel,
   .question-panel,
   .run-history,
@@ -4145,6 +4287,9 @@ textarea:focus-visible {
 
   .work-state-card__header,
   .work-state-card__grid,
+  .curator-card__header,
+  .curator-card__grid,
+  .curator-card__actions,
   .run-summary-card__header,
   .run-summary-card__actions,
   .run-summary-card__metrics {

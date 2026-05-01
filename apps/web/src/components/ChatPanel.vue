@@ -115,6 +115,52 @@
           </label>
         </section>
 
+        <section class="curator-card" aria-live="polite">
+          <div class="curator-card__header">
+            <div>
+              <span>{{ copy.curator.eyebrow }}</span>
+              <strong>{{ copy.curator.title }}</strong>
+            </div>
+            <button class="ghost-button" type="button" :disabled="curatorState.loading" @click="$emit('refresh-curator')">
+              {{ curatorState.loading ? copy.curator.loading : copy.curator.refresh }}
+            </button>
+          </div>
+
+          <p v-if="curatorState.error" class="curator-card__error">{{ curatorState.error }}</p>
+          <dl class="curator-card__grid">
+            <div>
+              <dt>{{ copy.curator.state }}</dt>
+              <dd>{{ curatorStatus?.state || copy.curator.unknown }}</dd>
+            </div>
+            <div>
+              <dt>{{ copy.curator.paused }}</dt>
+              <dd>{{ curatorStatus?.paused ? copy.curator.yes : copy.curator.no }}</dd>
+            </div>
+            <div>
+              <dt>{{ copy.curator.runCount }}</dt>
+              <dd>{{ curatorStatus?.run_count || 0 }}</dd>
+            </div>
+            <div>
+              <dt>{{ copy.curator.lastRun }}</dt>
+              <dd>{{ curatorStatus?.last_run_at || copy.curator.never }}</dd>
+            </div>
+          </dl>
+          <p class="curator-card__summary">
+            {{ curatorStatus?.last_run_summary || copy.curator.noSummary }}
+          </p>
+          <div class="curator-card__actions">
+            <button class="secondary-button" type="button" :disabled="curatorActionsDisabled" @click="$emit('run-curator-action', 'run')">
+              {{ curatorState.action === 'run' ? copy.curator.running : copy.curator.run }}
+            </button>
+            <button class="secondary-button" type="button" :disabled="curatorActionsDisabled || curatorStatus?.paused" @click="$emit('run-curator-action', 'pause')">
+              {{ curatorState.action === 'pause' ? copy.curator.pausing : copy.curator.pause }}
+            </button>
+            <button class="secondary-button" type="button" :disabled="curatorActionsDisabled || !curatorStatus?.paused" @click="$emit('run-curator-action', 'resume')">
+              {{ curatorState.action === 'resume' ? copy.curator.resuming : copy.curator.resume }}
+            </button>
+          </div>
+        </section>
+
         <RunSummaryCard
           v-if="showRunSummary && currentRun && (currentRun.summary || currentRun.summaryLoading || currentRun.summaryError)"
           :copy="copy"
@@ -147,10 +193,12 @@
       :disabled="sendDisabled"
       :read-only="composerReadOnly"
       :runtime-hint="runtimeHint"
+      :command-hints="commandHints"
       @update:model-value="$emit('update-message-text', $event)"
       @input="$emit('composer-input')"
       @keydown="$emit('composer-keydown', $event)"
       @submit="$emit('submit-message', $event)"
+      @apply-command-hint="$emit('apply-command-hint', $event)"
     />
 
     <RunFileChangeDrawer
@@ -165,7 +213,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 
 import ChatComposer from "./ChatComposer.vue";
 import EmptyState from "./EmptyState.vue";
@@ -229,6 +277,14 @@ const props = defineProps({
     type: Array,
     required: true,
   },
+  curatorState: {
+    type: Object,
+    required: true,
+  },
+  curatorStatus: {
+    type: Object,
+    default: null,
+  },
   showRunTimeline: {
     type: Boolean,
     required: true,
@@ -252,6 +308,10 @@ const props = defineProps({
   runtimeHint: {
     type: String,
     required: true,
+  },
+  commandHints: {
+    type: Array,
+    default: () => [],
   },
   displayName: {
     type: String,
@@ -302,14 +362,20 @@ defineEmits([
   "composer-input",
   "composer-keydown",
   "submit-message",
+  "apply-command-hint",
   "cancel-run",
   "resolve-permission",
   "revert-file-change",
   "cleanup-worktree",
+  "refresh-curator",
+  "run-curator-action",
   "select-run",
 ]);
 
 const selectedFileChange = ref(null);
+const curatorActionsDisabled = computed(() => {
+  return Boolean(props.curatorState.action || props.curatorState.loading || props.curatorState.error || !props.curatorStatus);
+});
 
 watch(
   () => props.currentRun?.runId,

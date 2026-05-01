@@ -50,8 +50,7 @@ class AgentTurnRunner:
         save_work_state: Callable[[StoredWorkState | None], Awaitable[None]],
         apply_completion_gate_result: Callable[[str, CompletionGateResult], Awaitable[None]],
         apply_work_progress: Callable[[str, WorkProgressUpdate, StoredWorkState | None], Awaitable[None]],
-        schedule_post_response_maintenance: Callable[[str], None],
-        maybe_schedule_skill_review: Callable[[str, ExecutionResult], None],
+        schedule_curator: Callable[[str, str, str | None, str | None, ExecutionResult], None],
         worktree_sandbox_enabled: Callable[[], bool],
         workspace_root: Callable[[], Path],
     ):
@@ -75,8 +74,7 @@ class AgentTurnRunner:
         self._save_work_state = save_work_state
         self._apply_completion_gate_result = apply_completion_gate_result
         self._apply_work_progress = apply_work_progress
-        self._schedule_post_response_maintenance = schedule_post_response_maintenance
-        self._maybe_schedule_skill_review = maybe_schedule_skill_review
+        self._schedule_curator = schedule_curator
         self._worktree_sandbox_enabled = worktree_sandbox_enabled
         self._workspace_root = workspace_root
 
@@ -480,8 +478,13 @@ class AgentTurnRunner:
                 )
             await self._apply_work_progress(turn.session_id, work_progress, updated_work_state)
             await self._apply_completion_gate_result(turn.session_id, completion_result)
-            self._schedule_post_response_maintenance(turn.session_id)
-            self._maybe_schedule_skill_review(turn.session_id, aggregate_result)
+            self._schedule_curator(
+                turn.session_id,
+                run_id,
+                turn.channel,
+                turn.external_chat_id,
+                aggregate_result,
+            )
 
         return await self.response_finalizer.finalize(
             session_id=turn.session_id,

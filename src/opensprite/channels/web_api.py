@@ -6,6 +6,7 @@ from typing import Any
 
 from aiohttp import web
 
+from ..bus.session_commands import session_command_catalog
 from ..run_schema import (
     serialize_file_change,
     serialize_run_artifacts,
@@ -23,6 +24,68 @@ class WebApiHandlers:
 
     def __init__(self, adapter: Any) -> None:
         self.adapter = adapter
+
+    async def handle_command_catalog(self, request: web.Request) -> web.Response:
+        return web.json_response(session_command_catalog())
+
+    async def handle_curator_status(self, request: web.Request) -> web.Response:
+        adapter = self.adapter
+        agent = adapter._get_agent()
+        get_status = getattr(agent, "get_curator_status", None) if agent is not None else None
+        if not callable(get_status):
+            raise web.HTTPServiceUnavailable(text="Curator status is not available")
+
+        session_id = adapter._coerce_optional_text(request.query.get("session_id"))
+        if session_id is None:
+            raise web.HTTPBadRequest(text="session_id is required")
+        status = await get_status(session_id)
+        if status is None:
+            raise web.HTTPServiceUnavailable(text="Curator status is not available")
+        return web.json_response({"ok": True, "session_id": session_id, "status": adapter._json_safe(status)})
+
+    async def handle_curator_action(self, request: web.Request) -> web.Response:
+        adapter = self.adapter
+        agent = adapter._get_agent()
+        session_id = adapter._coerce_optional_text(request.query.get("session_id"))
+        if session_id is None:
+            raise web.HTTPBadRequest(text="session_id is required")
+
+        action = adapter._coerce_optional_text(request.match_info.get("action"), default="") or ""
+        if action == "run":
+            method = getattr(agent, "run_curator_now", None) if agent is not None else None
+            if not callable(method):
+                raise web.HTTPServiceUnavailable(text="Curator run is not available")
+            channel = adapter._channel_from_session(session_id)
+            if channel == "unknown":
+                raise web.HTTPBadRequest(text="session_id must include a channel prefix")
+            status = await method(
+                session_id,
+                channel=channel,
+                external_chat_id=adapter._external_chat_id_from_session(session_id),
+            )
+        elif action == "pause":
+            method = getattr(agent, "pause_curator", None) if agent is not None else None
+            if not callable(method):
+                raise web.HTTPServiceUnavailable(text="Curator pause is not available")
+            status = await method(session_id)
+        elif action == "resume":
+            method = getattr(agent, "resume_curator", None) if agent is not None else None
+            if not callable(method):
+                raise web.HTTPServiceUnavailable(text="Curator resume is not available")
+            status = await method(session_id)
+        else:
+            raise web.HTTPNotFound(text="Unknown curator action")
+
+        if status is None:
+            raise web.HTTPServiceUnavailable(text="Curator is not available")
+        return web.json_response(
+            {
+                "ok": True,
+                "session_id": session_id,
+                "action": action,
+                "status": adapter._json_safe(status),
+            }
+        )
 
     async def handle_run_events(self, request: web.Request) -> web.Response:
         adapter = self.adapter

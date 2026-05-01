@@ -6,7 +6,8 @@
 - Python uses a setuptools `src` layout and requires 3.11+. Dev install from repo root: `python -m pip install -e ".[dev]"`. Add `,vector` only when exercising the optional `sqlite-vec` backend.
 - `tests/conftest.py` prepends `src` to `sys.path`, so focused tests can run without installing the package. Example: `python -m pytest tests/channels/test_web.py::test_web_adapter_roundtrip`.
 - There are no repo-configured ruff/black/mypy/pyright/pre-commit checks and no GitHub Actions workflows. The real baseline is `python -m pytest`.
-- The web app lives in `apps/web` with its own `package-lock.json`. Run web checks there: `npm ci`, `npm run build`, `npm run dev`, `npm run preview`. On Windows PowerShell, `npm.cmd run build` avoids script execution-policy issues.
+- The web app lives in `apps/web` with its own `package-lock.json`. Run web checks there: `npm ci`, `npm run test:smoke`, `npm run build`, `npm run dev`, `npm run preview`. On Windows PowerShell, prefer `npm.cmd run build` / `npm.cmd run test:smoke` to avoid script execution-policy issues.
+- `npm run test:smoke` is a zero-dependency contract check for Web inspector wiring; it is not a Vue component/browser test replacement.
 
 ## Runtime Shape
 
@@ -27,6 +28,7 @@
 ## Web App
 
 - `apps/web/src/App.vue` is mostly shell wiring. Most browser chat/session/run behavior lives in `apps/web/src/composables/useChatClient.js`.
+- Web inspector display components are split out: `MessageList.vue` renders projected session entries, `RunSummaryCard.vue` renders summaries/diff/worktree cleanup, and `RunTraceViewer.vue` renders trace artifacts, code navigation results, and retention summaries.
 - Vite binds `127.0.0.1` and proxies `/ws`, `/healthz`, and `/api` to the gateway at `127.0.0.1:8765`.
 - Web gateway routes are unauthenticated; keep the default loopback bind unless adding auth, firewall, or tunnel protections.
 - `WebAdapter` will attempt `npm ci`/`npm install` when dependencies are missing and will build the frontend before gateway startup when `frontend_auto_install` / `frontend_auto_build` are enabled.

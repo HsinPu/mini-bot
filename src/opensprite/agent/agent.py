@@ -31,7 +31,7 @@ from ..storage.base import get_storage_message_count
 from ..documents.active_task import ActiveTaskConsolidator, create_active_task_store
 from ..context.builder import ContextBuilder
 from ..documents.memory import MemoryStore
-from ..context.paths import get_session_workspace, get_recent_summary_state_file
+from ..context.paths import get_session_skills_dir, get_session_workspace, get_recent_summary_state_file
 from ..documents.recent_summary import RecentSummaryConsolidator, RecentSummaryStore
 from ..media import MediaRouter
 from ..documents.user_profile import UserProfileConsolidator, create_user_profile_store
@@ -46,14 +46,13 @@ from ..storage.base import clear_storage_work_state, get_storage_work_state, ups
 from .active_task_commands import ActiveTaskCommandService
 from .auto_continue import AutoContinueService
 from .background_notifications import BackgroundSessionNotificationService
-from .background_tasks import CoalescingTaskScheduler
 from .completion_gate import CompletionGateResult, CompletionGateService
 from .consolidation import MemoryConsolidationService, RecentSummaryUpdateService, UserProfileUpdateService, ActiveTaskUpdateService
+from .curator import CuratorService, fingerprint_text_directory
 from .execution import ExecutionEngine, ExecutionResult
 from .file_changes import RunFileChangeService
 from .history_reset import HistoryResetService
 from .llm_call import LlmCallService
-from .maintenance import PostResponseMaintenanceService
 from .media import AgentMediaService
 from .message_history import MessageHistoryService
 from .mcp_lifecycle import McpLifecycleService
@@ -475,19 +474,11 @@ class AgentLoop:
             log_config=self.log_config,
             app_home_getter=lambda: self.app_home,
         )
-        self._skill_review_scheduler = CoalescingTaskScheduler[str](
-            on_exception=lambda session_id, _exc: logger.exception("[%s] skill.review.failed", session_id),
-            on_rerun=lambda session_id: logger.info("[%s] skill.review.rerun", session_id),
-            on_schedule_error=lambda session_id, _exc: logger.warning(
-                "[%s] skill.review.skip | reason=no-running-event-loop",
-                session_id,
-            ),
-        )
-        self.post_response_maintenance = PostResponseMaintenanceService()
-        self._skill_review_tasks = self._skill_review_scheduler.tasks
-        self._skill_review_rerun = self._skill_review_scheduler.rerun_keys
-        self._maintenance_tasks = self.post_response_maintenance.tasks
-        self._maintenance_rerun = self.post_response_maintenance.rerun_keys
+        self.curator: CuratorService | None = None
+        self._skill_review_tasks: dict[str, Any] = {}
+        self._skill_review_rerun: set[str] = set()
+        self._maintenance_tasks: dict[str, Any] = {}
+        self._maintenance_rerun: set[str] = set()
         # Set by runtime after MessageQueue is created; used for interim tool progress outbound messages.
         self._message_bus: Any = None
         self.permission_requests = PermissionRequestManager(
@@ -546,8 +537,13 @@ class AgentLoop:
                 result,
             ),
             apply_work_progress=lambda session_id, progress, state: self._maybe_apply_work_progress(session_id, progress, state),
-            schedule_post_response_maintenance=lambda session_id: self._schedule_post_response_maintenance(session_id),
-            maybe_schedule_skill_review=lambda session_id, result: self._maybe_schedule_skill_review(session_id, result),
+            schedule_curator=lambda session_id, run_id, channel, external_chat_id, result: self._schedule_curator(
+                session_id,
+                run_id,
+                channel,
+                external_chat_id,
+                result,
+            ),
             worktree_sandbox_enabled=lambda: self.config.worktree_sandbox_enabled,
             workspace_root=lambda: Path(self.tool_workspace or getattr(self._context_builder, "workspace", Path.cwd())),
         )
@@ -638,6 +634,32 @@ class AgentLoop:
             workspace_root_getter=lambda: self.tool_workspace,
         )
         self.recent_summary_update = self._setup_recent_summary_update()
+        self.curator = CuratorService(
+            maybe_consolidate_memory=lambda session_id: self._maybe_consolidate_memory(session_id),
+            maybe_update_recent_summary=lambda session_id: self._maybe_update_recent_summary(session_id),
+            maybe_update_user_profile=lambda session_id: self._maybe_update_user_profile(session_id),
+            maybe_update_active_task=lambda session_id: self._maybe_update_active_task(session_id),
+            run_skill_review=lambda session_id: self._run_skill_review(session_id),
+            should_run_skill_review=lambda result: self._should_schedule_skill_review(result),
+            read_memory_snapshot=self._read_memory_snapshot,
+            read_recent_summary_snapshot=self._read_recent_summary_snapshot,
+            read_user_profile_snapshot=self._read_user_profile_snapshot,
+            read_active_task_snapshot=self._read_active_task_snapshot,
+            read_skill_snapshot=self._read_skill_snapshot,
+            emit_run_event=lambda session_id, run_id, event_type, payload, channel, external_chat_id: self._emit_run_event(
+                session_id,
+                run_id,
+                event_type,
+                payload,
+                channel=channel,
+                external_chat_id=external_chat_id,
+            ),
+            state_path=(self.app_home / ".curator_state.json") if self.app_home is not None else None,
+        )
+        self._skill_review_tasks = self.curator.tasks
+        self._skill_review_rerun = self.curator.rerun_keys
+        self._maintenance_tasks = self.curator.tasks
+        self._maintenance_rerun = self.curator.rerun_keys
         self.llm_calls = LlmCallService(
             config=self.config,
             maybe_seed_active_task=lambda session_id, message, task_intent=None: self._maybe_seed_active_task(
@@ -885,34 +907,63 @@ class AgentLoop:
         session_id: str,
         runner: Callable[[str], Awaitable[None]],
     ) -> None:
-        """Run one maintenance path in the background with per-session coalescing."""
-        self.post_response_maintenance.schedule(kind=kind, session_id=session_id, runner=runner)
+        """Back-compat wrapper for callers that still schedule maintenance directly."""
+        del kind, runner
+        self._schedule_post_response_maintenance(session_id)
 
     def _schedule_post_response_maintenance(self, session_id: str) -> None:
-        """Queue post-response document maintenance without blocking the reply."""
-        self.post_response_maintenance.schedule_post_response(
+        """Queue maintenance-only curator work without blocking the reply."""
+        if self.curator is None:
+            return
+        self.curator.schedule_maintenance(
             session_id,
-            memory_runner=self._maybe_consolidate_memory,
-            recent_summary_runner=self._maybe_update_recent_summary,
-            user_profile_runner=self._maybe_update_user_profile,
-            active_task_runner=self._maybe_update_active_task,
+            run_id=self.turn_context.current_run_id(),
+            channel=self.turn_context.current_channel(),
+            external_chat_id=self.turn_context.current_external_chat_id(),
+        )
+
+    def _schedule_curator(
+        self,
+        session_id: str,
+        run_id: str,
+        channel: str | None,
+        external_chat_id: str | None,
+        result: ExecutionResult,
+    ) -> None:
+        """Queue the full curator pass for one completed visible run."""
+        if self.curator is None:
+            return
+        self.curator.schedule_after_turn(
+            session_id=session_id,
+            run_id=run_id,
+            channel=channel,
+            external_chat_id=external_chat_id,
+            result=result,
         )
 
     async def wait_for_background_maintenance(self) -> None:
         """Wait until all currently scheduled maintenance tasks finish."""
-        await self.post_response_maintenance.wait()
+        if self.curator is None:
+            return
+        await self.curator.wait()
 
     async def close_background_maintenance(self) -> None:
         """Cancel and drain any in-flight maintenance tasks."""
-        await self.post_response_maintenance.close()
+        if self.curator is None:
+            return
+        await self.curator.close()
 
     async def wait_for_background_skill_reviews(self) -> None:
         """Wait until all currently scheduled skill review tasks finish."""
-        await self._skill_review_scheduler.wait()
+        if self.curator is None:
+            return
+        await self.curator.wait()
 
     async def close_background_skill_reviews(self) -> None:
         """Cancel and drain any in-flight skill review tasks."""
-        await self._skill_review_scheduler.close()
+        if self.curator is None:
+            return
+        await self.curator.close()
 
     async def close_background_processes(self) -> None:
         """Terminate managed background exec sessions before the event loop closes."""
@@ -1327,18 +1378,66 @@ class AgentLoop:
         """Tools allowed during background skill review (subset of main registry)."""
         return self.skill_review.tool_registry()
 
+    def _should_schedule_skill_review(self, result: ExecutionResult) -> bool:
+        """Return whether the current turn warrants a background skill review."""
+        if not self.config.skill_review_enabled:
+            return False
+        if result.used_configure_skill:
+            return False
+        if result.executed_tool_calls < self.config.skill_review_min_tool_calls:
+            return False
+        return self._skill_review_tool_registry() is not None
+
     def _maybe_schedule_skill_review(self, session_id: str, result: ExecutionResult) -> None:
         """Fire-and-forget background pass after a heavy tool turn without skill upsert."""
-        if not self.config.skill_review_enabled:
+        if self.curator is None:
             return
-        if result.used_configure_skill:
-            return
-        if result.executed_tool_calls < self.config.skill_review_min_tool_calls:
-            return
-        if self._skill_review_tool_registry() is None:
-            return
+        self.curator.schedule_skill_review(
+            session_id,
+            result,
+            run_id=self.turn_context.current_run_id(),
+            channel=self.turn_context.current_channel(),
+            external_chat_id=self.turn_context.current_external_chat_id(),
+        )
 
-        self._skill_review_scheduler.schedule(session_id, lambda: self._run_skill_review(session_id))
+    async def get_curator_status(self, session_id: str) -> dict[str, Any] | None:
+        """Return background curator runtime status for one session."""
+        if self.curator is None:
+            return None
+        return self.curator.status(session_id)
+
+    async def run_curator_now(
+        self,
+        session_id: str,
+        *,
+        channel: str | None = None,
+        external_chat_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Schedule a manual full curator pass for one session."""
+        if self.curator is None:
+            return None
+        latest_run = await self.storage.get_latest_run(session_id)
+        scheduled = self.curator.schedule_manual_run(
+            session_id=session_id,
+            run_id=latest_run.run_id if latest_run is not None else None,
+            channel=channel,
+            external_chat_id=external_chat_id,
+        )
+        status = dict(self.curator.status(session_id))
+        status["scheduled"] = scheduled
+        return status
+
+    async def pause_curator(self, session_id: str) -> dict[str, Any] | None:
+        """Pause future curator scheduling for one session."""
+        if self.curator is None:
+            return None
+        return self.curator.pause(session_id)
+
+    async def resume_curator(self, session_id: str) -> dict[str, Any] | None:
+        """Resume future curator scheduling for one session."""
+        if self.curator is None:
+            return None
+        return self.curator.resume(session_id)
 
     async def _run_skill_review(self, session_id: str) -> None:
         tool_registry = self._skill_review_tool_registry()
@@ -1487,6 +1586,47 @@ class AgentLoop:
     async def _maybe_update_recent_summary(self, session_id: str) -> None:
         """Check whether RECENT_SUMMARY.md should be refreshed."""
         await self.recent_summary_update.maybe_update(session_id)
+
+    def _read_memory_snapshot(self, session_id: str) -> str:
+        """Return the current memory text used for curator change detection."""
+        return self.memory.read(session_id)
+
+    def _read_recent_summary_snapshot(self, session_id: str) -> str:
+        """Return the current recent-summary text used for curator change detection."""
+        memory_dir = getattr(self._context_builder, "memory_dir", None)
+        if memory_dir is None:
+            return ""
+        return RecentSummaryStore(memory_dir).read(session_id)
+
+    def _read_user_profile_snapshot(self, session_id: str) -> str:
+        """Return the managed USER.md profile block used for curator change detection."""
+        if self.app_home is None:
+            return ""
+        bootstrap_dir = getattr(self._context_builder, "bootstrap_dir", None)
+        store = create_user_profile_store(
+            self.app_home,
+            session_id,
+            bootstrap_dir=bootstrap_dir,
+            workspace_root=self.tool_workspace,
+        )
+        return store.read_managed_block()
+
+    def _read_active_task_snapshot(self, session_id: str) -> str:
+        """Return the ACTIVE_TASK.md managed block used for curator change detection."""
+        if self.app_home is None:
+            return ""
+        return create_active_task_store(
+            self.app_home,
+            session_id,
+            workspace_root=self.tool_workspace,
+        ).read_managed_block()
+
+    def _read_skill_snapshot(self, session_id: str) -> str:
+        """Return the mutable session skill fingerprint used for curator change detection."""
+        workspace = self.tool_workspace or getattr(self._context_builder, "workspace", None)
+        if workspace is None:
+            return ""
+        return fingerprint_text_directory(get_session_skills_dir(session_id, workspace_root=workspace))
 
     def _clear_active_task(self, session_id: str) -> None:
         """Reset ACTIVE_TASK.md for one session."""

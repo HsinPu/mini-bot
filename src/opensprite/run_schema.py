@@ -23,6 +23,8 @@ _EVENT_KINDS = {
     "work_plan.created": "work",
     "work_progress.updated": "work",
     "task_checklist.updated": "work",
+    "curator.started": "work",
+    "curator.completed": "work",
     "completion_gate.evaluated": "completion",
     "auto_continue.scheduled": "run",
     "auto_continue.completed": "run",
@@ -91,6 +93,8 @@ def run_event_status(event_type: str, payload: dict[str, Any] | None) -> str:
     data = payload or {}
     explicit = _text(data.get("status") or data.get("state"))
     if normalized == "run_started":
+        return explicit or "running"
+    if normalized == "curator.started":
         return explicit or "running"
     if normalized == "run_finished":
         return explicit or "completed"
@@ -190,6 +194,24 @@ def event_artifact(event_type: str, payload: dict[str, Any] | None) -> dict[str,
             "status": status,
             "title": "Task checklist",
             "detail": f"{completed}/{total} completed" if total else "No task steps",
+            "metadata": data,
+        }
+
+    if normalized == "curator.completed":
+        changed = data.get("changed") if isinstance(data.get("changed"), list) else []
+        detail = _text(data.get("summary")) or ", ".join(
+            str(item).strip() for item in changed if str(item).strip()
+        )
+        if not detail:
+            return None
+        return {
+            "schema_version": RUN_SCHEMA_VERSION,
+            "artifact_id": "curator",
+            "artifact_type": "curator",
+            "kind": "work",
+            "status": status,
+            "title": "Curator",
+            "detail": detail,
             "metadata": data,
         }
 

@@ -20,10 +20,12 @@ function assertRegex(content, pattern, label) {
   }
 }
 
-const [messageList, runSummaryCard, runTraceViewer, copy] = await Promise.all([
+const [messageList, runSummaryCard, runTraceViewer, chatComposer, chatClient, copy] = await Promise.all([
   read("src/components/MessageList.vue"),
   read("src/components/RunSummaryCard.vue"),
   read("src/components/RunTraceViewer.vue"),
+  read("src/components/ChatComposer.vue"),
+  read("src/composables/useChatClient.js"),
   read("src/i18n/copy.js"),
 ]);
 
@@ -33,6 +35,13 @@ assertIncludes(runSummaryCard, "visibleDiffPathItems", "diff summary file links"
 assertIncludes(runSummaryCard, "cleanup-worktree", "worktree cleanup action");
 assertIncludes(runTraceViewer, "codeNavigationResults", "code navigation trace rendering");
 assertIncludes(runTraceViewer, "showRetentionSummary", "trace retention summary");
+assertIncludes(chatComposer, "composer__commands", "slash command hints rendering");
+assertIncludes(chatClient, "/api/commands", "command catalog fetch");
+assertIncludes(chatClient, "/api/curator/status", "curator status fetch");
+assertIncludes(chatClient, "/api/curator/", "curator action fetch");
+assertIncludes(chatClient, "CURATOR_POLL_INTERVAL_MS", "curator polling interval");
+assertIncludes(chatClient, "scheduleCuratorPoll", "curator polling scheduler");
+assertIncludes(chatClient, "curator.completed", "curator event refresh");
 
 for (const key of [
   "artifactTypes",
@@ -40,6 +49,8 @@ for (const key of [
   "confirmCleanupSandbox",
   "codeNavigationActions",
   "retentionTitle",
+  "commandSuggestions",
+  "curator",
 ]) {
   assertRegex(copy, new RegExp(`${key}\\s*:`), `copy key ${key}`);
 }

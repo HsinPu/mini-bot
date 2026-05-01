@@ -39,12 +39,15 @@
       :run-summary="currentRunSummary"
       :permission-state="permissionState"
       :permission-requests="currentPermissionRequests"
+      :curator-state="curatorState"
+      :curator-status="currentCuratorStatus"
       :show-run-timeline="state.showRunTimeline"
       :show-run-summary="state.showRunSummary"
       :show-run-trace="state.showRunTrace"
       :notice="state.notice"
       :session-meta="sessionMeta"
       :runtime-hint="composerHint"
+      :command-hints="commandHints"
       :display-name="state.displayName"
       :message-text="messageText"
       :connection-label="connectionLabel"
@@ -61,10 +64,13 @@
       @composer-input="resizeComposer"
       @composer-keydown="handleComposerKeydown"
       @submit-message="submitMessage"
+      @apply-command-hint="applyCommandHint"
       @cancel-run="cancelRun"
       @resolve-permission="resolvePermissionRequest"
       @revert-file-change="revertRunFileChange"
       @cleanup-worktree="cleanupWorktreeSandbox"
+      @refresh-curator="loadCuratorStatus"
+      @run-curator-action="runCuratorAction"
       @select-run="selectRun"
     />
   </div>
@@ -139,9 +145,12 @@ const {
   currentRunTimeline,
   currentRunSummary,
   currentPermissionRequests,
+  curatorState,
+  currentCuratorStatus,
   settingsTitle,
   sessionMeta,
   composerHint,
+  commandHints,
   connectionLabel,
   connectButtonLabel,
   statusDotClass,
@@ -193,9 +202,12 @@ const {
   resolvePermissionRequest,
   revertRunFileChange,
   cleanupWorktreeSandbox,
+  loadCuratorStatus,
+  runCuratorAction,
   toggleSettingsConnection,
   submitMessage,
   handleComposerKeydown,
   applyPrompt,
+  applyCommandHint,
 } = useChatClient();
 </script>

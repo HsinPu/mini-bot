@@ -181,6 +181,54 @@ def test_to_user_message_uses_channel_instance_id_for_session():
     assert user_message.metadata["channel_instance_id"] == "telegram_work"
 
 
+def test_to_user_message_bypasses_commands_addressed_to_other_bot():
+    async def scenario():
+        adapter = TelegramAdapter("token")
+        update = Update.de_json(
+            {
+                "update_id": 1,
+                "message": {
+                    "message_id": 10,
+                    "date": 1710000000,
+                    "chat": {"id": 12345, "type": "group"},
+                    "from": {"id": 67890, "is_bot": False, "first_name": "Test"},
+                    "text": "/reset@OtherBot",
+                },
+            },
+            bot=None,
+        )
+        return await adapter.to_user_message(update, bot=SimpleNamespace(username="OpenSpriteBot"))
+
+    user_message = asyncio.run(scenario())
+
+    assert user_message.metadata["command_mention"] == "otherbot"
+    assert user_message.metadata["_bypass_commands"] is True
+
+
+def test_to_user_message_allows_commands_addressed_to_this_bot():
+    async def scenario():
+        adapter = TelegramAdapter("token")
+        update = Update.de_json(
+            {
+                "update_id": 1,
+                "message": {
+                    "message_id": 10,
+                    "date": 1710000000,
+                    "chat": {"id": 12345, "type": "group"},
+                    "from": {"id": 67890, "is_bot": False, "first_name": "Test"},
+                    "text": "/reset@OpenSpriteBot",
+                },
+            },
+            bot=None,
+        )
+        return await adapter.to_user_message(update, bot=SimpleNamespace(username="openspritebot"))
+
+    user_message = asyncio.run(scenario())
+
+    assert user_message.metadata["command_mention"] == "openspritebot"
+    assert "_bypass_commands" not in user_message.metadata
+
+
 def test_supported_message_filters_include_media_updates():
     message_filter = TelegramAdapter._supported_message_filters()
 
@@ -233,7 +281,7 @@ def test_supported_message_filters_include_media_updates():
 
     assert bool(message_filter.check_update(voice_update))
     assert bool(message_filter.check_update(video_update))
-    assert not message_filter.check_update(command_update)
+    assert bool(message_filter.check_update(command_update))
     assert filters.VOICE.check_update(voice_update)
 
 
