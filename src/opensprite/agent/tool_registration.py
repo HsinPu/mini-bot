@@ -41,6 +41,7 @@ from ..tools import (
     ConfigureSubagentTool,
     ListRunFileChangesTool,
     PreviewRunFileChangeRevertTool,
+    CodeNavigationTool,
 )
 from ..tools.delegate import DelegateTool
 from ..tools.permissions import ToolPermissionPolicy
@@ -127,6 +128,7 @@ def register_filesystem_tools(
     registry.register(ReadFileTool(workspace_resolver=workspace_resolver, skills_loader=skills_loader))
     registry.register(GlobFilesTool(workspace_resolver=workspace_resolver))
     registry.register(GrepFilesTool(workspace_resolver=workspace_resolver))
+    registry.register(CodeNavigationTool(workspace_resolver=workspace_resolver))
     registry.register(
         ApplyPatchTool(
             workspace_resolver=workspace_resolver,

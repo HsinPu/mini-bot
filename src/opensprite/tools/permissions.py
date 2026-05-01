@@ -29,6 +29,7 @@ DEFAULT_TOOL_RISKS: dict[str, frozenset[str]] = {
     "list_dir": frozenset({"read"}),
     "glob_files": frozenset({"read"}),
     "grep_files": frozenset({"read"}),
+    "code_navigation": frozenset({"read"}),
     "read_skill": frozenset({"read"}),
     "search_history": frozenset({"read"}),
     "search_knowledge": frozenset({"read"}),

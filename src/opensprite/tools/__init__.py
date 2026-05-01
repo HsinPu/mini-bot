@@ -31,6 +31,7 @@ from .cron import CronTool
 from .image import AnalyzeImageTool, OCRImageTool
 from .outbound_media import SendMediaTool
 from .run_trace import ListRunFileChangesTool, PreviewRunFileChangeRevertTool
+from .code_navigation import CodeNavigationTool
 
 __all__ = [
     "Tool",
@@ -67,4 +68,5 @@ __all__ = [
     "SendMediaTool",
     "ListRunFileChangesTool",
     "PreviewRunFileChangeRevertTool",
+    "CodeNavigationTool",
 ]
