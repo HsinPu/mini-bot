@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from dataclasses import dataclass, field
@@ -9,6 +10,7 @@ from typing import Any, Awaitable, Callable
 
 from ..config import DocumentLlmConfig, ToolsConfig
 from ..llms import ChatMessage, LLMProvider
+from ..llms.retry import retry_delay_from_error
 from ..search.base import SearchStore
 from ..tools import ToolRegistry
 from ..tools.verify import classify_verification_result
@@ -58,6 +60,9 @@ class LlmStepEvent:
     finish_reason: str | None = None
     tool_calls: int = 0
     error: str | None = None
+    retryable: bool = False
+    retry_after_ms: int | None = None
+    next_retry_at: float | None = None
 
 
 @dataclass
@@ -189,6 +194,8 @@ class ExecutionEngine:
     )
     CONTEXT_OVERFLOW_STATUS_MESSAGE = "上下文已接近上限，正在壓縮目前任務並繼續…"
     PROACTIVE_CONTEXT_COMPACTION_STATUS_MESSAGE = "上下文接近上限，正在壓縮目前任務並繼續…"
+    PROVIDER_RETRY_LIMIT = 1
+    PROVIDER_RETRY_STATUS_MESSAGE = "模型服務暫時忙碌，我會稍等後重試。"
     LLM_COMPACTION_SYSTEM_PROMPT = """You are a context compaction engine for an autonomous assistant.
 Compress the provided conversation state into a concise, factual Markdown state snapshot.
 Do not solve the user's task. Do not ask questions. Do not invent facts.
@@ -1044,6 +1051,7 @@ Output exactly these sections when applicable:
                 except Exception as exc:
                     duration_ms = int((time.perf_counter() - started_at) * 1000)
                     error_preview = self.format_log_preview(str(exc), max_chars=240)
+                    retry_delay = retry_delay_from_error(exc)
                     llm_step_events.append(
                         LlmStepEvent(
                             iteration=iteration + 1,
@@ -1055,6 +1063,9 @@ Output exactly these sections when applicable:
                             message_tokens=message_tokens,
                             tool_schema_tokens=tool_schema_tokens,
                             error=error_preview,
+                            retryable=retry_delay.retryable,
+                            retry_after_ms=retry_delay.retry_after_ms,
+                            next_retry_at=retry_delay.next_retry_at,
                         )
                     )
                     if (
@@ -1102,6 +1113,19 @@ Output exactly these sections when applicable:
                                 except Exception:
                                     logger.exception(f"[{log_id}] llm.context-overflow.status-hook.error")
                             continue
+
+                    if retry_delay.retryable and request_attempt <= self.PROVIDER_RETRY_LIMIT:
+                        logger.warning(
+                            f"[{log_id}] llm.retryable-error | iter={iteration + 1} attempt={request_attempt} "
+                            f"retry_after_ms={retry_delay.retry_after_ms} error={error_preview}"
+                        )
+                        if on_llm_status is not None:
+                            try:
+                                await on_llm_status(self.PROVIDER_RETRY_STATUS_MESSAGE)
+                            except Exception:
+                                logger.exception(f"[{log_id}] llm.retry.status-hook.error")
+                        await asyncio.sleep((retry_delay.retry_after_ms or 0) / 1000)
+                        continue
 
                     logger.exception(
                         f"[{log_id}] llm.error | iter={iteration + 1} messages={len(chat_messages)} "

@@ -273,11 +273,14 @@ class RunHookService:
         rid = run_id
 
         async def _hook(text: str) -> None:
+            payload = {"message": text}
+            if "retry" in str(text or "").lower() or "重試" in str(text or ""):
+                payload["status"] = "retry"
             await self._emit_run_event(
                 sid,
                 rid,
                 "llm_status",
-                {"message": text},
+                payload,
                 channel=ch,
                 external_chat_id=tid,
             )

@@ -61,6 +61,21 @@ class OverflowThenSuccessProvider:
         return LLMResponse(content=self.final_response, model="fake-model")
 
 
+class RetryableThenSuccessProvider:
+    def __init__(self, final_response: str = "retry ok"):
+        self.final_response = final_response
+        self.calls = []
+
+    async def chat(self, messages, tools=None, model=None, temperature=0.7, max_tokens=2048, **kwargs):
+        self.calls.append({"messages": list(messages), "tools": tools})
+        if len(self.calls) == 1:
+            error = RuntimeError("rate limited")
+            error.status_code = 429
+            error.headers = {"retry-after-ms": "0"}
+            raise error
+        return LLMResponse(content=self.final_response, model="fake-model")
+
+
 class LlmCompactionProvider:
     def __init__(self, compaction_response: str, final_response: str = "done"):
         self.compaction_response = compaction_response
@@ -158,6 +173,32 @@ def test_execution_engine_records_llm_step_usage_metadata():
     assert step.total_tokens == 18
     assert step.finish_reason == "stop"
     assert step.estimated_input_tokens >= 1
+
+
+def test_execution_engine_retries_transient_provider_errors_with_metadata():
+    provider = RetryableThenSuccessProvider()
+    engine = _make_engine(provider, ToolRegistry(), [])
+    statuses = []
+
+    async def on_status(message):
+        statuses.append(message)
+
+    result = asyncio.run(
+        engine.execute_messages(
+            "chat-1",
+            [ChatMessage(role="user", content="hi")],
+            allow_tools=False,
+            on_llm_status=on_status,
+        )
+    )
+
+    assert result.content == "retry ok"
+    assert len(provider.calls) == 2
+    assert [event.status for event in result.llm_step_events] == ["error", "completed"]
+    assert result.llm_step_events[0].retryable is True
+    assert result.llm_step_events[0].retry_after_ms == 0
+    assert result.llm_step_events[0].next_retry_at is not None
+    assert statuses == [ExecutionEngine.PROVIDER_RETRY_STATUS_MESSAGE]
 
 
 def test_execution_engine_projects_final_response_as_deltas():

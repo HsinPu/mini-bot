@@ -691,6 +691,8 @@ class MessageQueue:
                 "waiting_permission",
                 {**metadata, "request_id": payload.get("request_id"), "tool_name": payload.get("tool_name")},
             )
+        elif event_type == "llm_status" and str(payload.get("status") or payload.get("state") or "") == "retry":
+            await self._set_session_status(event.session_id, "retry", {**metadata, "message": payload.get("message")})
         elif event_type in {"permission_granted", "permission_denied", "tool_result"}:
             await self._set_session_status(event.session_id, "thinking", metadata)
         elif str(payload.get("status") or payload.get("state") or "") == "waiting_user":

@@ -251,6 +251,18 @@ def test_message_queue_maps_run_events_to_granular_session_status():
                 external_chat_id="browser-1",
                 session_id="web:browser-1",
                 run_id="run-1",
+                event_type="llm_status",
+                payload={"status": "retry", "message": "provider busy"},
+            )
+        )
+        retry = queue.session_status.get("web:browser-1")
+
+        await queue._set_session_status_from_run_event(
+            RunEvent(
+                channel="web",
+                external_chat_id="browser-1",
+                session_id="web:browser-1",
+                run_id="run-1",
                 event_type="work_progress.updated",
                 payload={"status": "waiting_user"},
             )
@@ -267,9 +279,9 @@ def test_message_queue_maps_run_events_to_granular_session_status():
             )
         )
         idle = queue.session_status.get("web:browser-1")
-        return thinking, streaming, tool_running, waiting_permission, resumed, waiting_user, idle
+        return thinking, streaming, tool_running, waiting_permission, resumed, retry, waiting_user, idle
 
-    thinking, streaming, tool_running, waiting_permission, resumed, waiting_user, idle = asyncio.run(scenario())
+    thinking, streaming, tool_running, waiting_permission, resumed, retry, waiting_user, idle = asyncio.run(scenario())
 
     assert thinking.status == "thinking"
     assert thinking.metadata["run_id"] == "run-1"
@@ -279,6 +291,8 @@ def test_message_queue_maps_run_events_to_granular_session_status():
     assert waiting_permission.status == "waiting_permission"
     assert waiting_permission.metadata["request_id"] == "perm-1"
     assert resumed.status == "thinking"
+    assert retry.status == "retry"
+    assert retry.metadata["message"] == "provider busy"
     assert waiting_user.status == "waiting_user"
     assert idle.status == "idle"
 
