@@ -32,6 +32,13 @@
         <span>{{ verificationEventCount }} {{ copy.trace.verification }}</span>
       </div>
 
+      <div v-if="showRetentionSummary" class="run-trace__retention" aria-label="Trace retention summary">
+        <strong>{{ copy.trace.retentionTitle }}</strong>
+        <span>{{ copy.trace.retentionEvents(retentionCounts.returned, retentionCounts.total) }}</span>
+        <span>{{ copy.trace.retentionCompacted(retentionCounts.compacted) }}</span>
+        <span v-if="retentionCounts.textTotal > 0">{{ copy.trace.retentionText(retentionCounts.textReturned, retentionCounts.textTotal) }}</span>
+      </div>
+
       <div class="run-trace__artifacts" aria-label="Run artifacts">
         <div class="run-trace__section-head">
           <strong>{{ copy.trace.artifactHeading }}</strong>
@@ -277,6 +284,21 @@ const eventCompactionLabel = computed(() => {
   }
   return props.copy.trace.eventsCompacted(compacted, Number(counts.textReturned || 0), Number(counts.textTotal || 0));
 });
+
+const retentionCounts = computed(() => {
+  const counts = props.run?.eventCounts || {};
+  const returned = Number(counts.returned || events.value.length || 0);
+  const total = Number(counts.total || returned);
+  return {
+    returned,
+    total,
+    compacted: Number(counts.compacted || Math.max(0, total - returned)),
+    textReturned: Number(counts.textReturned || 0),
+    textTotal: Number(counts.textTotal || 0),
+  };
+});
+
+const showRetentionSummary = computed(() => retentionCounts.value.compacted > 0 || retentionCounts.value.textTotal > retentionCounts.value.textReturned);
 
 const artifactGroups = computed(() => {
   const toolArtifacts = artifacts.value.filter((artifact) => artifact.kind === "tool");

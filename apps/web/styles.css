@@ -2373,6 +2373,33 @@ button:disabled {
   font-weight: 650;
 }
 
+.run-trace__retention {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 10px;
+  border: 1px solid rgba(183, 121, 31, 0.2);
+  border-radius: var(--radius-md);
+  background: #fff8eb;
+}
+
+.run-trace__retention strong {
+  color: #7c520f;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.run-trace__retention span {
+  padding: 3px 7px;
+  border: 1px solid rgba(183, 121, 31, 0.16);
+  border-radius: 999px;
+  color: #7c520f;
+  background: rgba(255, 255, 255, 0.58);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
 .run-trace__artifacts,
 .run-trace__code-nav,
 .run-trace__parts,
