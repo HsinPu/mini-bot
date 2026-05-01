@@ -202,7 +202,7 @@ def test_message_queue_help_overview_lists_curator_command():
     responses = asyncio.run(scenario())
 
     assert responses
-    assert "/curator <status|run [scope]|pause|resume|help>" in responses[0]
+    assert "/curator <status|history [limit]|run [scope]|pause|resume|help>" in responses[0]
 
 
 def test_curator_status_command_replies_immediately_without_running_agent_loop():
@@ -297,6 +297,92 @@ def test_curator_status_command_includes_current_job_and_last_changed_when_avail
     assert "- 目前工作: memory" in responses[0]
     assert "- 上次工作: memory, skills" in responses[0]
     assert "- 上次變更: memory" in responses[0]
+
+
+def test_curator_history_command_renders_recent_runs():
+    class CuratorAgent(FakeAgent):
+        async def get_curator_history(self, session_id, *, limit=10):
+            assert session_id == "telegram:same-chat"
+            assert limit == 2
+            return [
+                {
+                    "run_id": "run-2",
+                    "run_at": "2026-05-01T00:00:02Z",
+                    "jobs": ["skills"],
+                    "changed": ["skills"],
+                    "summary": "Updated skills.",
+                    "error": None,
+                    "status": "completed",
+                },
+                {
+                    "run_id": "run-1",
+                    "run_at": "2026-05-01T00:00:01Z",
+                    "jobs": ["memory"],
+                    "changed": [],
+                    "summary": "Curator failed: memory broke",
+                    "error": "memory broke",
+                    "status": "failed",
+                },
+            ]
+
+    async def scenario():
+        agent = CuratorAgent()
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, external_chat_id):
+            responses.append(message.text)
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="/curator history 2", external_chat_id="same-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return responses
+
+    responses = asyncio.run(scenario())
+
+    assert responses
+    assert "Curator 歷史:" in responses[0]
+    assert "#1 2026-05-01T00:00:02Z (completed)" in responses[0]
+    assert "- 工作: skills" in responses[0]
+    assert "- 摘要: Updated skills." in responses[0]
+    assert "#2 2026-05-01T00:00:01Z (failed)" in responses[0]
+    assert "- 錯誤: memory broke" in responses[0]
+
+
+def test_curator_history_command_rejects_invalid_limit():
+    async def scenario():
+        agent = FakeAgent()
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, external_chat_id):
+            responses.append(message.text)
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="/curator history nope", external_chat_id="same-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return responses, agent.seen_messages
+
+    responses, seen_messages = asyncio.run(scenario())
+
+    assert seen_messages == []
+    assert responses == ["Error: limit must be a positive integer. Usage: /curator history [limit]"]
 
 
 def test_curator_run_command_replies_immediately_without_running_agent_loop():

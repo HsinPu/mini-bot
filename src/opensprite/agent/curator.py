@@ -21,6 +21,7 @@ SessionRunner = Callable[[str], Awaitable[None]]
 RunEventEmitter = Callable[[str, str, str, dict[str, Any], str | None, str | None], Awaitable[None]]
 SkillReviewDecider = Callable[[ExecutionResult], bool]
 CURATOR_STATE_SCHEMA_VERSION = 1
+CURATOR_HISTORY_LIMIT = 20
 CURATOR_MAINTENANCE_JOB_KEYS = ("memory", "recent_summary", "user_profile", "active_task")
 CURATOR_SCOPE_CHOICES = ("maintenance", "skills", *CURATOR_MAINTENANCE_JOB_KEYS)
 
@@ -218,6 +219,7 @@ class CuratorService:
         self,
         session_id: str,
         *,
+        run_id: str | None,
         started_at: datetime,
         duration_seconds: float,
         jobs: list[str],
@@ -233,7 +235,32 @@ class CuratorService:
         state["last_run_summary"] = summary
         state["last_error"] = error
         state["run_count"] = self._safe_int(state.get("run_count")) + 1
+        history = self._history_entries(session_id)
+        history.append(
+            {
+                "run_id": run_id,
+                "run_at": started_at.isoformat(),
+                "duration_seconds": duration_seconds,
+                "jobs": list(jobs),
+                "changed": list(changed),
+                "summary": summary,
+                "error": error,
+                "status": "failed" if error else "completed",
+            }
+        )
+        state["history"] = history[-CURATOR_HISTORY_LIMIT:]
         self._save_state()
+
+    def _history_entries(self, session_id: str) -> list[dict[str, Any]]:
+        state = self._session_state(session_id)
+        raw_history = state.get("history") if isinstance(state.get("history"), list) else []
+        history = [dict(item) for item in raw_history if isinstance(item, dict)]
+        state["history"] = history[-CURATOR_HISTORY_LIMIT:]
+        return state["history"]
+
+    def history(self, session_id: str, *, limit: int = 10) -> list[dict[str, Any]]:
+        entries = list(reversed(self._history_entries(session_id)))
+        return entries[: max(1, int(limit or 1))]
 
     @staticmethod
     def _merge_request(current: CuratorRequest | None, incoming: CuratorRequest) -> CuratorRequest:
@@ -540,6 +567,7 @@ class CuratorService:
                 )
                 self._record_run(
                     session_id,
+                    run_id=request.run_id,
                     started_at=started_at,
                     duration_seconds=(datetime.now(timezone.utc) - started_at).total_seconds(),
                     jobs=job_keys,
@@ -564,6 +592,7 @@ class CuratorService:
                 )
                 self._record_run(
                     session_id,
+                    run_id=request.run_id,
                     started_at=started_at,
                     duration_seconds=(datetime.now(timezone.utc) - started_at).total_seconds(),
                     jobs=job_keys,

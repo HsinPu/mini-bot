@@ -659,6 +659,33 @@ class MessageQueue:
             lines.append(self.messages.curator.attached_run_label.format(run_id=run_id))
         return "\n".join(lines)
 
+    def _format_curator_history(self, entries: list[dict[str, Any]]) -> str:
+        """Render recent curator run history entries for one session."""
+        if not entries:
+            return self.messages.curator.history_empty
+        lines = [self.messages.curator.history_header]
+        for index, entry in enumerate(entries, start=1):
+            run_at = str(entry.get("run_at") or "unknown").strip() or "unknown"
+            status = str(entry.get("status") or ("failed" if entry.get("error") else "completed")).strip() or "completed"
+            lines.append(f"#{index} {run_at} ({status})")
+            run_id = str(entry.get("run_id") or "").strip()
+            if run_id:
+                lines.append(self.messages.curator.attached_run_label.format(run_id=run_id))
+            jobs = ", ".join(str(item) for item in entry.get("jobs", []) if str(item).strip()) or "none"
+            lines.append(self.messages.curator.jobs_label.format(jobs=jobs))
+            changed = ", ".join(str(item) for item in entry.get("changed", []) if str(item).strip())
+            if changed:
+                lines.append(self.messages.curator.history_changed_label.format(value=changed))
+            summary = str(entry.get("summary") or "").strip()
+            if summary:
+                lines.append(self.messages.curator.history_summary_label.format(value=summary))
+            error = str(entry.get("error") or "").strip()
+            if error:
+                lines.append(self.messages.curator.history_error_label.format(value=error))
+            if index < len(entries):
+                lines.append("")
+        return "\n".join(lines)
+
     async def _handle_curator_command(
         self,
         session_id: str,
@@ -675,6 +702,7 @@ class MessageQueue:
             return self.messages.curator.help_text
 
         show_status = getattr(self.agent, "get_curator_status", None)
+        show_history = getattr(self.agent, "get_curator_history", None)
         run_now = getattr(self.agent, "run_curator_now", None)
         pause_curator = getattr(self.agent, "pause_curator", None)
         resume_curator = getattr(self.agent, "resume_curator", None)
@@ -685,6 +713,22 @@ class MessageQueue:
             if status is None:
                 return self.messages.curator.unavailable
             return self._format_curator_status(status)
+
+        if action in {"history", "log"}:
+            limit = 10
+            if _args:
+                try:
+                    limit = int(_args[0])
+                except ValueError:
+                    return self.messages.curator.error_history_limit
+                if limit <= 0:
+                    return self.messages.curator.error_history_limit
+            if not callable(show_history):
+                return self.messages.curator.unavailable
+            history = await show_history(session_id, limit=limit)
+            if history is None:
+                return self.messages.curator.unavailable
+            return self._format_curator_history(history)
 
         if action == "run":
             if len(_args) > 1:

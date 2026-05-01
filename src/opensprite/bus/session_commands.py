@@ -53,10 +53,10 @@ COMMAND_REGISTRY: tuple[CommandDef, ...] = (
     ),
     CommandDef(
         "curator",
-        "Inspect or manually control background curation for this session, including optional run scopes.",
-        args_hint="<status|run [scope]|pause|resume|help>",
+        "Inspect or manually control background curation for this session, including history and optional run scopes.",
+        args_hint="<status|history [limit]|run [scope]|pause|resume|help>",
         category="Maintenance",
-        subcommands=("status", "run", "pause", "resume", "help"),
+        subcommands=("status", "history", "run", "pause", "resume", "help"),
     ),
 )
 

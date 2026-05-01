@@ -262,6 +262,57 @@ def test_curator_service_persists_run_metadata(tmp_path):
     assert status["last_error"] is None
 
 
+def test_curator_service_persists_run_history(tmp_path):
+    async def scenario():
+        state = {"memory": "", "recent_summary": "", "user_profile": "", "active_task": "", "skills": ""}
+        state_path = tmp_path / "curator_state.json"
+
+        async def emit_run_event(session_id, run_id, event_type, payload, channel, external_chat_id):
+            return None
+
+        async def update_memory(_session_id):
+            state["memory"] = "changed"
+
+        async def update_skills(_session_id):
+            state["skills"] = "changed"
+
+        async def noop(_session_id):
+            return None
+
+        def make_service():
+            return CuratorService(
+                maybe_consolidate_memory=update_memory,
+                maybe_update_recent_summary=noop,
+                maybe_update_user_profile=noop,
+                maybe_update_active_task=noop,
+                run_skill_review=update_skills,
+                should_run_skill_review=lambda result: False,
+                read_memory_snapshot=lambda _session_id: state["memory"],
+                read_recent_summary_snapshot=lambda _session_id: state["recent_summary"],
+                read_user_profile_snapshot=lambda _session_id: state["user_profile"],
+                read_active_task_snapshot=lambda _session_id: state["active_task"],
+                read_skill_snapshot=lambda _session_id: state["skills"],
+                emit_run_event=emit_run_event,
+                state_path=state_path,
+            )
+
+        service = make_service()
+        service.schedule_manual_run(session_id="web:browser-1", run_id="run-1", scope="memory")
+        await service.wait()
+        service.schedule_manual_run(session_id="web:browser-1", run_id="run-2", scope="skills")
+        await service.wait()
+        restored = make_service()
+        return restored.history("web:browser-1", limit=2)
+
+    history = asyncio.run(scenario())
+
+    assert [entry["run_id"] for entry in history] == ["run-2", "run-1"]
+    assert history[0]["jobs"] == ["skills"]
+    assert history[0]["changed"] == ["skills"]
+    assert history[1]["jobs"] == ["memory"]
+    assert history[1]["changed"] == ["memory"]
+
+
 def test_curator_service_manual_run_scope_runs_only_requested_maintenance_job():
     async def scenario():
         state = {"memory": "", "recent_summary": "", "user_profile": "", "active_task": "", "skills": ""}

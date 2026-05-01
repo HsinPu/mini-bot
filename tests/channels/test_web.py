@@ -185,7 +185,7 @@ async def _run_web_command_catalog_api():
 
         commands = {item["name"]: item for item in payload["commands"]}
         assert commands["help"]["usage"] == "/help [command]"
-        assert commands["curator"]["subcommands"] == ["status", "run", "pause", "resume", "help"]
+        assert commands["curator"]["subcommands"] == ["status", "history", "run", "pause", "resume", "help"]
         assert commands["curator"]["category"] == "Maintenance"
     finally:
         adapter_task.cancel()

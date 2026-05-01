@@ -70,8 +70,9 @@
     "no_next_step": "目前沒有可前進的下一步。"
   },
   "curator": {
-    "help_text": "背景整理命令:\n/curator status\n/curator run [maintenance|skills|memory|recent_summary|user_profile|active_task]\n/curator pause\n/curator resume\n/curator help",
+    "help_text": "背景整理命令:\n/curator status\n/curator history [limit]\n/curator run [maintenance|skills|memory|recent_summary|user_profile|active_task]\n/curator pause\n/curator resume\n/curator help",
     "unavailable": "背景整理功能目前不可用。",
+    "error_history_limit": "Error: limit must be a positive integer. Usage: /curator history [limit]",
     "error_run_usage": "Usage: /curator run [maintenance|skills|memory|recent_summary|user_profile|active_task]",
     "invalid_scope": "Unknown curator scope: {scope}. Valid scopes: {scopes}",
     "run_scheduled": "已排入背景整理。",
@@ -79,6 +80,11 @@
     "run_paused": "背景整理目前已暫停，請先恢復。",
     "paused_done": "已暫停背景整理。",
     "resumed_done": "已恢復背景整理。",
+    "history_header": "Curator 歷史:",
+    "history_empty": "尚無背景整理紀錄。",
+    "history_changed_label": "- 變更: {value}",
+    "history_summary_label": "- 摘要: {value}",
+    "history_error_label": "- 錯誤: {value}",
     "status_header": "Curator 狀態:",
     "status_label": "- 狀態: {state}",
     "paused_label": "- 已暫停: {value}",

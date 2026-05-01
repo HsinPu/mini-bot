@@ -1406,6 +1406,12 @@ class AgentLoop:
             return None
         return self.curator.status(session_id)
 
+    async def get_curator_history(self, session_id: str, *, limit: int = 10) -> list[dict[str, Any]] | None:
+        """Return recent persisted curator run history for one session."""
+        if self.curator is None:
+            return None
+        return self.curator.history(session_id, limit=limit)
+
     async def run_curator_now(
         self,
         session_id: str,
