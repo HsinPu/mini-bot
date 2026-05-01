@@ -1328,6 +1328,7 @@ class WebAdapter(MessageAdapter):
         self.app.router.add_get("/api/permissions", self._api.handle_permissions)
         self.app.router.add_post("/api/permissions/{request_id}/approve", self._api.handle_permission_approve)
         self.app.router.add_post("/api/permissions/{request_id}/deny", self._api.handle_permission_deny)
+        self.app.router.add_post("/api/worktrees/cleanup", self._api.handle_worktree_cleanup)
         self.app.router.add_get("/api/settings/channels", self._handle_settings_channels)
         self.app.router.add_post("/api/settings/channels", self._handle_settings_channel_create)
         self.app.router.add_put("/api/settings/channels/{channel_id}", self._handle_settings_channel_update)

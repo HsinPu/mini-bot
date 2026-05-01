@@ -97,7 +97,7 @@ class AgentTurnRunner:
         metadata = WorktreeSandboxInspector(
             enabled=enabled,
             workspace_root=self._workspace_root(),
-        ).inspect().to_payload()
+        ).create(session_id=session_id, run_id=run_id).to_payload()
         metadata["task_kind"] = task_intent.kind
         metadata["expects_code_change"] = task_intent.expects_code_change
         await self.run_trace.record_worktree_sandbox_part(session_id, run_id, metadata)

@@ -72,6 +72,7 @@ from .tool_registration import register_default_tools, register_memory_tool
 from .turn_context import TurnContextService
 from .turn_input import TurnInputPreparer
 from .turn_runner import AgentTurnRunner
+from .worktree import WorktreeSandboxInspector
 from .work_progress import WorkProgressService, WorkProgressUpdate
 
 class AgentLoop:
@@ -296,6 +297,10 @@ class AgentLoop:
     def pending_permission_requests(self) -> list[PermissionRequest]:
         """Return permission requests waiting for an external decision."""
         return self.permissions.pending_requests()
+
+    def cleanup_worktree_sandbox(self, sandbox_path: str) -> dict[str, Any]:
+        """Remove an OpenSprite-managed worktree sandbox by marker-guarded path."""
+        return WorktreeSandboxInspector.cleanup(sandbox_path)
 
     async def approve_permission_request(self, request_id: str) -> PermissionRequest | None:
         """Approve one pending tool permission request."""

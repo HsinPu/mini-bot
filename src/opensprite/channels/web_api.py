@@ -229,3 +229,17 @@ class WebApiHandlers:
         if permission is None:
             raise web.HTTPNotFound(text="Permission request not found")
         return web.json_response({"ok": True, "permission": adapter._serialize_permission_request(permission)})
+
+    async def handle_worktree_cleanup(self, request: web.Request) -> web.Response:
+        adapter = self.adapter
+        agent = adapter._get_agent()
+        cleanup = getattr(agent, "cleanup_worktree_sandbox", None) if agent is not None else None
+        if not callable(cleanup):
+            raise web.HTTPServiceUnavailable(text="Worktree sandbox cleanup is not available")
+
+        body = await adapter._read_json_body(request)
+        sandbox_path = adapter._coerce_optional_text(body.get("sandbox_path"))
+        if sandbox_path is None:
+            raise web.HTTPBadRequest(text="sandbox_path is required")
+        result = cleanup(sandbox_path)
+        return web.json_response({"ok": bool(result.get("ok")), "cleanup": adapter._json_safe(result)})

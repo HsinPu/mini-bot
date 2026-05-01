@@ -1175,6 +1175,63 @@ def test_web_adapter_exposes_permissions_api():
     asyncio.run(_run_web_permissions_api())
 
 
+async def _run_web_worktree_cleanup_api(tmp_path: Path):
+    marker_dir = tmp_path / "sandbox"
+    marker_dir.mkdir()
+    (marker_dir / ".opensprite-worktree.json").write_text("{}", encoding="utf-8")
+    cleanup_calls = []
+
+    class WorktreeAgent(EchoAgent):
+        def cleanup_worktree_sandbox(self, sandbox_path):
+            cleanup_calls.append(sandbox_path)
+            return {"ok": True, "status": "removed", "sandbox_path": sandbox_path}
+
+    queue = MessageQueue(WorktreeAgent())
+    adapter = WebAdapter(
+        mq=queue,
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "path": "/ws",
+            "health_path": "/healthz",
+            "frontend_auto_build": False,
+        },
+    )
+    adapter_task = asyncio.create_task(adapter.run())
+
+    try:
+        await adapter.wait_until_started()
+        port = adapter.bound_port
+        assert port is not None
+
+        async with ClientSession() as session:
+            async with session.post(
+                f"http://127.0.0.1:{port}/api/worktrees/cleanup",
+                json={"sandbox_path": str(marker_dir)},
+            ) as resp:
+                assert resp.status == 200
+                payload = await resp.json()
+
+            async with session.post(f"http://127.0.0.1:{port}/api/worktrees/cleanup", json={}) as resp:
+                assert resp.status == 400
+
+        assert payload == {
+            "ok": True,
+            "cleanup": {"ok": True, "status": "removed", "sandbox_path": str(marker_dir)},
+        }
+        assert cleanup_calls == [str(marker_dir)]
+    finally:
+        adapter_task.cancel()
+        try:
+            await adapter_task
+        except asyncio.CancelledError:
+            pass
+
+
+def test_web_adapter_exposes_worktree_cleanup_api(tmp_path):
+    asyncio.run(_run_web_worktree_cleanup_api(tmp_path))
+
+
 async def _run_web_settings_provider_api(tmp_path: Path):
     config_path = tmp_path / "opensprite.json"
     Config.copy_template(config_path)

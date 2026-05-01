@@ -1,4 +1,5 @@
 import asyncio
+import subprocess
 from types import SimpleNamespace
 
 from opensprite.agent.run_hooks import RunHookService
@@ -124,6 +125,35 @@ def test_worktree_sandbox_inspector_reports_disabled(tmp_path):
     assert metadata["enabled"] is False
     assert metadata["status"] == "disabled"
     assert metadata["workspace_root"] == str(tmp_path.resolve())
+
+
+def test_worktree_sandbox_creates_and_cleans_git_worktree(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, check=True)
+    (repo / "README.md").write_text("hello\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo, check=True, capture_output=True, text=True)
+
+    metadata = WorktreeSandboxInspector(enabled=True, workspace_root=repo).create(
+        session_id="web:browser-1",
+        run_id="run-1",
+    ).to_payload()
+
+    sandbox_path = metadata["sandbox_path"]
+    assert metadata["status"] == "created"
+    assert metadata["created"] is True
+    assert metadata["cleanup_supported"] is True
+    assert sandbox_path is not None
+    assert (tmp_path / "repo.opensprite-worktrees" / "web_browser-1" / "run-1" / "README.md").exists()
+
+    cleanup = WorktreeSandboxInspector.cleanup(sandbox_path)
+
+    assert cleanup["ok"] is True
+    assert cleanup["status"] == "removed"
+    assert not (tmp_path / "repo.opensprite-worktrees" / "web_browser-1" / "run-1").exists()
 
 
 def test_run_trace_recorder_persists_worktree_sandbox_part():
