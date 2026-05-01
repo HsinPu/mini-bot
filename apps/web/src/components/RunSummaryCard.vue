@@ -90,11 +90,21 @@
           </dl>
           <div v-if="diffActionEntries.length" class="run-summary-card__chips">
             <span>{{ copy.runSummary.actions }}</span>
-            <code v-for="[action, count] in diffActionEntries" :key="action">{{ action }} x{{ count }}</code>
+            <code v-for="[action, count] in diffActionEntries" :key="action" :data-action="action">{{ action }} x{{ count }}</code>
           </div>
           <div v-if="visibleDiffPaths.length" class="run-summary-card__paths">
             <span>{{ copy.runSummary.paths }}</span>
-            <code v-for="path in visibleDiffPaths" :key="path">{{ path }}</code>
+            <button
+              v-for="item in visibleDiffPathItems"
+              :key="item.path"
+              class="run-summary-card__path-button"
+              type="button"
+              :disabled="!item.change"
+              @click="item.change && $emit('inspect-file', item.change)"
+            >
+              <code>{{ item.path }}</code>
+              <small v-if="item.change">{{ item.change.action || copy.runSummary.inspectFile }}</small>
+            </button>
             <small v-if="hiddenDiffPathCount > 0">{{ copy.runSummary.moreFiles(hiddenDiffPathCount) }}</small>
           </div>
         </div>
@@ -246,6 +256,11 @@ const hasDiffSummary = computed(() => {
 const diffActionEntries = computed(() => Object.entries(diffSummary.value?.actions || {}).slice(0, 4));
 
 const visibleDiffPaths = computed(() => (diffSummary.value?.paths || []).slice(0, 4));
+
+const visibleDiffPathItems = computed(() => visibleDiffPaths.value.map((path) => ({
+  path,
+  change: (summary.value?.fileChanges || []).find((change) => change.path === path) || null,
+})));
 
 const hiddenDiffPathCount = computed(() => Math.max(0, (diffSummary.value?.paths?.length || 0) - visibleDiffPaths.value.length));
 
