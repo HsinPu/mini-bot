@@ -606,6 +606,47 @@ def _summarize_file_changes(file_changes: list[Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _count_diff_lines(diff: str) -> tuple[int, int]:
+    additions = 0
+    deletions = 0
+    for line in str(diff or "").splitlines():
+        if line.startswith("+++") or line.startswith("---"):
+            continue
+        if line.startswith("+"):
+            additions += 1
+        elif line.startswith("-"):
+            deletions += 1
+    return additions, deletions
+
+
+def serialize_diff_summary(trace: Any) -> dict[str, Any]:
+    """Summarize file mutations for user-facing run/session cards."""
+    file_changes = list(getattr(trace, "file_changes", None) or [])
+    paths: list[str] = []
+    action_counts: dict[str, int] = {}
+    additions = 0
+    deletions = 0
+    for change in file_changes:
+        path = str(getattr(change, "path", "") or "").strip()
+        if path and path not in paths:
+            paths.append(path)
+        action = str(getattr(change, "action", "") or "unknown").strip() or "unknown"
+        action_counts[action] = action_counts.get(action, 0) + 1
+        added, deleted = _count_diff_lines(str(getattr(change, "diff", "") or ""))
+        additions += added
+        deletions += deleted
+
+    return {
+        "schema_version": RUN_SCHEMA_VERSION,
+        "changed_files": len(paths),
+        "change_count": len(file_changes),
+        "additions": additions,
+        "deletions": deletions,
+        "paths": paths,
+        "actions": action_counts,
+    }
+
+
 def _summarize_verification(run_metadata: dict[str, Any], events: list[Any]) -> dict[str, Any]:
     latest = _latest_event_payload(events, "verification_result")
     attempted = _metadata_bool(run_metadata, "verification_attempted") or latest is not None
@@ -670,6 +711,7 @@ def serialize_run_summary(trace: Any) -> dict[str, Any]:
         "duration_seconds": duration_seconds,
         "tools": _summarize_tools(parts, events),
         "file_changes": _summarize_file_changes(file_changes),
+        "diff_summary": serialize_diff_summary(trace),
         "verification": verification,
         "artifact_counts": {
             "total": len(artifacts),

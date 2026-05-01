@@ -50,7 +50,7 @@ from ..config.schedule_settings import (
 )
 from ..cron import CronJob, CronSchedule
 from ..cron.presentation import format_cron_timestamp, format_cron_timing
-from ..run_schema import serialize_run_event, serialize_work_state_todos
+from ..run_schema import serialize_diff_summary, serialize_run_event, serialize_work_state_todos
 from ..session_entries import serialize_session_entries
 from ..utils.log import logger
 from .web_api import WebApiHandlers
@@ -714,6 +714,7 @@ class WebAdapter(MessageAdapter):
             "messages": [self._serialize_message(message) for message in display_messages],
             "runs": [self._serialize_run(run) for run in latest_runs],
             "entries": serialize_session_entries(display_messages, latest_traces),
+            "diff_summary": serialize_diff_summary(latest_traces[0]) if latest_traces else None,
             "work_state": self._serialize_work_state(work_state),
         }
 

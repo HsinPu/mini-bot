@@ -370,7 +370,7 @@ async def _run_web_run_events_api():
         after_sha256="after",
         before_content="old\n",
         after_content="new\n",
-        diff="--- a/notes.txt\n+++ b/notes.txt\n",
+        diff="--- a/notes.txt\n+++ b/notes.txt\n@@ -1 +1 @@\n-old\n+new\n",
         metadata={"verified": True},
         created_at=104.0,
     )
@@ -493,6 +493,15 @@ async def _run_web_run_events_api():
             assert trace_payload["file_changes"][0]["path"] == "notes.txt"
             assert trace_payload["file_changes"][0]["before_content"] == "old\n"
             assert trace_payload["file_changes"][0]["after_content"] == "new\n"
+            assert trace_payload["diff_summary"] == {
+                "schema_version": 1,
+                "changed_files": 1,
+                "change_count": 1,
+                "additions": 1,
+                "deletions": 1,
+                "paths": ["notes.txt"],
+                "actions": {"modify": 1},
+            }
             assert [artifact["kind"] for artifact in trace_payload["artifacts"]] == ["tool", "file"]
             assert trace_payload["artifacts"][0]["artifact_id"] == "tool:call-1"
             assert trace_payload["artifacts"][0]["status"] == "completed"
@@ -555,11 +564,20 @@ async def _run_web_run_events_api():
                         "path": "notes.txt",
                         "action": "modify",
                         "tool_name": "apply_patch",
-                        "diff_len": 32,
-                        "diff": "--- a/notes.txt\n+++ b/notes.txt\n",
+                        "diff_len": 54,
+                        "diff": "--- a/notes.txt\n+++ b/notes.txt\n@@ -1 +1 @@\n-old\n+new\n",
                         "snapshots_available": {"before": True, "after": True},
                     }
                 ],
+                "diff_summary": {
+                    "schema_version": 1,
+                    "changed_files": 1,
+                    "change_count": 1,
+                    "additions": 1,
+                    "deletions": 1,
+                    "paths": ["notes.txt"],
+                    "actions": {"modify": 1},
+                },
                 "verification": {
                     "attempted": False,
                     "passed": False,
@@ -664,6 +682,15 @@ async def _run_web_sessions_api():
         status="completed",
         metadata={"objective": "ship session work card"},
         created_at=202.0,
+    )
+    await storage.add_run_file_change(
+        "web:browser-new",
+        "run-new-latest",
+        "apply_patch",
+        "apps/web/src/App.vue",
+        "modify",
+        diff="@@ -1 +1 @@\n-old\n+new\n",
+        created_at=203.0,
     )
     await storage.add_message(
         "telegram:123",
@@ -840,6 +867,15 @@ async def _run_web_sessions_api():
         assert payload["sessions"][0]["entries"][0]["text"] == "new hello"
         assert payload["sessions"][0]["entries"][1]["entry_type"] == "assistant"
         assert payload["sessions"][0]["entries"][1]["run_id"] == "run-new-latest"
+        assert payload["sessions"][0]["diff_summary"] == {
+            "schema_version": 1,
+            "changed_files": 1,
+            "change_count": 1,
+            "additions": 1,
+            "deletions": 1,
+            "paths": ["apps/web/src/App.vue"],
+            "actions": {"modify": 1},
+        }
     finally:
         adapter_task.cancel()
         try:
