@@ -47,6 +47,9 @@ const TIMELINE_EVENT_TYPES = new Set([
   "permission_requested",
   "permission_granted",
   "permission_denied",
+  "curator.started",
+  "curator.completed",
+  "curator.failed",
   "run_finished",
   "run_failed",
   "run_cancelled",
@@ -810,6 +813,30 @@ function describeRunEvent(eventType, payload, copy) {
       label: `${copy.trace.filters.permission}: ${payload.tool_name || copy.run.unknownTool}`,
       detail: payload.resolution_reason || payload.status || "",
       tone: granted ? "success" : "error",
+    };
+  }
+
+  if (eventType === "curator.started") {
+    return {
+      label: copy.run.curatorStarted,
+      detail: payload.message || payload.summary || "",
+      tone: "running",
+    };
+  }
+
+  if (eventType === "curator.completed") {
+    return {
+      label: copy.run.curatorCompleted,
+      detail: payload.summary || payload.message || "",
+      tone: "success",
+    };
+  }
+
+  if (eventType === "curator.failed") {
+    return {
+      label: copy.run.curatorFailed,
+      detail: payload.error || payload.message || "",
+      tone: "error",
     };
   }
 
@@ -1679,7 +1706,7 @@ export function useChatClient() {
     if (isTerminalRunStatus(run.status) || eventType === "run_finished" || eventType === "run_failed") {
       scheduleRunSummaryFetch(session, run);
     }
-    if (eventType === "curator.completed") {
+    if (eventType.startsWith("curator.")) {
       const curatorSessionId = getCuratorSessionId(session);
       if (curatorSessionId && isCurrentCuratorSessionId(curatorSessionId)) {
         void loadCuratorStatus({ sessionId: curatorSessionId, quiet: true });

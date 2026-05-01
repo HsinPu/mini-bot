@@ -311,6 +311,76 @@ def test_serialize_run_event_projects_curator_artifact():
     }
 
 
+def test_serialize_run_event_projects_curator_job_artifact():
+    event = SimpleNamespace(
+        event_id=45,
+        run_id="run-1",
+        session_id="web:browser-1",
+        event_type="curator.job.completed",
+        payload={
+            "status": "completed",
+            "job": "memory",
+            "label": "memory",
+            "summary": "Updated memory.",
+        },
+        created_at=13.0,
+    )
+
+    payload = serialize_run_event(event)
+
+    assert payload["kind"] == "work"
+    assert payload["status"] == "completed"
+    assert payload["artifact"] == {
+        "schema_version": 1,
+        "artifact_id": "curator_job:memory",
+        "artifact_type": "curator_job",
+        "kind": "work",
+        "status": "completed",
+        "title": "Curator job: memory",
+        "detail": "Updated memory.",
+        "metadata": {
+            "status": "completed",
+            "job": "memory",
+            "label": "memory",
+            "summary": "Updated memory.",
+        },
+    }
+
+
+def test_serialize_run_event_projects_curator_failed_artifact():
+    event = SimpleNamespace(
+        event_id=46,
+        run_id="run-1",
+        session_id="web:browser-1",
+        event_type="curator.failed",
+        payload={
+            "status": "failed",
+            "error": "memory broke",
+            "job": "memory",
+        },
+        created_at=13.0,
+    )
+
+    payload = serialize_run_event(event)
+
+    assert payload["kind"] == "work"
+    assert payload["status"] == "failed"
+    assert payload["artifact"] == {
+        "schema_version": 1,
+        "artifact_id": "curator",
+        "artifact_type": "curator",
+        "kind": "work",
+        "status": "failed",
+        "title": "Curator",
+        "detail": "memory broke",
+        "metadata": {
+            "status": "failed",
+            "error": "memory broke",
+            "job": "memory",
+        },
+    }
+
+
 def test_serialize_run_event_classifies_part_delta_as_streaming_text():
     event = SimpleNamespace(
         event_id=44,

@@ -93,6 +93,7 @@ class CuratorService:
         self._state = self._load_state()
         self._requests: dict[str, CuratorRequest] = {}
         self._active_requests: dict[str, CuratorRequest] = {}
+        self._runtime_state: dict[str, dict[str, Any]] = {}
         self._paused_sessions: set[str] = self._load_paused_sessions()
         self._scheduler = CoalescingTaskScheduler[str](
             on_exception=lambda session_id, _exc: logger.exception("[%s] curator.failed", session_id),
@@ -330,6 +331,7 @@ class CuratorService:
         """Return coarse runtime status for one session."""
         pending_request = self._requests.get(session_id)
         active_request = self._active_requests.get(session_id)
+        runtime_state = self._runtime_state.get(session_id) or {}
         task = self.tasks.get(session_id)
         running = task is not None and not task.done()
         rerun_pending = session_id in self.rerun_keys
@@ -353,6 +355,10 @@ class CuratorService:
             "rerun_pending": rerun_pending,
             "jobs": jobs,
             "run_id": request.run_id if request is not None else None,
+            "current_job": runtime_state.get("current_job"),
+            "current_job_label": runtime_state.get("current_job_label"),
+            "active_jobs": list(runtime_state.get("active_jobs") or []),
+            "completed_jobs": list(runtime_state.get("completed_jobs") or []),
             "run_count": self._safe_int(session_state.get("run_count")),
             "last_run_at": session_state.get("last_run_at"),
             "last_run_duration_seconds": session_state.get("last_run_duration_seconds"),
@@ -416,27 +422,97 @@ class CuratorService:
 
             started_at = datetime.now(timezone.utc)
             job_keys = [job.key for job in selected_jobs]
+            self._runtime_state[session_id] = {
+                "active_jobs": list(job_keys),
+                "completed_jobs": [],
+                "current_job": None,
+                "current_job_label": "",
+            }
             changed_keys: list[str] = []
             changed_labels: list[str] = []
             try:
-                for job in selected_jobs:
-                    if await self._run_snapshot_job(session_id, job):
-                        changed_keys.append(job.key)
-                        changed_labels.append(job.label)
-
-                summary = self._format_summary(changed_labels) if changed_keys else "No curator changes."
-                if changed_keys:
+                await self._emit_event(
+                    request,
+                    "curator.started",
+                    {
+                        "status": "running",
+                        "message": "Background curator tasks started.",
+                        "jobs": job_keys,
+                        "total_jobs": len(job_keys),
+                    },
+                )
+                for index, job in enumerate(selected_jobs, start=1):
+                    runtime_state = self._runtime_state.get(session_id)
+                    if runtime_state is not None:
+                        runtime_state["current_job"] = job.key
+                        runtime_state["current_job_label"] = job.label
                     await self._emit_event(
                         request,
-                        "curator.completed",
+                        "curator.job.started",
                         {
-                            "status": "completed",
-                            "message": "Background curator tasks completed.",
-                            "jobs": job_keys,
-                            "changed": changed_keys,
-                            "summary": summary,
+                            "status": "running",
+                            "job": job.key,
+                            "label": job.label,
+                            "index": index,
+                            "total_jobs": len(job_keys),
+                            "message": f"Running curator job: {job.label}.",
                         },
                     )
+                    changed = await self._run_snapshot_job(session_id, job)
+                    runtime_state = self._runtime_state.get(session_id)
+                    if runtime_state is not None:
+                        runtime_state["completed_jobs"] = [
+                            *list(runtime_state.get("completed_jobs") or []),
+                            job.key,
+                        ]
+                    if changed:
+                        changed_keys.append(job.key)
+                        changed_labels.append(job.label)
+                        await self._emit_event(
+                            request,
+                            "curator.job.completed",
+                            {
+                                "status": "completed",
+                                "job": job.key,
+                                "label": job.label,
+                                "index": index,
+                                "total_jobs": len(job_keys),
+                                "changed": True,
+                                "summary": f"Updated {job.label}.",
+                            },
+                        )
+                    else:
+                        await self._emit_event(
+                            request,
+                            "curator.job.skipped",
+                            {
+                                "status": "skipped",
+                                "job": job.key,
+                                "label": job.label,
+                                "index": index,
+                                "total_jobs": len(job_keys),
+                                "changed": False,
+                                "reason": "no_changes",
+                                "message": f"No changes for {job.label}.",
+                            },
+                        )
+
+                summary = self._format_summary(changed_labels) if changed_keys else "No curator changes."
+                runtime_state = self._runtime_state.get(session_id)
+                if runtime_state is not None:
+                    runtime_state["current_job"] = None
+                    runtime_state["current_job_label"] = ""
+                await self._emit_event(
+                    request,
+                    "curator.completed",
+                    {
+                        "status": "completed",
+                        "message": "Background curator tasks completed.",
+                        "jobs": job_keys,
+                        "changed": changed_keys,
+                        "summary": summary,
+                    },
+                )
                 self._record_run(
                     session_id,
                     started_at=started_at,
@@ -447,6 +523,20 @@ class CuratorService:
                 )
             except Exception as exc:
                 error = str(exc) or exc.__class__.__name__
+                runtime_state = self._runtime_state.get(session_id) or {}
+                await self._emit_event(
+                    request,
+                    "curator.failed",
+                    {
+                        "status": "failed",
+                        "error": error,
+                        "job": runtime_state.get("current_job"),
+                        "label": runtime_state.get("current_job_label"),
+                        "jobs": job_keys,
+                        "completed_jobs": list(runtime_state.get("completed_jobs") or []),
+                        "message": "Background curator tasks failed.",
+                    },
+                )
                 self._record_run(
                     session_id,
                     started_at=started_at,
@@ -460,6 +550,7 @@ class CuratorService:
         finally:
             if self._active_requests.get(session_id) is request:
                 self._active_requests.pop(session_id, None)
+            self._runtime_state.pop(session_id, None)
 
     async def wait(self) -> None:
         """Wait until all currently scheduled curator work completes."""
@@ -469,4 +560,5 @@ class CuratorService:
         """Cancel any in-flight curator work and clear pending requests."""
         self._requests.clear()
         self._active_requests.clear()
+        self._runtime_state.clear()
         await self._scheduler.close()

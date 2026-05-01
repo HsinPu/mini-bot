@@ -632,14 +632,20 @@ class MessageQueue:
     def _format_curator_status(self, status: dict[str, Any]) -> str:
         """Render one user-facing curator status block."""
         jobs = ", ".join(str(item) for item in status.get("jobs", []) if str(item).strip()) or "none"
+        current_job = str(status.get("current_job_label") or status.get("current_job") or "").strip()
+        last_jobs = ", ".join(str(item) for item in status.get("last_run_jobs", []) if str(item).strip())
+        last_changed = ", ".join(str(item) for item in status.get("last_run_changed", []) if str(item).strip())
         paused_text = "yes" if status.get("paused") else "no"
         rerun_text = "yes" if status.get("rerun_pending") else "no"
         lines = [
             self.messages.curator.status_header,
             self.messages.curator.status_label.format(state=status.get("state") or "idle"),
             self.messages.curator.paused_label.format(value=paused_text),
+            *( [self.messages.curator.current_job_label.format(value=current_job)] if current_job else [] ),
             self.messages.curator.run_count_label.format(value=int(status.get("run_count") or 0)),
             self.messages.curator.last_run_label.format(value=status.get("last_run_at") or "never"),
+            *( [self.messages.curator.last_jobs_label.format(jobs=last_jobs)] if last_jobs else [] ),
+            *( [self.messages.curator.last_changed_label.format(value=last_changed)] if last_changed else [] ),
             self.messages.curator.last_summary_label.format(value=status.get("last_run_summary") or "none"),
             self.messages.curator.rerun_pending_label.format(value=rerun_text),
             self.messages.curator.jobs_label.format(jobs=jobs),

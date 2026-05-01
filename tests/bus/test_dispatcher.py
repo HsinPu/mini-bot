@@ -250,6 +250,55 @@ def test_curator_status_command_replies_immediately_without_running_agent_loop()
     ]
 
 
+def test_curator_status_command_includes_current_job_and_last_changed_when_available():
+    class CuratorAgent(FakeAgent):
+        async def get_curator_status(self, session_id):
+            return {
+                "session_id": session_id,
+                "state": "running",
+                "running": True,
+                "queued": False,
+                "paused": False,
+                "rerun_pending": False,
+                "jobs": ["memory", "skills"],
+                "current_job": "memory",
+                "current_job_label": "memory",
+                "run_count": 3,
+                "last_run_at": "2026-05-01T00:00:00Z",
+                "last_run_jobs": ["memory", "skills"],
+                "last_run_changed": ["memory"],
+                "last_run_summary": "Updated memory.",
+            }
+
+    async def scenario():
+        agent = CuratorAgent()
+        queue = MessageQueue(agent)
+        responses = []
+        event = asyncio.Event()
+
+        async def handler(message, channel, external_chat_id):
+            responses.append(message.text)
+            event.set()
+
+        queue.register_response_handler("telegram", handler)
+        processor = asyncio.create_task(queue.process_queue())
+        try:
+            await queue.enqueue_raw(content="/curator status", external_chat_id="same-chat", channel="telegram")
+            await asyncio.wait_for(event.wait(), timeout=2)
+        finally:
+            await queue.stop()
+            await asyncio.wait_for(processor, timeout=2)
+
+        return responses
+
+    responses = asyncio.run(scenario())
+
+    assert responses
+    assert "- 目前工作: memory" in responses[0]
+    assert "- 上次工作: memory, skills" in responses[0]
+    assert "- 上次變更: memory" in responses[0]
+
+
 def test_curator_run_command_replies_immediately_without_running_agent_loop():
     class CuratorAgent(FakeAgent):
         async def run_curator_now(self, session_id, *, channel=None, external_chat_id=None):

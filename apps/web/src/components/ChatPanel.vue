@@ -137,6 +137,10 @@
               <dd>{{ curatorStatus?.paused ? copy.curator.yes : copy.curator.no }}</dd>
             </div>
             <div>
+              <dt>{{ copy.curator.currentJob }}</dt>
+              <dd :title="currentCuratorJobLabel">{{ currentCuratorJobLabel }}</dd>
+            </div>
+            <div>
               <dt>{{ copy.curator.runCount }}</dt>
               <dd>{{ curatorStatus?.run_count || 0 }}</dd>
             </div>
@@ -144,10 +148,19 @@
               <dt>{{ copy.curator.lastRun }}</dt>
               <dd>{{ curatorStatus?.last_run_at || copy.curator.never }}</dd>
             </div>
+            <div>
+              <dt>{{ copy.curator.lastJobs }}</dt>
+              <dd :title="lastCuratorJobsLabel">{{ lastCuratorJobsLabel }}</dd>
+            </div>
+            <div>
+              <dt>{{ copy.curator.lastChanged }}</dt>
+              <dd :title="lastCuratorChangedLabel">{{ lastCuratorChangedLabel }}</dd>
+            </div>
           </dl>
           <p class="curator-card__summary">
             {{ curatorStatus?.last_run_summary || copy.curator.noSummary }}
           </p>
+          <p v-if="curatorStatus?.last_error" class="curator-card__error">{{ copy.curator.lastError }}: {{ curatorStatus.last_error }}</p>
           <div class="curator-card__actions">
             <button class="secondary-button" type="button" :disabled="curatorActionsDisabled" @click="$emit('run-curator-action', 'run')">
               {{ curatorState.action === 'run' ? copy.curator.running : copy.curator.run }}
@@ -375,6 +388,17 @@ defineEmits([
 const selectedFileChange = ref(null);
 const curatorActionsDisabled = computed(() => {
   return Boolean(props.curatorState.action || props.curatorState.loading || props.curatorState.error || !props.curatorStatus);
+});
+const currentCuratorJobLabel = computed(() => {
+  return String(props.curatorStatus?.current_job_label || props.curatorStatus?.current_job || "").trim() || props.copy.curator.none;
+});
+const lastCuratorJobsLabel = computed(() => {
+  const jobs = Array.isArray(props.curatorStatus?.last_run_jobs) ? props.curatorStatus.last_run_jobs : [];
+  return jobs.length ? jobs.join(", ") : props.copy.curator.none;
+});
+const lastCuratorChangedLabel = computed(() => {
+  const changed = Array.isArray(props.curatorStatus?.last_run_changed) ? props.curatorStatus.last_run_changed : [];
+  return changed.length ? changed.join(", ") : props.copy.curator.none;
 });
 
 watch(

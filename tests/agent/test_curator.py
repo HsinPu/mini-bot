@@ -54,12 +54,25 @@ def test_curator_service_emits_summary_for_changed_jobs():
 
     events = asyncio.run(scenario())
 
-    assert [event[2] for event in events] == ["curator.completed"]
-    assert events[0][3]["changed"] == ["memory", "skills"]
-    assert events[0][3]["summary"] == "Updated memory and skills."
+    assert [event[2] for event in events] == [
+        "curator.started",
+        "curator.job.started",
+        "curator.job.completed",
+        "curator.job.started",
+        "curator.job.skipped",
+        "curator.job.started",
+        "curator.job.skipped",
+        "curator.job.started",
+        "curator.job.skipped",
+        "curator.job.started",
+        "curator.job.completed",
+        "curator.completed",
+    ]
+    assert events[-1][3]["changed"] == ["memory", "skills"]
+    assert events[-1][3]["summary"] == "Updated memory and skills."
 
 
-def test_curator_service_skips_completed_event_when_nothing_changed():
+def test_curator_service_emits_no_change_curator_trace():
     async def scenario():
         state = {"memory": "stable", "recent_summary": "", "user_profile": "", "active_task": "", "skills": ""}
         events = []
@@ -97,7 +110,20 @@ def test_curator_service_skips_completed_event_when_nothing_changed():
 
     events = asyncio.run(scenario())
 
-    assert events == []
+    assert [event[2] for event in events] == [
+        "curator.started",
+        "curator.job.started",
+        "curator.job.skipped",
+        "curator.job.started",
+        "curator.job.skipped",
+        "curator.job.started",
+        "curator.job.skipped",
+        "curator.job.started",
+        "curator.job.skipped",
+        "curator.completed",
+    ]
+    assert events[-1][3]["changed"] == []
+    assert events[-1][3]["summary"] == "No curator changes."
 
 
 def test_curator_service_pause_blocks_future_scheduling():
@@ -287,4 +313,50 @@ def test_curator_service_rerun_uses_pending_request_jobs_only():
     assert scheduled is False
     assert status_while_running["running"] is True
     assert status_while_running["rerun_pending"] is True
+    assert status_while_running["current_job"] == "skills"
+    assert status_while_running["current_job_label"] == "skills"
+    assert status_while_running["active_jobs"] == ["skills"]
     assert calls == ["skills", "memory", "recent_summary", "user_profile", "active_task"]
+
+
+def test_curator_service_emits_failed_event_and_records_error(tmp_path):
+    async def scenario():
+        state = {"memory": "", "recent_summary": "", "user_profile": "", "active_task": "", "skills": ""}
+        state_path = tmp_path / "curator_state.json"
+        events = []
+
+        async def emit_run_event(session_id, run_id, event_type, payload, channel, external_chat_id):
+            events.append((session_id, run_id, event_type, payload, channel, external_chat_id))
+
+        async def fail_memory(_session_id):
+            raise RuntimeError("memory broke")
+
+        async def noop(_session_id):
+            return None
+
+        service = CuratorService(
+            maybe_consolidate_memory=fail_memory,
+            maybe_update_recent_summary=noop,
+            maybe_update_user_profile=noop,
+            maybe_update_active_task=noop,
+            run_skill_review=noop,
+            should_run_skill_review=lambda result: False,
+            read_memory_snapshot=lambda _session_id: state["memory"],
+            read_recent_summary_snapshot=lambda _session_id: state["recent_summary"],
+            read_user_profile_snapshot=lambda _session_id: state["user_profile"],
+            read_active_task_snapshot=lambda _session_id: state["active_task"],
+            read_skill_snapshot=lambda _session_id: state["skills"],
+            emit_run_event=emit_run_event,
+            state_path=state_path,
+        )
+
+        service.schedule_manual_run(session_id="web:browser-1", run_id="run-1")
+        await service.wait()
+        return events, service.status("web:browser-1")
+
+    events, status = asyncio.run(scenario())
+
+    assert [event[2] for event in events] == ["curator.started", "curator.job.started", "curator.failed"]
+    assert events[-1][3]["error"] == "memory broke"
+    assert events[-1][3]["job"] == "memory"
+    assert status["last_error"] == "memory broke"

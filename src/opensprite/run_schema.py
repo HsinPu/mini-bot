@@ -24,6 +24,10 @@ _EVENT_KINDS = {
     "work_progress.updated": "work",
     "task_checklist.updated": "work",
     "curator.started": "work",
+    "curator.job.started": "work",
+    "curator.job.completed": "work",
+    "curator.job.skipped": "work",
+    "curator.failed": "work",
     "curator.completed": "work",
     "completion_gate.evaluated": "completion",
     "auto_continue.scheduled": "run",
@@ -94,8 +98,12 @@ def run_event_status(event_type: str, payload: dict[str, Any] | None) -> str:
     explicit = _text(data.get("status") or data.get("state"))
     if normalized == "run_started":
         return explicit or "running"
-    if normalized == "curator.started":
+    if normalized in {"curator.started", "curator.job.started"}:
         return explicit or "running"
+    if normalized == "curator.failed":
+        return explicit or "failed"
+    if normalized == "curator.job.skipped":
+        return explicit or "skipped"
     if normalized == "run_finished":
         return explicit or "completed"
     if normalized == "run_failed":
@@ -197,11 +205,11 @@ def event_artifact(event_type: str, payload: dict[str, Any] | None) -> dict[str,
             "metadata": data,
         }
 
-    if normalized == "curator.completed":
-        changed = data.get("changed") if isinstance(data.get("changed"), list) else []
-        detail = _text(data.get("summary")) or ", ".join(
-            str(item).strip() for item in changed if str(item).strip()
-        )
+    if normalized in {"curator.started", "curator.failed", "curator.completed"}:
+        detail = _text(data.get("summary") or data.get("error") or data.get("message"))
+        if not detail and normalized == "curator.started":
+            total_jobs = _non_negative_int(data.get("total_jobs"))
+            detail = f"{total_jobs} job(s) queued" if total_jobs else "Background curator tasks started."
         if not detail:
             return None
         return {
@@ -211,6 +219,23 @@ def event_artifact(event_type: str, payload: dict[str, Any] | None) -> dict[str,
             "kind": "work",
             "status": status,
             "title": "Curator",
+            "detail": detail,
+            "metadata": data,
+        }
+
+    if normalized in {"curator.job.started", "curator.job.completed", "curator.job.skipped"}:
+        job = _text(data.get("job"))
+        label = _text(data.get("label") or job or "curator job")
+        detail = _text(data.get("summary") or data.get("message") or data.get("reason"))
+        if normalized == "curator.job.completed" and not detail:
+            detail = f"Updated {label}."
+        return {
+            "schema_version": RUN_SCHEMA_VERSION,
+            "artifact_id": f"curator_job:{job or label}",
+            "artifact_type": "curator_job",
+            "kind": "work",
+            "status": status,
+            "title": f"Curator job: {label}",
             "detail": detail,
             "metadata": data,
         }
