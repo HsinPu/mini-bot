@@ -1,4 +1,13 @@
-from opensprite.context.paths import get_active_task_file, get_session_skills_dir, get_session_workspace, get_user_profile_file
+from opensprite.context.paths import (
+    get_active_task_file,
+    get_session_memory_dir,
+    get_session_memory_file,
+    get_session_recent_summary_state_file,
+    get_session_skills_dir,
+    get_session_state_dir,
+    get_session_workspace,
+    get_user_profile_file,
+)
 
 
 def test_session_workspace_is_stable_per_session_and_separates_sessions(tmp_path):
@@ -59,3 +68,21 @@ def test_active_task_file_is_stable_per_session_and_separates_sessions(tmp_path)
     assert task_a_first.parent != task_b.parent
     assert task_a_first.name == "ACTIVE_TASK.md"
     assert task_a_first.parent == get_session_workspace("telegram:user-a", workspace_root=workspace_root)
+
+
+def test_session_memory_paths_are_nested_under_the_same_session_workspace(tmp_path):
+    workspace_root = tmp_path / "workspace"
+
+    workspace = get_session_workspace("telegram:user-a", workspace_root=workspace_root)
+    memory_dir = get_session_memory_dir("telegram:user-a", workspace_root=workspace_root)
+    memory_file = get_session_memory_file("telegram:user-a", workspace_root=workspace_root)
+    state_dir = get_session_state_dir("telegram:user-a", workspace_root=workspace_root)
+    summary_state_file = get_session_recent_summary_state_file("telegram:user-a", workspace_root=workspace_root)
+
+    assert memory_dir.parent == workspace
+    assert memory_dir.name == "memory"
+    assert memory_file.parent == memory_dir
+    assert memory_file.name == "MEMORY.md"
+    assert state_dir.parent == workspace
+    assert state_dir.name == "state"
+    assert summary_state_file.parent == state_dir

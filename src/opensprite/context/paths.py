@@ -5,14 +5,16 @@ Path layout:
 - app home: ~/.opensprite
 - subagent prompts: ~/.opensprite/subagent_prompts/*.md (seeded from bundled templates on first sync)
 - bootstrap files: ~/.opensprite/bootstrap/*.md
-- per-session user profile: ~/.opensprite/workspace/sessions/{channel}/{external_chat_id}/USER.md (alongside skills/ and subagent_prompts/)
-- memory: ~/.opensprite/memory/<session>/MEMORY.md
-- recent summary: ~/.opensprite/memory/<session>/RECENT_SUMMARY.md
+- per-session workspace: ~/.opensprite/workspace/sessions/{channel}/{external_chat_id}
+- per-session user profile: ~/.opensprite/workspace/sessions/{channel}/{external_chat_id}/USER.md
+- per-session memory: ~/.opensprite/workspace/sessions/{channel}/{external_chat_id}/memory/MEMORY.md
+- per-session recent summary: ~/.opensprite/workspace/sessions/{channel}/{external_chat_id}/memory/RECENT_SUMMARY.md
+- per-session recent-summary state: ~/.opensprite/workspace/sessions/{channel}/{external_chat_id}/state/.recent_summary_state.json
 - bundled skills (read-only, synced from package): ~/.opensprite/skills/<skill_id>/SKILL.md
 - session workspace skills (mutable): ~/.opensprite/workspace/sessions/{channel}/{external_chat_id}/skills/*/SKILL.md
 - session subagent overrides: ~/.opensprite/workspace/sessions/{channel}/{external_chat_id}/subagent_prompts/*.md
 - workspace root: ~/.opensprite/workspace
-- per-session workspaces: ~/.opensprite/workspace/sessions/{channel}/{external_chat_id}
+- legacy shared memory root kept for migration: ~/.opensprite/memory/
 """
 
 import hashlib
@@ -30,6 +32,8 @@ MEMORY_DIRNAME = "memory"
 SKILLS_DIRNAME = "skills"
 WORKSPACE_DIRNAME = "workspace"
 WORKSPACE_SESSIONS_DIRNAME = "sessions"
+SESSION_MEMORY_DIRNAME = "memory"
+SESSION_STATE_DIRNAME = "state"
 LEGACY_USER_PROFILES_DIRNAME = "users"
 SUBAGENT_PROMPTS_DIRNAME = "subagent_prompts"
 USER_PROFILE_STATE_FILENAME = ".user_profile_state.json"
@@ -194,6 +198,56 @@ def get_session_workspace(
     safe_channel = _sanitize_path_segment(channel, default="default", max_length=32)
     safe_external_chat_id = _sanitize_path_segment(external_chat_id, default="default")
     return ensure_dir(root / WORKSPACE_SESSIONS_DIRNAME / safe_channel / safe_external_chat_id)
+
+
+def get_session_memory_dir(
+    session_id: str | None,
+    *,
+    workspace_root: str | Path | None = None,
+    app_home: str | Path | None = None,
+) -> Path:
+    """Get the per-session memory directory nested under the session workspace."""
+    return ensure_dir(get_session_workspace(session_id, workspace_root=workspace_root, app_home=app_home) / SESSION_MEMORY_DIRNAME)
+
+
+def get_session_memory_file(
+    session_id: str | None,
+    *,
+    workspace_root: str | Path | None = None,
+    app_home: str | Path | None = None,
+) -> Path:
+    """Get the per-session MEMORY.md path under the session workspace tree."""
+    return get_session_memory_dir(session_id, workspace_root=workspace_root, app_home=app_home) / "MEMORY.md"
+
+
+def get_session_recent_summary_file(
+    session_id: str | None,
+    *,
+    workspace_root: str | Path | None = None,
+    app_home: str | Path | None = None,
+) -> Path:
+    """Get the per-session RECENT_SUMMARY.md path under the session workspace tree."""
+    return get_session_memory_dir(session_id, workspace_root=workspace_root, app_home=app_home) / "RECENT_SUMMARY.md"
+
+
+def get_session_state_dir(
+    session_id: str | None,
+    *,
+    workspace_root: str | Path | None = None,
+    app_home: str | Path | None = None,
+) -> Path:
+    """Get the per-session state directory nested under the session workspace."""
+    return ensure_dir(get_session_workspace(session_id, workspace_root=workspace_root, app_home=app_home) / SESSION_STATE_DIRNAME)
+
+
+def get_session_recent_summary_state_file(
+    session_id: str | None,
+    *,
+    workspace_root: str | Path | None = None,
+    app_home: str | Path | None = None,
+) -> Path:
+    """Get the per-session recent-summary state file under the session workspace tree."""
+    return get_session_state_dir(session_id, workspace_root=workspace_root, app_home=app_home) / RECENT_SUMMARY_STATE_FILENAME
 
 
 def get_session_skills_dir(
@@ -392,8 +446,7 @@ def sync_templates(app_home: str | Path | None = None, silent: bool = False) -> 
 
         memory_templates = templates_root / "memory"
         if memory_templates.is_dir():
-            default_memory_dir = memory_dir / "default"
-            default_memory_dir.mkdir(parents=True, exist_ok=True)
+            default_memory_dir = get_session_memory_dir("default", workspace_root=get_tool_workspace(home), app_home=home)
             for item in memory_templates.iterdir():
                 if item.name.endswith(".md"):
                     _write(item, default_memory_dir / item.name)

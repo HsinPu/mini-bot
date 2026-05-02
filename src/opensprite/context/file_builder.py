@@ -18,7 +18,7 @@ from .paths import (
     get_app_home,
     get_bootstrap_dir,
     get_memory_dir,
-    get_memory_file,
+    get_session_memory_file,
     get_session_workspace,
     get_session_skills_dir,
     get_skills_dir,
@@ -153,8 +153,8 @@ Ids and descriptions below are **merged**: this session's `subagent_prompts/<id>
             else Path(workspace).expanduser() if workspace is not None else get_tool_workspace(self.app_home)
         )
         self.workspace = self.tool_workspace
-        self.memory_store = MemoryStore(self.memory_dir)
-        self.recent_summary_store = RecentSummaryStore(self.memory_dir)
+        self.memory_store = MemoryStore(self.memory_dir, app_home=self.app_home, workspace_root=self.tool_workspace)
+        self.recent_summary_store = RecentSummaryStore(self.memory_dir, app_home=self.app_home, workspace_root=self.tool_workspace)
         self._runtime_mcp_tools: list[tuple[str, str]] = []
         self.learning_ledger = learning_ledger
         self.skills_loader = skills_loader or SkillsLoader(
@@ -308,7 +308,13 @@ To use a skill, read its SKILL.md file using the read_skill tool.
         workspace_path = str(self.get_session_workspace(session_id).expanduser().resolve())
         user_profile_path = str(self.get_user_profile_path(session_id).expanduser().resolve())
         active_task_path = str(self.get_active_task_path(session_id).expanduser().resolve())
-        memory_path = str(get_memory_file(self.memory_dir, session_id).expanduser().resolve())
+        memory_path = str(
+            get_session_memory_file(
+                session_id,
+                workspace_root=self.tool_workspace,
+                app_home=self.app_home,
+            ).expanduser().resolve()
+        )
         system = platform.system()
         runtime = f"{system} {platform.machine()}, Python {platform.python_version()}"
 

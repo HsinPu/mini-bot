@@ -1,6 +1,7 @@
 import asyncio
 
 from opensprite.config.schema import Config, DocumentLlmConfig
+from opensprite.context.paths import get_memory_file, get_session_memory_file
 from opensprite.documents import memory as memory_module
 from opensprite.llms.base import LLMResponse, ToolCall
 
@@ -74,3 +75,22 @@ def test_consolidate_uses_structured_merge_prompt():
     assert "# Ongoing Tasks" in prompt
     assert "New conversation segment:" in prompt
     assert "Last 20 messages" not in prompt
+
+
+def test_memory_store_prefers_session_tree_and_migrates_legacy_file(tmp_path):
+    app_home = tmp_path / "home"
+    workspace_root = app_home / "workspace"
+    memory_dir = app_home / "memory"
+    legacy_file = get_memory_file(memory_dir, "telegram:room-1")
+    legacy_file.parent.mkdir(parents=True, exist_ok=True)
+    legacy_file.write_text("legacy memory", encoding="utf-8")
+
+    store = memory_module.MemoryStore(memory_dir, app_home=app_home, workspace_root=workspace_root)
+
+    assert store.read("telegram:room-1") == "legacy memory"
+    session_file = get_session_memory_file("telegram:room-1", app_home=app_home, workspace_root=workspace_root)
+    assert session_file.read_text(encoding="utf-8") == "legacy memory"
+
+    store.write("telegram:room-1", "new memory")
+
+    assert session_file.read_text(encoding="utf-8") == "new memory"

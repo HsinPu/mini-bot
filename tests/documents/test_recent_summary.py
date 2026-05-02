@@ -1,11 +1,18 @@
 import asyncio
 
 from opensprite.config.schema import Config, DocumentLlmConfig
+from opensprite.context.paths import (
+    get_recent_summary_file,
+    get_recent_summary_state_file,
+    get_session_recent_summary_file,
+    get_session_recent_summary_state_file,
+)
 from opensprite.documents.recent_summary import (
     RecentSummaryConsolidator,
     RecentSummaryStore,
     consolidate_recent_summary,
 )
+from opensprite.documents.state import JsonProgressStore
 from opensprite.llms.base import LLMResponse
 from opensprite.storage.base import StoredMessage
 
@@ -80,3 +87,29 @@ def test_recent_summary_consolidator_leaves_latest_messages_unsummarized(tmp_pat
     assert "older one" in prompt
     assert "older two" in prompt
     assert "keep raw" not in prompt
+
+
+def test_recent_summary_store_prefers_session_tree_and_migrates_legacy_files(tmp_path):
+    app_home = tmp_path / "home"
+    workspace_root = app_home / "workspace"
+    memory_dir = app_home / "memory"
+    legacy_summary = get_recent_summary_file(memory_dir, "telegram:room-1")
+    legacy_summary.parent.mkdir(parents=True, exist_ok=True)
+    legacy_summary.write_text("legacy summary", encoding="utf-8")
+    JsonProgressStore(get_recent_summary_state_file(memory_dir)).set_processed_index("telegram:room-1", 7)
+
+    store = RecentSummaryStore(memory_dir, app_home=app_home, workspace_root=workspace_root)
+
+    assert store.read("telegram:room-1") == "legacy summary"
+    assert store.get_processed_index("telegram:room-1") == 7
+
+    session_summary = get_session_recent_summary_file("telegram:room-1", app_home=app_home, workspace_root=workspace_root)
+    session_state = get_session_recent_summary_state_file("telegram:room-1", app_home=app_home, workspace_root=workspace_root)
+    assert session_summary.read_text(encoding="utf-8") == "legacy summary"
+    assert JsonProgressStore(session_state).get_processed_index("telegram:room-1") == 7
+
+    store.write("telegram:room-1", "new summary")
+    store.set_processed_index("telegram:room-1", 8)
+
+    assert session_summary.read_text(encoding="utf-8") == "new summary"
+    assert JsonProgressStore(session_state).get_processed_index("telegram:room-1") == 8

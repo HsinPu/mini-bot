@@ -815,7 +815,7 @@ class AgentLoop:
     def _setup_memory_store(self) -> MemoryStore:
         """Create the long-term memory store."""
         memory_dir = getattr(self._context_builder, "memory_dir", Path.cwd() / "memory")
-        return MemoryStore(memory_dir)
+        return MemoryStore(memory_dir, app_home=self.app_home, workspace_root=self.tool_workspace)
 
     def _setup_memory_consolidation(self) -> MemoryConsolidationService:
         """Create the memory consolidation maintenance service."""
@@ -885,7 +885,7 @@ class AgentLoop:
         if memory_dir is None:
             return RecentSummaryUpdateService(None)
 
-        summary_store = RecentSummaryStore(memory_dir)
+        summary_store = RecentSummaryStore(memory_dir, app_home=self.app_home, workspace_root=self.tool_workspace)
         consolidator = RecentSummaryConsolidator(
             storage=self.storage,
             provider=self.provider,
@@ -925,7 +925,7 @@ class AgentLoop:
         memory_dir = getattr(self._context_builder, "memory_dir", None)
         if memory_dir is None:
             return
-        RecentSummaryStore(memory_dir, get_recent_summary_state_file(memory_dir)).clear(session_id)
+        RecentSummaryStore(memory_dir, app_home=self.app_home, workspace_root=self.tool_workspace).clear(session_id)
 
     def _register_memory_tool(self) -> None:
         """Register the save_memory tool."""
@@ -1713,7 +1713,7 @@ class AgentLoop:
         memory_dir = getattr(self._context_builder, "memory_dir", None)
         if memory_dir is None:
             return ""
-        return RecentSummaryStore(memory_dir).read(session_id)
+        return RecentSummaryStore(memory_dir, app_home=self.app_home, workspace_root=self.tool_workspace).read(session_id)
 
     def _read_user_profile_snapshot(self, session_id: str) -> str:
         """Return the managed USER.md profile block used for curator change detection."""

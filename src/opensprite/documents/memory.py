@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
 from ..config.schema import DocumentLlmConfig
-from ..context.paths import get_memory_file
+from ..context.paths import get_memory_file, get_session_memory_file
 from ..utils import count_text_tokens
 from ..utils.log import logger
 from .base import ConversationDocumentStore
@@ -16,24 +17,61 @@ from .base import ConversationDocumentStore
 class MemoryDocumentStore(ConversationDocumentStore):
     """File-based per-session markdown memory stored under the memory directory."""
 
-    def __init__(self, memory_dir: Path):
+    def __init__(
+        self,
+        memory_dir: Path,
+        *,
+        app_home: str | Path | None = None,
+        workspace_root: str | Path | None = None,
+    ):
         base_path = Path(memory_dir).expanduser()
         self.memory_base = base_path if base_path.name == "memory" else base_path / "memory"
         self.memory_base.mkdir(parents=True, exist_ok=True)
+        self.app_home = Path(app_home).expanduser() if app_home is not None else None
+        self.workspace_root = Path(workspace_root).expanduser() if workspace_root is not None else None
 
-    def _get_memory_file(self, session_id: str) -> Path:
-        memory_file = get_memory_file(self.memory_base, session_id)
+    def _get_legacy_memory_file(self, session_id: str) -> Path:
+        legacy_memory_file = get_memory_file(self.memory_base, session_id)
+        legacy_memory_file.parent.mkdir(parents=True, exist_ok=True)
+        return legacy_memory_file
+
+    def _get_session_memory_file(self, session_id: str) -> Path | None:
+        if self.app_home is None and self.workspace_root is None:
+            return None
+        memory_file = get_session_memory_file(
+            session_id,
+            workspace_root=self.workspace_root,
+            app_home=self.app_home,
+        )
         memory_file.parent.mkdir(parents=True, exist_ok=True)
         return memory_file
+
+    def _maybe_migrate_legacy_memory_file(self, session_id: str) -> Path | None:
+        session_memory_file = self._get_session_memory_file(session_id)
+        if session_memory_file is None or session_memory_file.exists():
+            return session_memory_file
+
+        legacy_memory_file = self._get_legacy_memory_file(session_id)
+        if legacy_memory_file.exists():
+            shutil.copy2(legacy_memory_file, session_memory_file)
+            return session_memory_file
+
+        if session_id == "default":
+            legacy_top_level = self.memory_base / "MEMORY.md"
+            if legacy_top_level.exists():
+                shutil.copy2(legacy_top_level, session_memory_file)
+        return session_memory_file
+
+    def _get_memory_file(self, session_id: str) -> Path:
+        session_memory_file = self._maybe_migrate_legacy_memory_file(session_id)
+        if session_memory_file is not None:
+            return session_memory_file
+        return self._get_legacy_memory_file(session_id)
 
     def read(self, session_id: str) -> str:
         memory_file = self._get_memory_file(session_id)
         if memory_file.exists():
             return memory_file.read_text(encoding="utf-8")
-        if session_id == "default":
-            legacy_memory_file = self.memory_base / "MEMORY.md"
-            if legacy_memory_file.exists():
-                return legacy_memory_file.read_text(encoding="utf-8")
         return ""
 
     def write(self, session_id: str, content: str) -> None:
