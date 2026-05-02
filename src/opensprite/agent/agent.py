@@ -52,6 +52,7 @@ from .curator import CuratorService, fingerprint_text_directory
 from .execution import ExecutionEngine, ExecutionResult
 from .file_changes import RunFileChangeService
 from .history_reset import HistoryResetService
+from .learning_ledger import LearningLedger
 from .llm_call import LlmCallService
 from .media import AgentMediaService
 from .message_history import MessageHistoryService
@@ -169,13 +170,49 @@ class AgentLoop:
         enabled: bool,
     ) -> Callable[[str, dict[str, Any], str], Awaitable[None]] | None:
         """Publish structured run telemetry after a tool finishes."""
-        return self.run_hooks.make_tool_result_hook(
+        base_hook = self.run_hooks.make_tool_result_hook(
             channel=channel,
             external_chat_id=external_chat_id,
             session_id=session_id,
             run_id=run_id,
             enabled=enabled,
         )
+        if run_id is None:
+            return base_hook
+        if base_hook is None and self.learning_ledger is None:
+            return None
+
+        async def _hook(
+            tool_name: str,
+            tool_args: dict[str, Any],
+            result: str,
+            tool_call_id: str | None = None,
+            iteration: int | None = None,
+            delegate_task_id: str | None = None,
+            delegate_prompt_type: str | None = None,
+            state: str | None = None,
+            interrupted: bool = False,
+        ) -> None:
+            if base_hook is not None:
+                await base_hook(
+                    tool_name,
+                    tool_args,
+                    result,
+                    tool_call_id,
+                    iteration,
+                    delegate_task_id,
+                    delegate_prompt_type,
+                    state,
+                    interrupted,
+                )
+            if tool_name != "read_skill":
+                return
+            skill_name = str((tool_args or {}).get("skill_name") or "").strip()
+            if not skill_name or str(result or "").lstrip().startswith("Error:"):
+                return
+            self._run_skill_reads.setdefault(run_id, set()).add(skill_name)
+
+        return _hook
 
     def _make_llm_status_hook(
         self,
@@ -475,10 +512,12 @@ class AgentLoop:
             app_home_getter=lambda: self.app_home,
         )
         self.curator: CuratorService | None = None
+        self.learning_ledger: LearningLedger | None = None
         self._skill_review_tasks: dict[str, Any] = {}
         self._skill_review_rerun: set[str] = set()
         self._maintenance_tasks: dict[str, Any] = {}
         self._maintenance_rerun: set[str] = set()
+        self._run_skill_reads: dict[str, set[str]] = {}
         # Set by runtime after MessageQueue is created; used for interim tool progress outbound messages.
         self._message_bus: Any = None
         self.permission_requests = PermissionRequestManager(
@@ -493,6 +532,7 @@ class AgentLoop:
             max_history_getter=lambda: self.config.max_history,
         )
         self._context_builder = self._setup_context_builder(context_builder)
+        self.learning_ledger = self._setup_learning_ledger()
         self.history_reset = HistoryResetService(
             storage=self.storage,
             search_store=self.search_store,
@@ -544,6 +584,7 @@ class AgentLoop:
                 external_chat_id,
                 result,
             ),
+            finalize_learning_reuse=lambda session_id, run_id, success: self._finalize_learning_reuse(session_id, run_id, success),
             worktree_sandbox_enabled=lambda: self.config.worktree_sandbox_enabled,
             workspace_root=lambda: Path(self.tool_workspace or getattr(self._context_builder, "workspace", Path.cwd())),
         )
@@ -646,6 +687,7 @@ class AgentLoop:
             read_user_profile_snapshot=self._read_user_profile_snapshot,
             read_active_task_snapshot=self._read_active_task_snapshot,
             read_skill_snapshot=self._read_skill_snapshot,
+            record_learning=lambda *args, **kwargs: self._record_learning(*args, **kwargs),
             emit_run_event=lambda session_id, run_id, event_type, payload, channel, external_chat_id: self._emit_run_event(
                 session_id,
                 run_id,
@@ -752,6 +794,14 @@ class AgentLoop:
         if self.tool_workspace is None:
             self.tool_workspace = getattr(context_builder, "workspace", Path.cwd())
         return context_builder
+
+    def _setup_learning_ledger(self) -> LearningLedger:
+        """Create the session learning ledger and attach it to compatible context builders."""
+        ledger = LearningLedger((self.app_home / ".learning_state.json") if self.app_home is not None else None)
+        setter = getattr(self._context_builder, "set_learning_ledger", None)
+        if callable(setter):
+            setter(ledger)
+        return ledger
 
     def _setup_tools(self, tools: ToolRegistry | None) -> ToolRegistry:
         """Resolve the tool registry and populate defaults when needed."""
@@ -1447,13 +1497,72 @@ class AgentLoop:
             return None
         return self.curator.resume(session_id)
 
-    async def _run_skill_review(self, session_id: str) -> None:
+    def _record_learning(
+        self,
+        session_id: str,
+        *,
+        kind: str,
+        target_id: str,
+        summary: str,
+        source_run_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Persist one learned artifact into the session learning ledger."""
+        if self.learning_ledger is None:
+            return
+        self.learning_ledger.record_learning(
+            session_id,
+            kind=kind,
+            target_id=target_id,
+            summary=summary,
+            source_run_id=source_run_id,
+            metadata=metadata,
+        )
+
+    def _skill_description(self, skill_name: str, session_id: str) -> str:
+        """Return the best available description for one skill in the current session scope."""
+        skills_loader = getattr(self._context_builder, "skills_loader", None)
+        session_skills_dir_resolver = getattr(self._context_builder, "get_session_skills_dir", None)
+        if skills_loader is None or not callable(session_skills_dir_resolver):
+            return ""
+        try:
+            session_skills_dir = session_skills_dir_resolver(session_id)
+            for skill in skills_loader.get_skills(session_skills_dir):
+                if skill.name == skill_name:
+                    return str(skill.description or "").strip()
+        except Exception:
+            logger.exception("[%s] learning.skill-metadata.failed | skill=%s", session_id, skill_name)
+        return ""
+
+    def _finalize_learning_reuse(self, session_id: str, run_id: str, success: bool) -> None:
+        """Mark any skills read during one run as reused in the learning ledger."""
+        skill_names = sorted(self._run_skill_reads.pop(run_id, set()))
+        if not skill_names or self.learning_ledger is None:
+            return
+        outcome = "success" if success else "failed"
+        for skill_name in skill_names:
+            description = self._skill_description(skill_name, session_id)
+            summary = description or f"Skill '{skill_name}' was reused by the agent."
+            metadata = {"source": "read_skill", "skill_name": skill_name}
+            if description:
+                metadata["description"] = description
+            self.learning_ledger.mark_used(
+                session_id,
+                kind="skill",
+                target_id=skill_name,
+                outcome=outcome,
+                summary=summary,
+                source_run_id=run_id,
+                metadata=metadata,
+            )
+
+    async def _run_skill_review(self, session_id: str) -> list[dict[str, Any]]:
         tool_registry = self._skill_review_tool_registry()
         if tool_registry is None:
-            return
+            return []
         token = self._current_session_id.set(session_id)
         try:
-            await self.skill_review.run(session_id, tool_registry=tool_registry)
+            return await self.skill_review.run(session_id, tool_registry=tool_registry)
         finally:
             self._current_session_id.reset(token)
 

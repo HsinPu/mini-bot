@@ -17,9 +17,10 @@ from .execution import ExecutionResult
 
 
 SnapshotReader = Callable[[str], str]
-SessionRunner = Callable[[str], Awaitable[None]]
+SessionRunner = Callable[[str], Awaitable[Any]]
 RunEventEmitter = Callable[[str, str, str, dict[str, Any], str | None, str | None], Awaitable[None]]
 SkillReviewDecider = Callable[[ExecutionResult], bool]
+LearningRecorder = Callable[[str, str, str, str, str | None, dict[str, Any] | None], None]
 CURATOR_STATE_SCHEMA_VERSION = 1
 CURATOR_HISTORY_LIMIT = 20
 CURATOR_MAINTENANCE_JOB_KEYS = ("memory", "recent_summary", "user_profile", "active_task")
@@ -101,6 +102,7 @@ class CuratorService:
         read_active_task_snapshot: SnapshotReader,
         read_skill_snapshot: SnapshotReader,
         emit_run_event: RunEventEmitter,
+        record_learning: LearningRecorder | None = None,
         state_path: Path | None = None,
     ):
         self._memory_runner = maybe_consolidate_memory
@@ -110,6 +112,7 @@ class CuratorService:
         self._skill_review_runner = run_skill_review
         self._should_run_skill_review = should_run_skill_review
         self._emit_run_event = emit_run_event
+        self._record_learning = record_learning
         self._state_path = Path(state_path).expanduser() if state_path is not None else None
         self._state = self._load_state()
         self._requests: dict[str, CuratorRequest] = {}
@@ -438,11 +441,67 @@ class CuratorService:
             request.external_chat_id,
         )
 
-    async def _run_snapshot_job(self, session_id: str, job: CuratorJob) -> bool:
+    async def _run_snapshot_job(self, session_id: str, job: CuratorJob) -> tuple[bool, Any]:
         before = job.snapshot_reader(session_id)
-        await job.runner(session_id)
+        runner_result = await job.runner(session_id)
         after = job.snapshot_reader(session_id)
-        return before != after
+        return before != after, runner_result
+
+    def _record_learning_entries(
+        self,
+        request: CuratorRequest,
+        changed_keys: list[str],
+        job_results: dict[str, Any],
+    ) -> None:
+        if self._record_learning is None or not changed_keys:
+            return
+        for job_key in changed_keys:
+            if job_key == "skills":
+                skill_records = job_results.get(job_key)
+                if isinstance(skill_records, list) and skill_records:
+                    for item in skill_records:
+                        skill_name = str(item.get("skill_name") or "").strip() if isinstance(item, dict) else ""
+                        if not skill_name:
+                            continue
+                        description = str(item.get("description") or "").strip() if isinstance(item, dict) else ""
+                        summary = description or f"Updated skill {skill_name}."
+                        self._record_learning(
+                            request.session_id,
+                            kind="skill",
+                            target_id=skill_name,
+                            summary=summary,
+                            source_run_id=request.run_id,
+                            metadata={
+                                "job": "skills",
+                                "action": str(item.get("action") or "upsert") if isinstance(item, dict) else "upsert",
+                                **({"description": description} if description else {}),
+                            },
+                        )
+                    continue
+                self._record_learning(
+                    request.session_id,
+                    kind="skill",
+                    target_id="session_skills",
+                    summary="Updated session skills.",
+                    source_run_id=request.run_id,
+                    metadata={"job": "skills"},
+                )
+                continue
+
+            summary = {
+                "memory": "Updated session memory.",
+                "recent_summary": "Updated recent summary.",
+                "user_profile": "Updated session user profile.",
+                "active_task": "Updated active task.",
+            }.get(job_key, f"Updated {job_key}.")
+            self._record_learning(
+                request.session_id,
+                kind=job_key,
+                target_id=job_key,
+                summary=summary,
+                source_run_id=request.run_id,
+                metadata={"job": job_key},
+            )
 
     @staticmethod
     def _format_summary(labels: list[str]) -> str:
@@ -482,6 +541,7 @@ class CuratorService:
             }
             changed_keys: list[str] = []
             changed_labels: list[str] = []
+            job_results: dict[str, Any] = {}
             try:
                 await self._emit_event(
                     request,
@@ -510,7 +570,8 @@ class CuratorService:
                             "message": f"Running curator job: {job.label}.",
                         },
                     )
-                    changed = await self._run_snapshot_job(session_id, job)
+                    changed, runner_result = await self._run_snapshot_job(session_id, job)
+                    job_results[job.key] = runner_result
                     runtime_state = self._runtime_state.get(session_id)
                     if runtime_state is not None:
                         runtime_state["completed_jobs"] = [
@@ -574,6 +635,7 @@ class CuratorService:
                     changed=changed_keys,
                     summary=summary,
                 )
+                self._record_learning_entries(request, changed_keys, job_results)
             except Exception as exc:
                 error = str(exc) or exc.__class__.__name__
                 runtime_state = self._runtime_state.get(session_id) or {}

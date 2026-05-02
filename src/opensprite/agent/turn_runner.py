@@ -51,6 +51,7 @@ class AgentTurnRunner:
         apply_completion_gate_result: Callable[[str, CompletionGateResult], Awaitable[None]],
         apply_work_progress: Callable[[str, WorkProgressUpdate, StoredWorkState | None], Awaitable[None]],
         schedule_curator: Callable[[str, str, str | None, str | None, ExecutionResult], None],
+        finalize_learning_reuse: Callable[[str, str, bool], None],
         worktree_sandbox_enabled: Callable[[], bool],
         workspace_root: Callable[[], Path],
     ):
@@ -75,6 +76,7 @@ class AgentTurnRunner:
         self._apply_completion_gate_result = apply_completion_gate_result
         self._apply_work_progress = apply_work_progress
         self._schedule_curator = schedule_curator
+        self._finalize_learning_reuse = finalize_learning_reuse
         self._worktree_sandbox_enabled = worktree_sandbox_enabled
         self._workspace_root = workspace_root
 
@@ -206,6 +208,7 @@ class AgentTurnRunner:
                         f"[{turn.session_id}] Agent.process failed: channel={turn.channel}, "
                         f"text_len={len(user_message.text or '')}, images={len(user_message.images or [])}, audios={len(user_message.audios or [])}, videos={len(user_message.videos or [])}"
                     )
+                    self._finalize_learning_reuse(turn.session_id, run_id, False)
                     await self.run_trace.fail_run(
                         turn.session_id,
                         run_id,
@@ -478,6 +481,7 @@ class AgentTurnRunner:
                 )
             await self._apply_work_progress(turn.session_id, work_progress, updated_work_state)
             await self._apply_completion_gate_result(turn.session_id, completion_result)
+            self._finalize_learning_reuse(turn.session_id, run_id, True)
             self._schedule_curator(
                 turn.session_id,
                 run_id,

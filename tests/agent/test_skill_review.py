@@ -26,6 +26,47 @@ def test_build_skill_review_user_content_wraps_transcript():
     assert "Nothing to save" in body
 
 
+def test_skill_review_collects_configured_skill_metadata():
+    class Storage:
+        async def get_messages(self, session_id, limit=None):
+            return [
+                StoredMessage(role="user", content="Please remember this workflow and make a skill.", timestamp=1.0),
+                StoredMessage(role="assistant", content="Sure, I will save it.", timestamp=2.0),
+            ]
+
+    async def execute_messages(log_id, messages, **kwargs):
+        await kwargs["on_tool_after_execute"](
+            "configure_skill",
+            {
+                "action": "upsert",
+                "skill_name": "pytest-helper",
+                "description": "Reusable pytest workflow.",
+            },
+            "Updated skill 'pytest-helper'.",
+        )
+
+    from opensprite.agent.skill_review import SkillReviewService
+
+    service = SkillReviewService(
+        storage=Storage(),
+        tools=None,
+        transcript_message_limit_getter=lambda: 10,
+        max_tool_iterations_getter=lambda: 2,
+        build_system_prompt=lambda session_id: "system",
+        execute_messages=execute_messages,
+    )
+
+    touched = asyncio.run(service.run("chat-a", tool_registry=object()))
+
+    assert touched == [
+        {
+            "skill_name": "pytest-helper",
+            "action": "upsert",
+            "description": "Reusable pytest workflow.",
+        }
+    ]
+
+
 def test_skill_review_scheduler_coalesces_same_session_into_rerun(tmp_path):
     async def scenario():
         agent = make_agent_loop(tmp_path)

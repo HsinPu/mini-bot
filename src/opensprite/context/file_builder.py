@@ -33,6 +33,7 @@ from ..documents.recent_summary import RecentSummaryStore
 from ..documents.user_profile import create_user_profile_store
 from ..skills import SkillsLoader
 from ..subagent_prompts import get_all_subagents
+from ..agent.learning_ledger import LearningLedger
 
 
 class FileContextBuilder:
@@ -141,6 +142,7 @@ Ids and descriptions below are **merged**: this session's `subagent_prompts/<id>
         default_skills_dir: Path | None = None,
         personal_skills_dir: Path | None = None,
         custom_skills_dir: Path | None = None,
+        learning_ledger: LearningLedger | None = None,
     ):
         self.app_home = get_app_home(app_home)
         self.bootstrap_dir = Path(bootstrap_dir).expanduser() if bootstrap_dir else get_bootstrap_dir(self.app_home)
@@ -154,11 +156,16 @@ Ids and descriptions below are **merged**: this session's `subagent_prompts/<id>
         self.memory_store = MemoryStore(self.memory_dir)
         self.recent_summary_store = RecentSummaryStore(self.memory_dir)
         self._runtime_mcp_tools: list[tuple[str, str]] = []
+        self.learning_ledger = learning_ledger
         self.skills_loader = skills_loader or SkillsLoader(
             default_skills_dir=default_skills_dir or get_skills_dir(self.app_home),
             personal_skills_dir=personal_skills_dir,
             custom_skills_dir=custom_skills_dir,
         )
+
+    def set_learning_ledger(self, ledger: LearningLedger | None) -> None:
+        """Attach the session learning ledger used for relevant prompt hints."""
+        self.learning_ledger = ledger
 
     def set_runtime_mcp_tools(self, tools: list[tuple[str, str]]) -> None:
         """Store the connected MCP tool summary for prompt generation."""
@@ -359,12 +366,21 @@ Be conservative only for actions with external side effects or boundaries outsid
         planning_mode_guidance = resolve_planning_mode(current_message).overlay
         if planning_mode_guidance:
             messages.append({"role": "system", "content": planning_mode_guidance})
+        relevant_learning = self._build_relevant_learning_context(session_id, current_message)
+        if relevant_learning:
+            messages.append({"role": "system", "content": relevant_learning})
         messages.extend(history)
         messages.extend([
             {"role": "user", "content": self._build_runtime_context(channel, session_id)},
             user_message,
         ])
         return messages
+
+    def _build_relevant_learning_context(self, session_id: str, current_message: str) -> str:
+        """Return concise learned-context hints for the current message when available."""
+        if self.learning_ledger is None:
+            return ""
+        return self.learning_ledger.build_relevant_context(session_id, current_message)
 
     def add_tool_result(
         self,

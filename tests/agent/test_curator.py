@@ -74,6 +74,94 @@ def test_curator_service_emits_summary_for_changed_jobs():
     assert events[-1][3]["summary"] == "Updated memory and skills."
 
 
+def test_curator_service_records_learning_entries_for_changed_jobs():
+    async def scenario():
+        state = {
+            "memory": "",
+            "recent_summary": "",
+            "user_profile": "",
+            "active_task": "",
+            "skills": "",
+        }
+        learning_records = []
+
+        async def emit_run_event(session_id, run_id, event_type, payload, channel, external_chat_id):
+            return None
+
+        async def update_memory(_session_id):
+            state["memory"] = "Remember this"
+
+        async def update_skills(_session_id):
+            state["skills"] = "skill-content"
+            return [{"skill_name": "pytest-helper", "action": "upsert", "description": "Reusable pytest workflow."}]
+
+        async def noop(_session_id):
+            return None
+
+        def record_learning(session_id, *, kind, target_id, summary, source_run_id=None, metadata=None):
+            learning_records.append(
+                {
+                    "session_id": session_id,
+                    "kind": kind,
+                    "target_id": target_id,
+                    "summary": summary,
+                    "source_run_id": source_run_id,
+                    "metadata": metadata or {},
+                }
+            )
+
+        service = CuratorService(
+            maybe_consolidate_memory=update_memory,
+            maybe_update_recent_summary=noop,
+            maybe_update_user_profile=noop,
+            maybe_update_active_task=noop,
+            run_skill_review=update_skills,
+            should_run_skill_review=lambda result: result.executed_tool_calls >= 2,
+            read_memory_snapshot=lambda _session_id: state["memory"],
+            read_recent_summary_snapshot=lambda _session_id: state["recent_summary"],
+            read_user_profile_snapshot=lambda _session_id: state["user_profile"],
+            read_active_task_snapshot=lambda _session_id: state["active_task"],
+            read_skill_snapshot=lambda _session_id: state["skills"],
+            emit_run_event=emit_run_event,
+            record_learning=record_learning,
+        )
+
+        service.schedule_after_turn(
+            session_id="web:browser-1",
+            run_id="run-1",
+            channel="web",
+            external_chat_id="browser-1",
+            result=ExecutionResult(content="done", executed_tool_calls=3),
+        )
+        await service.wait()
+        return learning_records
+
+    learning_records = asyncio.run(scenario())
+
+    assert learning_records == [
+        {
+            "session_id": "web:browser-1",
+            "kind": "memory",
+            "target_id": "memory",
+            "summary": "Updated session memory.",
+            "source_run_id": "run-1",
+            "metadata": {"job": "memory"},
+        },
+        {
+            "session_id": "web:browser-1",
+            "kind": "skill",
+            "target_id": "pytest-helper",
+            "summary": "Reusable pytest workflow.",
+            "source_run_id": "run-1",
+            "metadata": {
+                "job": "skills",
+                "action": "upsert",
+                "description": "Reusable pytest workflow.",
+            },
+        },
+    ]
+
+
 def test_curator_service_emits_no_change_curator_trace():
     async def scenario():
         state = {"memory": "stable", "recent_summary": "", "user_profile": "", "active_task": "", "skills": ""}

@@ -89,19 +89,40 @@ class SkillReviewService:
         excluded = available - allowed
         return self.tools.filtered(exclude_names=excluded)
 
-    async def run(self, session_id: str, *, tool_registry: ToolRegistry) -> None:
+    async def run(self, session_id: str, *, tool_registry: ToolRegistry) -> list[dict[str, str]]:
         """Execute one review pass for a session using the restricted skill tool registry."""
         stored = await self.storage.get_messages(session_id, limit=self._transcript_message_limit_getter())
         transcript = format_stored_messages_for_transcript(stored)
         if len(transcript) < 80:
             logger.info("[%s] skill.review.skip | reason=transcript-too-short", session_id)
-            return
+            return []
 
         user_content = build_skill_review_user_content(transcript)
         chat_messages = [
             ChatMessage(role="system", content=SKILL_REVIEW_SYSTEM),
             ChatMessage(role="user", content=user_content),
         ]
+        touched_skills: list[dict[str, str]] = []
+
+        async def on_tool_after_execute(tool_name: str, tool_args: dict[str, Any], result: str, *args: Any) -> None:
+            if tool_name != "configure_skill":
+                return
+            action = str((tool_args or {}).get("action") or "").strip()
+            if action not in {"add", "upsert"}:
+                return
+            if str(result or "").lstrip().startswith("Error:"):
+                return
+            skill_name = str((tool_args or {}).get("skill_name") or "").strip()
+            if not skill_name:
+                return
+            touched_skills.append(
+                {
+                    "skill_name": skill_name,
+                    "action": action,
+                    "description": str((tool_args or {}).get("description") or "").strip(),
+                }
+            )
+
         await self._execute_messages(
             f"{session_id}:skill-review",
             chat_messages,
@@ -109,7 +130,9 @@ class SkillReviewService:
             tool_result_session_id=None,
             tool_registry=tool_registry,
             on_tool_before_execute=None,
+            on_tool_after_execute=on_tool_after_execute,
             refresh_system_prompt=lambda: self._build_system_prompt(session_id),
             max_tool_iterations=self._max_tool_iterations_getter(),
         )
         logger.info("[%s] skill.review.done", session_id)
+        return touched_skills
