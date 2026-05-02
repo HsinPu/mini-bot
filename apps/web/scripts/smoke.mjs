@@ -38,8 +38,10 @@ assertIncludes(runTraceViewer, "codeNavigationResults", "code navigation trace r
 assertIncludes(runTraceViewer, "showRetentionSummary", "trace retention summary");
 assertIncludes(chatComposer, "composer__commands", "slash command hints rendering");
 assertIncludes(chatPanel, "curator-card__scope", "curator scope selector rendering");
+assertIncludes(chatPanel, "curator-card__history", "curator history rendering");
 assertIncludes(chatClient, "/api/commands", "command catalog fetch");
 assertIncludes(chatClient, "/api/curator/status", "curator status fetch");
+assertIncludes(chatClient, "/api/curator/history", "curator history fetch");
 assertIncludes(chatClient, "/api/curator/", "curator action fetch");
 assertIncludes(chatClient, 'params.set("scope", scope)', "curator scoped action fetch");
 assertIncludes(chatClient, "CURATOR_POLL_INTERVAL_MS", "curator polling interval");

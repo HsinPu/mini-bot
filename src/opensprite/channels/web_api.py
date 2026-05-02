@@ -43,6 +43,22 @@ class WebApiHandlers:
             raise web.HTTPServiceUnavailable(text="Curator status is not available")
         return web.json_response({"ok": True, "session_id": session_id, "status": adapter._json_safe(status)})
 
+    async def handle_curator_history(self, request: web.Request) -> web.Response:
+        adapter = self.adapter
+        agent = adapter._get_agent()
+        get_history = getattr(agent, "get_curator_history", None) if agent is not None else None
+        if not callable(get_history):
+            raise web.HTTPServiceUnavailable(text="Curator history is not available")
+
+        session_id = adapter._coerce_optional_text(request.query.get("session_id"))
+        if session_id is None:
+            raise web.HTTPBadRequest(text="session_id is required")
+        limit = adapter._coerce_limit(request.query.get("limit"), default=5, maximum=20)
+        history = await get_history(session_id, limit=limit)
+        if history is None:
+            raise web.HTTPServiceUnavailable(text="Curator history is not available")
+        return web.json_response({"ok": True, "session_id": session_id, "history": adapter._json_safe(history)})
+
     async def handle_curator_action(self, request: web.Request) -> web.Response:
         adapter = self.adapter
         agent = adapter._get_agent()

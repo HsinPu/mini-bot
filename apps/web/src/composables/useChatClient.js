@@ -31,6 +31,7 @@ const RUN_SUMMARY_FETCH_DELAY_MS = 500;
 const RUN_SUMMARY_NOT_FOUND_RETRY_DELAY_MS = 1200;
 const RUN_SUMMARY_NOT_FOUND_RETRY_LIMIT = 3;
 const RUN_BACKFILL_COOLDOWN_MS = 2000;
+const CURATOR_HISTORY_LIMIT = 5;
 const CURATOR_POLL_INTERVAL_MS = 2500;
 const TERMINAL_RUN_STATUSES = new Set(["completed", "failed", "cancelled"]);
 const TERMINAL_PART_STATES = new Set(["completed", "failed", "cancelled", "error"]);
@@ -621,6 +622,10 @@ function buildCuratorStatusPath(sessionId) {
   return `/api/curator/status?session_id=${encodeURIComponent(sessionId)}`;
 }
 
+function buildCuratorHistoryPath(sessionId, limit = CURATOR_HISTORY_LIMIT) {
+  return `/api/curator/history?session_id=${encodeURIComponent(sessionId)}&limit=${encodeURIComponent(limit)}`;
+}
+
 function buildCuratorActionPath(action, sessionId, scope = "") {
   const params = new URLSearchParams({ session_id: sessionId });
   if (scope) {
@@ -1049,6 +1054,9 @@ export function useChatClient() {
     action: "",
     error: "",
     status: null,
+    history: [],
+    historyLoading: false,
+    historyError: "",
   });
 
   let activeSocket = null;
@@ -1319,8 +1327,11 @@ export function useChatClient() {
       curatorState.action = "";
       curatorState.status = null;
       curatorState.error = "";
+      curatorState.history = [];
+      curatorState.historyLoading = false;
+      curatorState.historyError = "";
       void loadCurrentSessionRuns();
-      void loadCuratorStatus();
+      void refreshCuratorState();
     },
     { immediate: true },
   );
@@ -1713,7 +1724,7 @@ export function useChatClient() {
     if (eventType.startsWith("curator.")) {
       const curatorSessionId = getCuratorSessionId(session);
       if (curatorSessionId && isCurrentCuratorSessionId(curatorSessionId)) {
-        void loadCuratorStatus({ sessionId: curatorSessionId, quiet: true });
+        void refreshCuratorState({ sessionId: curatorSessionId, quiet: true });
       }
     }
   }
@@ -1911,6 +1922,69 @@ export function useChatClient() {
         curatorState.error = error?.message || copy.value.curator.unavailable;
       }
       return null;
+    } finally {
+      if (!quiet && isCurrentCuratorSessionId(sessionId)) {
+        curatorState.loading = false;
+      }
+    }
+  }
+
+  async function loadCuratorHistory(options = {}) {
+    const sessionId = String(options?.sessionId || getCuratorSessionId(currentSession.value)).trim();
+    const quiet = Boolean(options?.quiet);
+    const limit = coerceNonNegativeInteger(options?.limit) || CURATOR_HISTORY_LIMIT;
+    if (!sessionId) {
+      curatorState.historyLoading = false;
+      curatorState.history = [];
+      curatorState.historyError = "";
+      return [];
+    }
+    if (!quiet) {
+      curatorState.historyLoading = true;
+      curatorState.historyError = "";
+    }
+    try {
+      const payload = await requestSettingsJson(buildCuratorHistoryPath(sessionId, limit));
+      const history = Array.isArray(payload?.history) ? payload.history : [];
+      if (isCurrentCuratorSessionId(sessionId)) {
+        curatorState.history = history;
+        curatorState.historyError = "";
+      }
+      return history;
+    } catch (error) {
+      if (isCurrentCuratorSessionId(sessionId)) {
+        curatorState.historyError = error?.message || copy.value.curator.historyUnavailable;
+      }
+      return [];
+    } finally {
+      if (!quiet && isCurrentCuratorSessionId(sessionId)) {
+        curatorState.historyLoading = false;
+      }
+    }
+  }
+
+  async function refreshCuratorState(options = {}) {
+    const sessionId = String(options?.sessionId || getCuratorSessionId(currentSession.value)).trim();
+    const quiet = Boolean(options?.quiet);
+    if (!sessionId) {
+      curatorState.loading = false;
+      curatorState.status = null;
+      curatorState.error = "";
+      curatorState.history = [];
+      curatorState.historyLoading = false;
+      curatorState.historyError = "";
+      return null;
+    }
+    if (!quiet) {
+      curatorState.loading = true;
+      curatorState.error = "";
+    }
+    try {
+      const [status] = await Promise.all([
+        loadCuratorStatus({ sessionId, quiet: true }),
+        loadCuratorHistory({ sessionId, quiet: true, limit: options?.limit }),
+      ]);
+      return status;
     } finally {
       if (!quiet && isCurrentCuratorSessionId(sessionId)) {
         curatorState.loading = false;
@@ -3786,6 +3860,7 @@ export function useChatClient() {
     revertRunFileChange,
     cleanupWorktreeSandbox,
     loadCuratorStatus,
+    refreshCuratorState,
     runCuratorAction,
     resolvePermissionRequest,
     toggleSettingsConnection,

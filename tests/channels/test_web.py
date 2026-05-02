@@ -221,6 +221,20 @@ async def _run_web_curator_api():
                 "last_run_summary": "No curator changes.",
             }
 
+        async def get_curator_history(self, session_id, *, limit=10):
+            self.curator_calls.append(("history", session_id, limit))
+            return [
+                {
+                    "run_id": "run-2",
+                    "run_at": "2026-05-01T00:00:02Z",
+                    "jobs": ["skills"],
+                    "changed": ["skills"],
+                    "summary": "Updated skills.",
+                    "error": None,
+                    "status": "completed",
+                }
+            ]
+
         async def run_curator_now(self, session_id, *, scope=None, channel=None, external_chat_id=None):
             if scope not in {None, "memory"}:
                 raise ValueError(f"Unknown curator scope: {scope}")
@@ -272,6 +286,12 @@ async def _run_web_curator_api():
                 assert payload["status"]["run_count"] == 2
                 assert payload["status"]["last_run_summary"] == "No curator changes."
 
+            async with session.get(f"http://127.0.0.1:{port}/api/curator/history?session_id={session_id}&limit=1") as resp:
+                assert resp.status == 200
+                payload = await resp.json()
+                assert len(payload["history"]) == 1
+                assert payload["history"][0]["run_id"] == "run-2"
+
             async with session.post(f"http://127.0.0.1:{port}/api/curator/run?session_id={session_id}") as resp:
                 assert resp.status == 200
                 payload = await resp.json()
@@ -305,6 +325,7 @@ async def _run_web_curator_api():
 
         assert agent.curator_calls == [
             ("status", session_id),
+            ("history", session_id, 1),
             ("run", session_id, None, "web", "browser-1"),
             ("run", session_id, "memory", "web", "browser-1"),
             ("run", telegram_session_id, None, "telegram", "chat-1"),

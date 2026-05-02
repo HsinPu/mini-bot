@@ -1316,6 +1316,7 @@ class WebAdapter(MessageAdapter):
         self.app.router.add_get(health_path, self._handle_health)
         self.app.router.add_get("/api/commands", self._api.handle_command_catalog)
         self.app.router.add_get("/api/curator/status", self._api.handle_curator_status)
+        self.app.router.add_get("/api/curator/history", self._api.handle_curator_history)
         self.app.router.add_post("/api/curator/{action}", self._api.handle_curator_action)
         self.app.router.add_get("/api/sessions/status", self._api.handle_session_status)
         self.app.router.add_get("/api/sessions", self._api.handle_sessions)

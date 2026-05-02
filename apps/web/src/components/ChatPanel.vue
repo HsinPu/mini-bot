@@ -185,6 +185,25 @@
               {{ curatorState.action === 'resume' ? copy.curator.resuming : copy.curator.resume }}
             </button>
           </div>
+          <section class="curator-card__history" aria-live="polite">
+            <div class="curator-card__history-head">
+              <strong>{{ copy.curator.historyTitle }}</strong>
+              <small v-if="curatorState.historyLoading">{{ copy.curator.historyLoading }}</small>
+            </div>
+            <div v-if="curatorHistoryEntries.length" class="curator-card__history-list">
+              <article v-for="entry in curatorHistoryEntries" :key="entry.key" class="curator-card__history-entry">
+                <div class="curator-card__history-meta">
+                  <strong>{{ entry.runAt }}</strong>
+                  <span>{{ entry.statusLabel }}</span>
+                </div>
+                <p>{{ entry.summary }}</p>
+                <small>{{ copy.curator.lastJobs }}: {{ entry.jobs }}</small>
+                <small v-if="entry.changed">{{ copy.curator.lastChanged }}: {{ entry.changed }}</small>
+                <small v-if="entry.error">{{ copy.curator.lastError }}: {{ entry.error }}</small>
+              </article>
+            </div>
+            <p v-else class="curator-card__history-empty">{{ curatorState.historyError || copy.curator.historyEmpty }}</p>
+          </section>
         </section>
 
         <RunSummaryCard
@@ -426,6 +445,18 @@ const lastCuratorChangedLabel = computed(() => {
   const changed = Array.isArray(props.curatorStatus?.last_run_changed) ? props.curatorStatus.last_run_changed : [];
   return changed.length ? changed.join(", ") : props.copy.curator.none;
 });
+const curatorHistoryEntries = computed(() => {
+  const entries = Array.isArray(props.curatorState.history) ? props.curatorState.history : [];
+  return entries.map((entry, index) => ({
+    key: `${entry.run_id || 'history'}:${entry.run_at || index}:${index}`,
+    runAt: formatCuratorHistoryTime(entry.run_at),
+    statusLabel: props.copy.run.statusLabels[String(entry.status || '').trim()] || String(entry.status || props.copy.curator.unknown),
+    summary: String(entry.summary || '').trim() || props.copy.curator.noSummary,
+    jobs: Array.isArray(entry.jobs) && entry.jobs.length ? entry.jobs.join(", ") : props.copy.curator.none,
+    changed: Array.isArray(entry.changed) && entry.changed.length ? entry.changed.join(", ") : "",
+    error: String(entry.error || '').trim(),
+  }));
+});
 
 watch(
   () => props.currentRun?.runId,
@@ -437,6 +468,15 @@ watch(
 function shortRunId(runId) {
   const normalized = String(runId || "run").replace(/^run[_-]?/, "");
   return normalized.length > 8 ? normalized.slice(0, 8) : normalized;
+}
+
+function formatCuratorHistoryTime(value) {
+  const normalized = String(value || "").trim();
+  const date = new Date(normalized);
+  if (!normalized || Number.isNaN(date.getTime())) {
+    return normalized || props.copy.curator.unknown;
+  }
+  return date.toLocaleString();
 }
 
 function runOptionLabel(run, index) {

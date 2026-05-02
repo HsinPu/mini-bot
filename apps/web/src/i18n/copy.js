@@ -115,6 +115,10 @@ export const DISPLAY_COPY = {
       none: "無",
       never: "從未執行",
       noSummary: "尚無整理摘要。",
+      historyTitle: "最近整理紀錄",
+      historyLoading: "載入中",
+      historyEmpty: "尚無背景整理歷史。",
+      historyUnavailable: "無法讀取背景整理歷史。",
       scope: "執行範圍",
       scopes: {
         all: "全部工作",
@@ -795,6 +799,10 @@ export const DISPLAY_COPY = {
       none: "None",
       never: "Never",
       noSummary: "No curator summary yet.",
+      historyTitle: "Recent history",
+      historyLoading: "Loading",
+      historyEmpty: "No curator history yet.",
+      historyUnavailable: "Curator history is not available.",
       scope: "Run scope",
       scopes: {
         all: "All jobs",

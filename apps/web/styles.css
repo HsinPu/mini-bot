@@ -137,6 +137,7 @@
 :root[data-color-scheme="dark"] .run-history__select select,
 :root[data-color-scheme="dark"] .curator-card__scope select,
 :root[data-color-scheme="dark"] .curator-card__grid div,
+:root[data-color-scheme="dark"] .curator-card__history-entry,
 :root[data-color-scheme="dark"] .curator-card__summary,
 :root[data-color-scheme="dark"] .work-state-card__status,
 :root[data-color-scheme="dark"] .permission-card code,
@@ -1217,6 +1218,68 @@ button:disabled {
   background: #ffffff;
   font-size: 0.8rem;
   font-weight: 650;
+}
+
+.curator-card__history {
+  display: grid;
+  gap: 8px;
+}
+
+.curator-card__history-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.curator-card__history-head strong,
+.curator-card__history-head small,
+.curator-card__history-empty,
+.curator-card__history-entry small {
+  color: var(--text-soft);
+}
+
+.curator-card__history-list {
+  display: grid;
+  gap: 8px;
+}
+
+.curator-card__history-entry {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.curator-card__history-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.curator-card__history-meta strong,
+.curator-card__history-entry p {
+  margin: 0;
+  color: var(--text);
+}
+
+.curator-card__history-meta span {
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.curator-card__history-entry p {
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.curator-card__history-entry small,
+.curator-card__history-empty {
+  font-size: 0.76rem;
+  line-height: 1.4;
 }
 
 .work-state-card__header {
