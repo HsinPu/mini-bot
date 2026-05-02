@@ -8,7 +8,7 @@ import re
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from ..utils.log import logger
 
@@ -34,49 +34,72 @@ _TARGET_LABELS = {
 class LearningLedger:
     """Persistent session-scoped ledger for learned artifacts and reuse outcomes."""
 
-    def __init__(self, state_path: Path | None = None):
+    def __init__(
+        self,
+        state_path: Path | None = None,
+        *,
+        state_path_for_session: Callable[[str], Path] | None = None,
+    ):
         self._state_path = Path(state_path).expanduser() if state_path is not None else None
-        self._state = self._load_state()
+        self._state_path_for_session = state_path_for_session
+        self._memory_sessions: dict[str, list[dict[str, Any]]] = {}
 
     @staticmethod
     def _default_state() -> dict[str, Any]:
-        return {"schema_version": LEARNING_LEDGER_SCHEMA_VERSION, "sessions": {}}
+        return {"schema_version": LEARNING_LEDGER_SCHEMA_VERSION, "entries": []}
 
-    def _load_state(self) -> dict[str, Any]:
-        if self._state_path is None or not self._state_path.exists():
-            return self._default_state()
+    def _state_file_for_session(self, session_id: str) -> Path | None:
+        if self._state_path_for_session is not None:
+            return Path(self._state_path_for_session(session_id)).expanduser()
+        return self._state_path
+
+    def _load_entries(self, session_id: str) -> list[dict[str, Any]]:
+        state_path = self._state_file_for_session(session_id)
+        if state_path is None:
+            entries = self._memory_sessions.setdefault(session_id, [])
+            entries[:] = [self._normalize_entry(item) for item in entries if isinstance(item, dict)][-LEARNING_LEDGER_LIMIT:]
+            return entries
+        if not state_path.exists():
+            return []
         try:
-            raw = json.loads(self._state_path.read_text(encoding="utf-8"))
+            raw = json.loads(state_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            logger.warning("learning.state.load_failed | path=%s error=%s", self._state_path, exc)
-            return self._default_state()
+            logger.warning("learning.state.load_failed | path=%s error=%s", state_path, exc)
+            return []
         if not isinstance(raw, dict):
-            return self._default_state()
-        sessions = raw.get("sessions") if isinstance(raw.get("sessions"), dict) else {}
-        normalized = {
-            session_id: [dict(item) for item in entries if isinstance(item, dict)]
-            for session_id, entries in sessions.items()
-            if isinstance(session_id, str) and isinstance(entries, list)
-        }
-        return {"schema_version": LEARNING_LEDGER_SCHEMA_VERSION, "sessions": normalized}
+            return []
+        raw_entries = raw.get("entries") if isinstance(raw.get("entries"), list) else []
+        return [self._normalize_entry(item) for item in raw_entries if isinstance(item, dict)][-LEARNING_LEDGER_LIMIT:]
 
-    def _save_state(self) -> None:
-        if self._state_path is None:
+    def _save_entries(self, session_id: str, entries: list[dict[str, Any]]) -> None:
+        state_path = self._state_file_for_session(session_id)
+        normalized_entries = [self._normalize_entry(item) for item in entries if isinstance(item, dict)][-LEARNING_LEDGER_LIMIT:]
+        if state_path is None:
+            self._memory_sessions[session_id] = normalized_entries
             return
         try:
-            self._state_path.parent.mkdir(parents=True, exist_ok=True)
+            state_path.parent.mkdir(parents=True, exist_ok=True)
             fd, tmp_name = tempfile.mkstemp(
-                dir=str(self._state_path.parent),
-                prefix=f".{self._state_path.name}.",
+                dir=str(state_path.parent),
+                prefix=f".{state_path.name}.",
                 suffix=".tmp",
             )
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                    json.dump(self._state, handle, indent=2, sort_keys=True, ensure_ascii=False)
+                    json.dump(
+                        {
+                            "schema_version": LEARNING_LEDGER_SCHEMA_VERSION,
+                            "entries": normalized_entries,
+                        },
+                        handle,
+                        indent=2,
+                        sort_keys=True,
+                        ensure_ascii=False,
+                    )
                     handle.write("\n")
                     handle.flush()
                     os.fsync(handle.fileno())
-                os.replace(tmp_name, self._state_path)
+                os.replace(tmp_name, state_path)
             except BaseException:
                 try:
                     os.unlink(tmp_name)
@@ -84,7 +107,7 @@ class LearningLedger:
                     pass
                 raise
         except OSError as exc:
-            logger.warning("learning.state.save_failed | path=%s error=%s", self._state_path, exc)
+            logger.warning("learning.state.save_failed | path=%s error=%s", state_path, exc)
 
     @staticmethod
     def _now_iso() -> str:
@@ -98,16 +121,7 @@ class LearningLedger:
             return 0
 
     def _session_entries(self, session_id: str) -> list[dict[str, Any]]:
-        sessions = self._state.setdefault("sessions", {})
-        if not isinstance(sessions, dict):
-            sessions = {}
-            self._state["sessions"] = sessions
-        entries = sessions.get(session_id)
-        if not isinstance(entries, list):
-            entries = []
-            sessions[session_id] = entries
-        entries[:] = [self._normalize_entry(item) for item in entries if isinstance(item, dict)][-LEARNING_LEDGER_LIMIT:]
-        return entries
+        return self._load_entries(session_id)
 
     def _normalize_entry(self, entry: dict[str, Any], *, kind: str = "", target_id: str = "") -> dict[str, Any]:
         metadata = entry.get("metadata") if isinstance(entry.get("metadata"), dict) else {}
@@ -152,7 +166,7 @@ class LearningLedger:
         if metadata:
             entry["metadata"] = {**entry.get("metadata", {}), **metadata}
         entry["updated_at"] = now
-        self._save_state()
+        self._save_entries(session_id, entries)
         return dict(entry)
 
     def mark_used(
@@ -183,7 +197,7 @@ class LearningLedger:
         entry["last_outcome"] = str(outcome or "success").strip() or "success"
         entry["use_count"] = self._safe_int(entry.get("use_count")) + 1
         entry["updated_at"] = now
-        self._save_state()
+        self._save_entries(session_id, entries)
         return dict(entry)
 
     def recent_entries(self, session_id: str, *, limit: int = 10) -> list[dict[str, Any]]:

@@ -31,7 +31,12 @@ from ..storage.base import get_storage_message_count
 from ..documents.active_task import ActiveTaskConsolidator, create_active_task_store
 from ..context.builder import ContextBuilder
 from ..documents.memory import MemoryStore
-from ..context.paths import get_session_skills_dir, get_session_workspace
+from ..context.paths import (
+    get_session_curator_state_file,
+    get_session_learning_state_file,
+    get_session_skills_dir,
+    get_session_workspace,
+)
 from ..documents.recent_summary import RecentSummaryConsolidator, RecentSummaryStore
 from ..media import MediaRouter
 from ..documents.user_profile import UserProfileConsolidator, create_user_profile_store
@@ -696,7 +701,11 @@ class AgentLoop:
                 channel=channel,
                 external_chat_id=external_chat_id,
             ),
-            state_path=(self.app_home / ".curator_state.json") if self.app_home is not None else None,
+            state_path_for_session=lambda session_id: get_session_curator_state_file(
+                session_id,
+                app_home=self.app_home,
+                workspace_root=self.tool_workspace,
+            ),
         )
         self._skill_review_tasks = self.curator.tasks
         self._skill_review_rerun = self.curator.rerun_keys
@@ -797,7 +806,13 @@ class AgentLoop:
 
     def _setup_learning_ledger(self) -> LearningLedger:
         """Create the session learning ledger and attach it to compatible context builders."""
-        ledger = LearningLedger((self.app_home / ".learning_state.json") if self.app_home is not None else None)
+        ledger = LearningLedger(
+            state_path_for_session=lambda session_id: get_session_learning_state_file(
+                session_id,
+                app_home=self.app_home,
+                workspace_root=self.tool_workspace,
+            )
+        )
         setter = getattr(self._context_builder, "set_learning_ledger", None)
         if callable(setter):
             setter(ledger)

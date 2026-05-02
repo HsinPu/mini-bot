@@ -2,6 +2,7 @@ import asyncio
 
 from agent_test_helpers import make_agent_loop
 from opensprite.agent.learning_ledger import LearningLedger
+from opensprite.context.paths import get_session_learning_state_file
 
 
 def test_learning_ledger_records_and_ranks_relevant_entries():
@@ -52,3 +53,35 @@ def test_agent_loop_marks_read_skill_reuse_in_learning_ledger(tmp_path):
     assert entries[0]["target_id"] == "pytest-helper"
     assert entries[0]["use_count"] == 1
     assert entries[0]["last_outcome"] == "success"
+
+
+def test_learning_ledger_persists_per_session_file(tmp_path):
+    app_home = tmp_path / "home"
+    workspace_root = app_home / "workspace"
+    ledger = LearningLedger(
+        state_path_for_session=lambda session_id: get_session_learning_state_file(
+            session_id,
+            app_home=app_home,
+            workspace_root=workspace_root,
+        )
+    )
+
+    ledger.record_learning(
+        "telegram:room-1",
+        kind="skill",
+        target_id="pytest-helper",
+        summary="Reusable pytest workflow.",
+        source_run_id="run-1",
+    )
+
+    reloaded = LearningLedger(
+        state_path_for_session=lambda session_id: get_session_learning_state_file(
+            session_id,
+            app_home=app_home,
+            workspace_root=workspace_root,
+        )
+    )
+    entries = reloaded.recent_entries("telegram:room-1", limit=1)
+
+    assert entries[0]["target_id"] == "pytest-helper"
+    assert get_session_learning_state_file("telegram:room-1", app_home=app_home, workspace_root=workspace_root).exists()

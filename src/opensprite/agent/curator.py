@@ -104,6 +104,7 @@ class CuratorService:
         emit_run_event: RunEventEmitter,
         record_learning: LearningRecorder | None = None,
         state_path: Path | None = None,
+        state_path_for_session: Callable[[str], Path] | None = None,
     ):
         self._memory_runner = maybe_consolidate_memory
         self._recent_summary_runner = maybe_update_recent_summary
@@ -114,11 +115,11 @@ class CuratorService:
         self._emit_run_event = emit_run_event
         self._record_learning = record_learning
         self._state_path = Path(state_path).expanduser() if state_path is not None else None
-        self._state = self._load_state()
+        self._state_path_for_session = state_path_for_session
+        self._memory_session_states: dict[str, dict[str, Any]] = {}
         self._requests: dict[str, CuratorRequest] = {}
         self._active_requests: dict[str, CuratorRequest] = {}
         self._runtime_state: dict[str, dict[str, Any]] = {}
-        self._paused_sessions: set[str] = self._load_paused_sessions()
         self._scheduler = CoalescingTaskScheduler[str](
             on_exception=lambda session_id, _exc: logger.exception("[%s] curator.failed", session_id),
             on_rerun=lambda session_id: logger.info("[%s] curator.rerun", session_id),
@@ -139,7 +140,18 @@ class CuratorService:
 
     @staticmethod
     def _default_state() -> dict[str, Any]:
-        return {"schema_version": CURATOR_STATE_SCHEMA_VERSION, "sessions": {}}
+        return {
+            "schema_version": CURATOR_STATE_SCHEMA_VERSION,
+            "paused": False,
+            "run_count": 0,
+            "last_run_at": None,
+            "last_run_duration_seconds": None,
+            "last_run_summary": None,
+            "last_run_jobs": [],
+            "last_run_changed": [],
+            "last_error": None,
+            "history": [],
+        }
 
     @staticmethod
     def _safe_int(value: Any) -> int:
@@ -148,40 +160,64 @@ class CuratorService:
         except (TypeError, ValueError):
             return 0
 
-    def _load_state(self) -> dict[str, Any]:
-        if self._state_path is None or not self._state_path.exists():
+    def _state_file_for_session(self, session_id: str) -> Path | None:
+        if self._state_path_for_session is not None:
+            return Path(self._state_path_for_session(session_id)).expanduser()
+        return self._state_path
+
+    def _load_session_state(self, session_id: str) -> dict[str, Any]:
+        state_path = self._state_file_for_session(session_id)
+        if state_path is None:
+            state = self._memory_session_states.get(session_id)
+            return dict(state) if isinstance(state, dict) else self._default_state()
+        if not state_path.exists():
             return self._default_state()
         try:
-            raw = json.loads(self._state_path.read_text(encoding="utf-8"))
+            raw = json.loads(state_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            logger.warning("curator.state.load_failed | path=%s error=%s", self._state_path, exc)
+            logger.warning("curator.state.load_failed | path=%s error=%s", state_path, exc)
             return self._default_state()
         if not isinstance(raw, dict):
             return self._default_state()
-        sessions = raw.get("sessions") if isinstance(raw.get("sessions"), dict) else {}
-        normalized: dict[str, dict[str, Any]] = {}
-        for session_id, value in sessions.items():
-            if isinstance(session_id, str) and isinstance(value, dict):
-                normalized[session_id] = dict(value)
-        return {"schema_version": CURATOR_STATE_SCHEMA_VERSION, "sessions": normalized}
+        state = self._default_state()
+        state["paused"] = bool(raw.get("paused"))
+        state["run_count"] = self._safe_int(raw.get("run_count"))
+        state["last_run_at"] = raw.get("last_run_at")
+        state["last_run_duration_seconds"] = raw.get("last_run_duration_seconds")
+        state["last_run_summary"] = raw.get("last_run_summary")
+        state["last_error"] = raw.get("last_error")
+        state["last_run_jobs"] = [str(item) for item in raw.get("last_run_jobs", []) if str(item).strip()] if isinstance(raw.get("last_run_jobs"), list) else []
+        state["last_run_changed"] = [str(item) for item in raw.get("last_run_changed", []) if str(item).strip()] if isinstance(raw.get("last_run_changed"), list) else []
+        history = raw.get("history") if isinstance(raw.get("history"), list) else []
+        state["history"] = [dict(item) for item in history if isinstance(item, dict)][-CURATOR_HISTORY_LIMIT:]
+        return state
 
-    def _save_state(self) -> None:
-        if self._state_path is None:
+    def _save_session_state(self, session_id: str, state: dict[str, Any]) -> None:
+        state_path = self._state_file_for_session(session_id)
+        normalized_state = self._default_state()
+        normalized_state.update(state)
+        normalized_state["run_count"] = self._safe_int(normalized_state.get("run_count"))
+        normalized_state["last_run_jobs"] = [str(item) for item in normalized_state.get("last_run_jobs", []) if str(item).strip()] if isinstance(normalized_state.get("last_run_jobs"), list) else []
+        normalized_state["last_run_changed"] = [str(item) for item in normalized_state.get("last_run_changed", []) if str(item).strip()] if isinstance(normalized_state.get("last_run_changed"), list) else []
+        history = normalized_state.get("history") if isinstance(normalized_state.get("history"), list) else []
+        normalized_state["history"] = [dict(item) for item in history if isinstance(item, dict)][-CURATOR_HISTORY_LIMIT:]
+        if state_path is None:
+            self._memory_session_states[session_id] = normalized_state
             return
         try:
-            self._state_path.parent.mkdir(parents=True, exist_ok=True)
+            state_path.parent.mkdir(parents=True, exist_ok=True)
             fd, tmp_name = tempfile.mkstemp(
-                dir=str(self._state_path.parent),
-                prefix=f".{self._state_path.name}.",
+                dir=str(state_path.parent),
+                prefix=f".{state_path.name}.",
                 suffix=".tmp",
             )
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                    json.dump(self._state, handle, indent=2, sort_keys=True, ensure_ascii=False)
+                    json.dump(normalized_state, handle, indent=2, sort_keys=True, ensure_ascii=False)
                     handle.write("\n")
                     handle.flush()
                     os.fsync(handle.fileno())
-                os.replace(tmp_name, self._state_path)
+                os.replace(tmp_name, state_path)
             except BaseException:
                 try:
                     os.unlink(tmp_name)
@@ -189,34 +225,15 @@ class CuratorService:
                     pass
                 raise
         except OSError as exc:
-            logger.warning("curator.state.save_failed | path=%s error=%s", self._state_path, exc)
+            logger.warning("curator.state.save_failed | path=%s error=%s", state_path, exc)
 
     def _session_state(self, session_id: str) -> dict[str, Any]:
-        sessions = self._state.setdefault("sessions", {})
-        if not isinstance(sessions, dict):
-            sessions = {}
-            self._state["sessions"] = sessions
-        state = sessions.get(session_id)
-        if not isinstance(state, dict):
-            state = {}
-            sessions[session_id] = state
-        return state
-
-    def _load_paused_sessions(self) -> set[str]:
-        sessions = self._state.get("sessions") if isinstance(self._state.get("sessions"), dict) else {}
-        return {
-            session_id
-            for session_id, state in sessions.items()
-            if isinstance(session_id, str) and isinstance(state, dict) and bool(state.get("paused"))
-        }
+        return self._load_session_state(session_id)
 
     def _set_paused(self, session_id: str, paused: bool) -> None:
-        if paused:
-            self._paused_sessions.add(session_id)
-        else:
-            self._paused_sessions.discard(session_id)
-        self._session_state(session_id)["paused"] = paused
-        self._save_state()
+        state = self._session_state(session_id)
+        state["paused"] = paused
+        self._save_session_state(session_id, state)
 
     def _record_run(
         self,
@@ -252,7 +269,7 @@ class CuratorService:
             }
         )
         state["history"] = history[-CURATOR_HISTORY_LIMIT:]
-        self._save_state()
+        self._save_session_state(session_id, state)
 
     def _history_entries(self, session_id: str) -> list[dict[str, Any]]:
         state = self._session_state(session_id)
@@ -380,19 +397,19 @@ class CuratorService:
 
     def is_paused(self, session_id: str) -> bool:
         """Return whether one session currently suppresses curator scheduling."""
-        return session_id in self._paused_sessions
+        return bool(self._session_state(session_id).get("paused"))
 
     def status(self, session_id: str) -> dict[str, Any]:
         """Return coarse runtime status for one session."""
         pending_request = self._requests.get(session_id)
         active_request = self._active_requests.get(session_id)
         runtime_state = self._runtime_state.get(session_id) or {}
+        session_state = self._session_state(session_id)
         task = self.tasks.get(session_id)
         running = task is not None and not task.done()
         rerun_pending = session_id in self.rerun_keys
         queued = pending_request is not None and not running
-        paused = session_id in self._paused_sessions
-        session_state = self._session_state(session_id)
+        paused = bool(session_state.get("paused"))
         request = active_request if running else pending_request
         jobs: list[str] = []
         if request is not None:
@@ -423,7 +440,7 @@ class CuratorService:
         }
 
     def _schedule(self, request: CuratorRequest) -> bool:
-        if request.session_id in self._paused_sessions:
+        if self.is_paused(request.session_id):
             return False
         pending = self._requests.get(request.session_id)
         self._requests[request.session_id] = self._merge_request(pending, request)
@@ -519,7 +536,7 @@ class CuratorService:
             return
         self._active_requests[session_id] = request
         try:
-            if session_id in self._paused_sessions:
+            if self.is_paused(session_id):
                 return
 
             selected_jobs: list[CuratorJob] = []

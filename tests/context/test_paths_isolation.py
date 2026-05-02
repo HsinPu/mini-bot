@@ -1,5 +1,7 @@
 from opensprite.context.paths import (
     get_active_task_file,
+    get_session_curator_state_file,
+    get_session_learning_state_file,
     get_session_memory_dir,
     get_session_memory_file,
     get_session_recent_summary_state_file,
@@ -86,3 +88,16 @@ def test_session_memory_paths_are_nested_under_the_same_session_workspace(tmp_pa
     assert state_dir.parent == workspace
     assert state_dir.name == "state"
     assert summary_state_file.parent == state_dir
+
+
+def test_session_curator_and_learning_state_files_live_under_session_state_dir(tmp_path):
+    workspace_root = tmp_path / "workspace"
+
+    state_dir = get_session_state_dir("telegram:user-a", workspace_root=workspace_root)
+    curator_state = get_session_curator_state_file("telegram:user-a", workspace_root=workspace_root)
+    learning_state = get_session_learning_state_file("telegram:user-a", workspace_root=workspace_root)
+
+    assert curator_state.parent == state_dir
+    assert curator_state.name == ".curator_state.json"
+    assert learning_state.parent == state_dir
+    assert learning_state.name == ".learning_state.json"

@@ -10,6 +10,8 @@ Path layout:
 - per-session memory: ~/.opensprite/workspace/sessions/{channel}/{external_chat_id}/memory/MEMORY.md
 - per-session recent summary: ~/.opensprite/workspace/sessions/{channel}/{external_chat_id}/memory/RECENT_SUMMARY.md
 - per-session recent-summary state: ~/.opensprite/workspace/sessions/{channel}/{external_chat_id}/state/.recent_summary_state.json
+- per-session curator state: ~/.opensprite/workspace/sessions/{channel}/{external_chat_id}/state/.curator_state.json
+- per-session learning ledger: ~/.opensprite/workspace/sessions/{channel}/{external_chat_id}/state/.learning_state.json
 - bundled skills (read-only, synced from package): ~/.opensprite/skills/<skill_id>/SKILL.md
 - session workspace skills (mutable): ~/.opensprite/workspace/sessions/{channel}/{external_chat_id}/skills/*/SKILL.md
 - session subagent overrides: ~/.opensprite/workspace/sessions/{channel}/{external_chat_id}/subagent_prompts/*.md
@@ -37,6 +39,8 @@ LEGACY_USER_PROFILES_DIRNAME = "users"
 SUBAGENT_PROMPTS_DIRNAME = "subagent_prompts"
 USER_PROFILE_STATE_FILENAME = ".user_profile_state.json"
 RECENT_SUMMARY_STATE_FILENAME = ".recent_summary_state.json"
+CURATOR_STATE_FILENAME = ".curator_state.json"
+LEARNING_STATE_FILENAME = ".learning_state.json"
 ACTIVE_TASK_STATE_FILENAME = ".active_task_state.json"
 ACTIVE_TASK_EVENT_LOG_FILENAME = ".active_task_events.jsonl"
 
@@ -247,6 +251,26 @@ def get_session_recent_summary_state_file(
 ) -> Path:
     """Get the per-session recent-summary state file under the session workspace tree."""
     return get_session_state_dir(session_id, workspace_root=workspace_root, app_home=app_home) / RECENT_SUMMARY_STATE_FILENAME
+
+
+def get_session_curator_state_file(
+    session_id: str | None,
+    *,
+    workspace_root: str | Path | None = None,
+    app_home: str | Path | None = None,
+) -> Path:
+    """Get the per-session curator state file under the session workspace tree."""
+    return get_session_state_dir(session_id, workspace_root=workspace_root, app_home=app_home) / CURATOR_STATE_FILENAME
+
+
+def get_session_learning_state_file(
+    session_id: str | None,
+    *,
+    workspace_root: str | Path | None = None,
+    app_home: str | Path | None = None,
+) -> Path:
+    """Get the per-session learning ledger file under the session workspace tree."""
+    return get_session_state_dir(session_id, workspace_root=workspace_root, app_home=app_home) / LEARNING_STATE_FILENAME
 
 
 def get_session_skills_dir(

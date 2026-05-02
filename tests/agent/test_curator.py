@@ -3,6 +3,7 @@ import asyncio
 import pytest
 
 from opensprite.agent.curator import CuratorService
+from opensprite.context.paths import get_session_curator_state_file
 from opensprite.agent.execution import ExecutionResult
 
 
@@ -348,6 +349,54 @@ def test_curator_service_persists_run_metadata(tmp_path):
     assert status["last_run_jobs"] == ["memory", "recent_summary", "user_profile", "active_task", "skills"]
     assert status["last_run_changed"] == ["memory"]
     assert status["last_error"] is None
+
+
+def test_curator_service_persists_to_session_state_file(tmp_path):
+    async def scenario():
+        app_home = tmp_path / "home"
+        workspace_root = app_home / "workspace"
+        state = {"memory": "", "recent_summary": "", "user_profile": "", "active_task": "", "skills": ""}
+
+        async def emit_run_event(session_id, run_id, event_type, payload, channel, external_chat_id):
+            return None
+
+        async def update_memory(_session_id):
+            state["memory"] = "changed"
+
+        async def noop(_session_id):
+            return None
+
+        def make_service():
+            return CuratorService(
+                maybe_consolidate_memory=update_memory,
+                maybe_update_recent_summary=noop,
+                maybe_update_user_profile=noop,
+                maybe_update_active_task=noop,
+                run_skill_review=noop,
+                should_run_skill_review=lambda result: False,
+                read_memory_snapshot=lambda _session_id: state["memory"],
+                read_recent_summary_snapshot=lambda _session_id: state["recent_summary"],
+                read_user_profile_snapshot=lambda _session_id: state["user_profile"],
+                read_active_task_snapshot=lambda _session_id: state["active_task"],
+                read_skill_snapshot=lambda _session_id: state["skills"],
+                emit_run_event=emit_run_event,
+                state_path_for_session=lambda session_id: get_session_curator_state_file(
+                    session_id,
+                    app_home=app_home,
+                    workspace_root=workspace_root,
+                ),
+            )
+
+        service = make_service()
+        service.schedule_manual_run(session_id="web:browser-1", run_id="run-1")
+        await service.wait()
+        restored = make_service()
+        return restored.status("web:browser-1")
+
+    status = asyncio.run(scenario())
+
+    assert status["run_count"] == 1
+    assert status["last_run_jobs"] == ["memory", "recent_summary", "user_profile", "active_task", "skills"]
 
 
 def test_curator_service_persists_run_history(tmp_path):
