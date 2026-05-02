@@ -938,3 +938,56 @@ def test_serialize_run_summary_builds_stable_card_payload():
     assert summary["completion"] == {"status": "complete"}
     assert summary["warnings"] == []
     assert summary["counts"] == {"events": 4, "parts": 1, "tool_calls": 1, "file_changes": 1}
+
+
+def test_serialize_run_summary_marks_parallel_delegation_warnings():
+    trace = SimpleNamespace(
+        run=SimpleNamespace(
+            run_id="run-2",
+            session_id="web:browser-2",
+            status="completed",
+            metadata={"objective": "Review in parallel"},
+            created_at=10.0,
+            updated_at=12.0,
+            finished_at=13.0,
+        ),
+        events=[
+            SimpleNamespace(
+                event_id=1,
+                run_id="run-2",
+                session_id="web:browser-2",
+                event_type="subagent.group.failed",
+                payload={
+                    "status": "failed",
+                    "group_id": "fanout_warn",
+                    "total_tasks": 2,
+                    "max_parallel": 2,
+                    "completed_count": 1,
+                    "failed_count": 1,
+                    "cancelled_count": 0,
+                    "task_ids": ["task_a", "task_b"],
+                    "tasks": [
+                        {"task_id": "task_a", "prompt_type": "researcher", "status": "completed"},
+                        {"task_id": "task_b", "prompt_type": "code-reviewer", "status": "failed", "error": "broken"},
+                    ],
+                    "summary": "Completed 1/2 parallel subagent task(s); 1 failed.",
+                },
+                created_at=12.5,
+            ),
+            SimpleNamespace(
+                event_id=2,
+                run_id="run-2",
+                session_id="web:browser-2",
+                event_type="completion_gate.evaluated",
+                payload={"status": "complete"},
+                created_at=12.75,
+            ),
+        ],
+        parts=[],
+        file_changes=[],
+    )
+
+    summary = serialize_run_summary(trace)
+
+    assert summary["parallel_delegation"]["group_count"] == 1
+    assert summary["warnings"] == ["parallel_delegation_failed"]

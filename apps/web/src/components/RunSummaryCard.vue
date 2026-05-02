@@ -171,7 +171,7 @@
 
         <div v-if="summary.warnings.length" class="run-summary-card__note" data-tone="warning">
           <strong>{{ copy.runSummary.warnings }}</strong>
-          <span>{{ summary.warnings.join(", ") }}</span>
+          <span>{{ warningLabels.join(", ") }}</span>
         </div>
 
         <div v-if="reportFallbackOpen" class="run-summary-card__report-fallback">
@@ -294,6 +294,8 @@ const parallelDelegationDetail = computed(() => {
     .map((group) => parallelGroupChip(group))
     .join(" · ");
 });
+
+const warningLabels = computed(() => (summary.value?.warnings || []).map((warning) => warningLabel(warning)));
 
 const diffSummary = computed(() => summary.value?.diffSummary || props.run.diffSummary || null);
 
@@ -505,6 +507,11 @@ function parallelGroupLabel(group) {
 function parallelStatusLabel(status) {
   const labels = props.copy.runSummary.parallelStatusLabels || {};
   return labels[status] || status;
+}
+
+function warningLabel(warning) {
+  const labels = props.copy.runSummary.warningLabels || {};
+  return labels[warning] || warning;
 }
 
 function shortGroupId(groupId) {

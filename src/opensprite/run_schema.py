@@ -870,6 +870,10 @@ def serialize_run_summary(trace: Any) -> dict[str, Any]:
         warnings.append("tool_error")
     if verification["attempted"] and not verification["passed"]:
         warnings.append("verification_not_passed")
+    if any(str(group.get("status") or "") in {"failed", "error"} for group in parallel_delegation.get("groups", [])):
+        warnings.append("parallel_delegation_failed")
+    if any(str(group.get("status") or "") in {"cancelled", "cancelling"} for group in parallel_delegation.get("groups", [])):
+        warnings.append("parallel_delegation_cancelled")
     if getattr(run, "status", None) in {"failed", "cancelled"}:
         warnings.append(run.status)
 
