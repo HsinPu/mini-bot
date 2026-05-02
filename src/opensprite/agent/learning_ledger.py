@@ -208,6 +208,18 @@ class LearningLedger:
         )
         return [dict(entry) for entry in entries[: max(1, int(limit or 1))]]
 
+    def clear_session(self, session_id: str) -> None:
+        """Delete all learned artifacts for one session."""
+        state_path = self._state_file_for_session(session_id)
+        self._memory_sessions.pop(session_id, None)
+        if state_path is None:
+            return
+        try:
+            if state_path.exists():
+                state_path.unlink()
+        except OSError as exc:
+            logger.warning("learning.state.delete_failed | path=%s error=%s", state_path, exc)
+
     @staticmethod
     def _tokenize(text: str) -> list[str]:
         seen: list[str] = []

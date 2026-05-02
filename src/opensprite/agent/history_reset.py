@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Awaitable, Callable
 
 from ..search.base import SearchStore
 from ..storage import StorageProvider
@@ -17,13 +17,11 @@ class HistoryResetService:
         *,
         storage: StorageProvider,
         search_store: SearchStore | None,
-        clear_active_task: Callable[[str], None],
-        clear_recent_summary: Callable[[str], None],
+        clear_session_artifacts: Callable[[str], Awaitable[None]],
     ):
         self.storage = storage
         self.search_store = search_store
-        self._clear_active_task = clear_active_task
-        self._clear_recent_summary = clear_recent_summary
+        self._clear_session_artifacts = clear_session_artifacts
 
     async def reset(self, session_id: str | None = None) -> None:
         """Clear one session or all sessions from storage and derived indexes."""
@@ -37,8 +35,7 @@ class HistoryResetService:
 
     async def _clear_one(self, session_id: str) -> None:
         await self.storage.clear_messages(session_id)
-        self._clear_active_task(session_id)
-        self._clear_recent_summary(session_id)
+        await self._clear_session_artifacts(session_id)
         if self.search_store is None:
             return
         try:

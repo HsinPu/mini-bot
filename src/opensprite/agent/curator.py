@@ -282,6 +282,21 @@ class CuratorService:
         entries = list(reversed(self._history_entries(session_id)))
         return entries[: max(1, int(limit or 1))]
 
+    def clear_session(self, session_id: str) -> None:
+        """Delete persisted curator state for one session."""
+        self._requests.pop(session_id, None)
+        self._active_requests.pop(session_id, None)
+        self._runtime_state.pop(session_id, None)
+        self._memory_session_states.pop(session_id, None)
+        state_path = self._state_file_for_session(session_id)
+        if state_path is None:
+            return
+        try:
+            if state_path.exists():
+                state_path.unlink()
+        except OSError as exc:
+            logger.warning("curator.state.delete_failed | path=%s error=%s", state_path, exc)
+
     @staticmethod
     def _merge_request(current: CuratorRequest | None, incoming: CuratorRequest) -> CuratorRequest:
         if current is None:

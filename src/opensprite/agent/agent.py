@@ -22,6 +22,7 @@ opensprite/agent.py - Agent Loop
 
 from contextvars import ContextVar
 from pathlib import Path
+import shutil
 from typing import Any, Awaitable, Callable
 
 from ..bus.message import UserMessage, AssistantMessage
@@ -541,8 +542,7 @@ class AgentLoop:
         self.history_reset = HistoryResetService(
             storage=self.storage,
             search_store=self.search_store,
-            clear_active_task=self._clear_active_task,
-            clear_recent_summary=self._clear_recent_summary,
+            clear_session_artifacts=self._clear_session_artifacts,
         )
         self.run_trace = RunTraceRecorder(
             storage=self.storage,
@@ -941,6 +941,19 @@ class AgentLoop:
         if memory_dir is None:
             return
         RecentSummaryStore(memory_dir, app_home=self.app_home, workspace_root=self.tool_workspace).clear(session_id)
+
+    async def _clear_session_artifacts(self, session_id: str) -> None:
+        """Delete all persisted session-scoped files and runtime metadata for one session."""
+        await self._clear_work_state(session_id)
+        if self.background_process_manager is not None:
+            await self.background_process_manager.kill_owned_sessions(session_id)
+        if self.curator is not None:
+            self.curator.clear_session(session_id)
+        if self.learning_ledger is not None:
+            self.learning_ledger.clear_session(session_id)
+        workspace = self._get_workspace_for_session(session_id)
+        if workspace.exists():
+            shutil.rmtree(workspace, ignore_errors=True)
 
     def _register_memory_tool(self) -> None:
         """Register the save_memory tool."""
