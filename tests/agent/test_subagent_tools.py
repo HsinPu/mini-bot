@@ -522,6 +522,21 @@ class SlowParallelProvider:
         return "fake-model"
 
 
+class PartiallyFailingParallelProvider:
+    async def chat(self, messages, tools=None, model=None, temperature=0.7, max_tokens=2048, **kwargs):
+        task_text = next(
+            str(message.content)
+            for message in reversed(messages)
+            if getattr(message, "role", None) == "user"
+        )
+        if "broken" in task_text:
+            raise RuntimeError("child task failed")
+        return LLMResponse(content=f"ok:{task_text}", model="fake-model")
+
+    def get_default_model(self) -> str:
+        return "fake-model"
+
+
 def test_subagent_resume_uses_child_session_history(tmp_path):
     provider = ResumeProvider()
     storage = FakeStorage()
@@ -691,6 +706,8 @@ def test_run_subagents_many_returns_ordered_results_and_parent_trace(tmp_path):
     assert len(child_sessions) == 2
     assert child_statuses == ["completed", "completed"]
     assert parent_trace is not None
+    assert [event.event_type for event in parent_trace.events].count("subagent.group.started") == 1
+    assert [event.event_type for event in parent_trace.events].count("subagent.group.completed") == 1
     assert [event.event_type for event in parent_trace.events].count("subagent.started") == 2
     assert [event.event_type for event in parent_trace.events].count("subagent.completed") == 2
 
@@ -778,7 +795,55 @@ def test_run_subagents_many_cancels_children_with_parent_cancel_request(tmp_path
     assert cancelled is True
     assert child_statuses == ["cancelled"]
     assert parent_trace is not None
+    assert "subagent.group.cancelled" in [event.event_type for event in parent_trace.events]
     assert "subagent.cancelled" in [event.event_type for event in parent_trace.events]
+
+
+def test_run_subagents_many_emits_group_failed_when_one_child_fails(tmp_path):
+    async def scenario():
+        storage = MemoryStorage()
+        agent = AgentLoop(
+            config=Config.load_agent_template_config(),
+            provider=PartiallyFailingParallelProvider(),
+            storage=storage,
+            context_builder=FakeContextBuilder(tmp_path / "workspace"),
+            tools=ToolRegistry(),
+            memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
+            tools_config=ToolsConfig(max_tool_iterations=3),
+            log_config=LogConfig(),
+            search_config=SearchConfig(),
+            user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+            **Config.packaged_agent_llm_chat_kwargs(),
+        )
+        agent._current_session_id.set("telegram:user-a")
+        agent._current_run_id.set("run_parent")
+        agent._current_channel.set("telegram")
+        agent._current_external_chat_id.set("user-a")
+        agent.app_home = tmp_path / "opensprite-home"
+        await storage.create_run("telegram:user-a", "run_parent", metadata={"objective": "parallel failure"})
+
+        result = await agent.run_subagents_many(
+            [
+                {"task": "healthy task", "prompt_type": "researcher"},
+                {"task": "broken task", "prompt_type": "code-reviewer"},
+            ],
+            max_parallel=2,
+        )
+        parent_trace = await storage.get_run_trace("telegram:user-a", "run_parent")
+        child_sessions = [session_id for session_id in await storage.get_all_sessions() if ":subagent:" in session_id]
+        child_statuses = sorted([
+            (await storage.get_runs(session_id, limit=1))[0].status
+            for session_id in child_sessions
+        ])
+        return result, parent_trace, child_statuses
+
+    result, parent_trace, child_statuses = asyncio.run(scenario())
+
+    assert "Parallel delegation completed: 2 task(s), 1 failed." in result
+    assert "Error:" in result
+    assert child_statuses == ["completed", "failed"]
+    assert parent_trace is not None
+    assert "subagent.group.failed" in [event.event_type for event in parent_trace.events]
 
 
 def test_subagent_resume_rejects_prompt_type_switch(tmp_path):

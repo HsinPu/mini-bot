@@ -30,6 +30,10 @@ _EVENT_KINDS = {
     "curator.failed": "work",
     "curator.completed": "work",
     "subagent.started": "work",
+    "subagent.group.started": "work",
+    "subagent.group.completed": "work",
+    "subagent.group.failed": "work",
+    "subagent.group.cancelled": "work",
     "subagent.completed": "work",
     "subagent.failed": "work",
     "subagent.cancelled": "work",
@@ -110,6 +114,14 @@ def run_event_status(event_type: str, payload: dict[str, Any] | None) -> str:
         return explicit or "skipped"
     if normalized == "subagent.started":
         return explicit or "running"
+    if normalized == "subagent.group.started":
+        return explicit or "running"
+    if normalized == "subagent.group.failed":
+        return explicit or "failed"
+    if normalized == "subagent.group.completed":
+        return explicit or "completed"
+    if normalized == "subagent.group.cancelled":
+        return explicit or "cancelled"
     if normalized == "subagent.failed":
         return explicit or "failed"
     if normalized == "subagent.completed":
@@ -272,6 +284,34 @@ def event_artifact(event_type: str, payload: dict[str, Any] | None) -> dict[str,
             "kind": "work",
             "status": status,
             "title": f"Subagent: {prompt_type}",
+            "detail": detail,
+            "metadata": data,
+        }
+
+    if normalized in {
+        "subagent.group.started",
+        "subagent.group.completed",
+        "subagent.group.failed",
+        "subagent.group.cancelled",
+    }:
+        group_id = _text(data.get("group_id"))
+        total_tasks = _non_negative_int(data.get("total_tasks"))
+        detail = _text(data.get("summary") or data.get("error") or data.get("message"))
+        if not detail and normalized == "subagent.group.started":
+            detail = f"{total_tasks} parallel subagent task(s) queued." if total_tasks else "Parallel subagent tasks queued."
+        if not detail and normalized == "subagent.group.completed":
+            detail = f"Completed {total_tasks} parallel subagent task(s)." if total_tasks else "Parallel subagent group completed."
+        if not detail and normalized == "subagent.group.failed":
+            detail = "Parallel subagent group failed."
+        if not detail and normalized == "subagent.group.cancelled":
+            detail = "Parallel subagent group cancelled."
+        return {
+            "schema_version": RUN_SCHEMA_VERSION,
+            "artifact_id": f"subagent_group:{group_id or 'parallel'}",
+            "artifact_type": "subagent_group",
+            "kind": "work",
+            "status": status,
+            "title": "Parallel subagents",
             "detail": detail,
             "metadata": data,
         }

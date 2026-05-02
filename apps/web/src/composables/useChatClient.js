@@ -49,6 +49,10 @@ const TIMELINE_EVENT_TYPES = new Set([
   "permission_granted",
   "permission_denied",
   "subagent.started",
+  "subagent.group.started",
+  "subagent.group.completed",
+  "subagent.group.failed",
+  "subagent.group.cancelled",
   "subagent.completed",
   "subagent.failed",
   "subagent.cancelled",
@@ -707,6 +711,15 @@ function formatSubagentDetail(payload) {
   return [payload.prompt_type || payload.promptType, payload.task_id || payload.taskId].filter(Boolean).join(" · ");
 }
 
+function formatSubagentGroupDetail(payload) {
+  const summary = String(payload.summary || payload.message || payload.error || "").trim();
+  if (summary) {
+    return summary;
+  }
+  const total = coerceNonNegativeInteger(payload.total_tasks ?? payload.totalTasks);
+  return total > 0 ? `${total} task(s)` : "";
+}
+
 function normalizeRunSummary(payload) {
   if (!payload || typeof payload !== "object") {
     return null;
@@ -858,6 +871,38 @@ function describeRunEvent(eventType, payload, copy) {
       label: `${copy.trace.filters.permission}: ${payload.tool_name || copy.run.unknownTool}`,
       detail: payload.resolution_reason || payload.status || "",
       tone: granted ? "success" : "error",
+    };
+  }
+
+  if (eventType === "subagent.group.started") {
+    return {
+      label: copy.run.parallelDelegationStarted,
+      detail: formatSubagentGroupDetail(payload),
+      tone: "running",
+    };
+  }
+
+  if (eventType === "subagent.group.completed") {
+    return {
+      label: copy.run.parallelDelegationCompleted,
+      detail: formatSubagentGroupDetail(payload),
+      tone: "success",
+    };
+  }
+
+  if (eventType === "subagent.group.failed") {
+    return {
+      label: copy.run.parallelDelegationFailed,
+      detail: formatSubagentGroupDetail(payload),
+      tone: "error",
+    };
+  }
+
+  if (eventType === "subagent.group.cancelled") {
+    return {
+      label: copy.run.parallelDelegationCancelled,
+      detail: formatSubagentGroupDetail(payload),
+      tone: "warning",
     };
   }
 

@@ -321,6 +321,84 @@ class SubagentRunService:
             ),
         )
 
+    @staticmethod
+    def _group_status_counts(statuses: list[str]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for status in statuses:
+            key = str(status or "unknown").strip() or "unknown"
+            counts[key] = counts.get(key, 0) + 1
+        return counts
+
+    @classmethod
+    def _group_summary(cls, status: str, *, total: int, counts: dict[str, int]) -> str:
+        completed = counts.get("completed", 0)
+        failed = counts.get("failed", 0) + counts.get("error", 0)
+        cancelled = counts.get("cancelled", 0)
+        if status == "running":
+            return f"Queued {total} parallel subagent task(s)."
+        if status == "completed":
+            return f"Completed {completed}/{total} parallel subagent task(s)."
+        if status == "failed":
+            tail = f"; {cancelled} cancelled." if cancelled else "."
+            return f"Completed {completed}/{total} parallel subagent task(s); {failed} failed{tail}"
+        if status == "cancelled":
+            settled = completed + failed + cancelled
+            return f"Cancelled parallel subagent group after {settled}/{total} task(s) settled."
+        return f"Parallel subagent group status: {status}."
+
+    @classmethod
+    def _build_group_payload(
+        cls,
+        prepared_tasks: list[PreparedSubagentTask],
+        *,
+        group_id: str,
+        max_parallel: int,
+        status: str,
+        outcomes_by_task_id: dict[str, SubagentTaskOutcome] | None = None,
+        default_missing_status: str | None = None,
+        error: str = "",
+    ) -> dict[str, Any]:
+        outcome_map = outcomes_by_task_id or {}
+        tasks_payload: list[dict[str, Any]] = []
+        statuses: list[str] = []
+        for prepared in prepared_tasks:
+            outcome = outcome_map.get(prepared.task_id)
+            child_status = (
+                outcome.status
+                if outcome is not None
+                else str(default_missing_status or status or "unknown").strip() or "unknown"
+            )
+            statuses.append(child_status)
+            item = {
+                "task_id": prepared.task_id,
+                "prompt_type": prepared.prompt_type,
+                "status": child_status,
+                "child_session_id": prepared.child_session_id,
+                "child_run_id": prepared.child_run_id,
+                "fanout_index": prepared.group_index,
+            }
+            if outcome is not None:
+                if outcome.summary:
+                    item["summary"] = outcome.summary
+                if outcome.error:
+                    item["error"] = outcome.error
+            tasks_payload.append(item)
+
+        counts = cls._group_status_counts(statuses)
+        return {
+            "status": status,
+            "group_id": group_id,
+            "total_tasks": len(prepared_tasks),
+            "max_parallel": max_parallel,
+            "completed_count": counts.get("completed", 0),
+            "failed_count": counts.get("failed", 0) + counts.get("error", 0),
+            "cancelled_count": counts.get("cancelled", 0),
+            "task_ids": [prepared.task_id for prepared in prepared_tasks],
+            "tasks": tasks_payload,
+            "summary": cls._group_summary(status, total=len(prepared_tasks), counts=counts),
+            **({"error": error} if error else {}),
+        }
+
     async def _execute_prepared_task(
         self,
         prepared: PreparedSubagentTask,
@@ -715,6 +793,21 @@ class SubagentRunService:
         parent_session_id = prepared_tasks[0].parent_session_id
         parent_run_id = prepared_tasks[0].parent_run_id
 
+        if self._cancel_requested(parent_session_id, parent_run_id):
+            raise RunCancelledError("parallel delegated tasks cancelled")
+
+        await self._emit_parent_event(
+            parent_session_id=parent_session_id,
+            parent_run_id=parent_run_id,
+            event_type="subagent.group.started",
+            payload=self._build_group_payload(
+                prepared_tasks,
+                group_id=group_id,
+                max_parallel=concurrency,
+                status="running",
+            ),
+        )
+
         async def worker(prepared: PreparedSubagentTask) -> SubagentTaskOutcome:
             async with semaphore:
                 return await self._execute_prepared_task(
@@ -750,6 +843,19 @@ class SubagentRunService:
                         )
                     else:
                         outcomes_by_task_id[outcome.task_id] = outcome
+                await self._emit_parent_event(
+                    parent_session_id=parent_session_id,
+                    parent_run_id=parent_run_id,
+                    event_type="subagent.group.cancelled",
+                    payload=self._build_group_payload(
+                        prepared_tasks,
+                        group_id=group_id,
+                        max_parallel=concurrency,
+                        status="cancelled",
+                        outcomes_by_task_id=outcomes_by_task_id,
+                        default_missing_status="cancelled",
+                    ),
+                )
                 raise RunCancelledError("parallel delegated tasks cancelled")
 
             for task in done:
@@ -781,4 +887,17 @@ class SubagentRunService:
             for prepared in prepared_tasks
             if prepared.task_id in outcomes_by_task_id
         ]
+        any_failed = any(outcome.status in {"failed", "error"} for outcome in ordered_outcomes)
+        await self._emit_parent_event(
+            parent_session_id=parent_session_id,
+            parent_run_id=parent_run_id,
+            event_type="subagent.group.failed" if any_failed else "subagent.group.completed",
+            payload=self._build_group_payload(
+                prepared_tasks,
+                group_id=group_id,
+                max_parallel=concurrency,
+                status="failed" if any_failed else "completed",
+                outcomes_by_task_id=outcomes_by_task_id,
+            ),
+        )
         return self._format_parallel_results(ordered_outcomes, group_id=group_id, max_parallel=concurrency)

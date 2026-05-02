@@ -473,6 +473,60 @@ def test_serialize_run_event_projects_cancelled_subagent_artifact():
     }
 
 
+def test_serialize_run_event_projects_parallel_subagent_group_artifact():
+    event = SimpleNamespace(
+        event_id=49,
+        run_id="run-1",
+        session_id="web:browser-1",
+        event_type="subagent.group.completed",
+        payload={
+            "status": "completed",
+            "group_id": "fanout_abc12345",
+            "total_tasks": 2,
+            "max_parallel": 2,
+            "completed_count": 2,
+            "failed_count": 0,
+            "cancelled_count": 0,
+            "task_ids": ["task_a", "task_b"],
+            "tasks": [
+                {"task_id": "task_a", "prompt_type": "researcher", "status": "completed"},
+                {"task_id": "task_b", "prompt_type": "code-reviewer", "status": "completed"},
+            ],
+            "summary": "Completed 2/2 parallel subagent task(s).",
+        },
+        created_at=13.75,
+    )
+
+    payload = serialize_run_event(event)
+
+    assert payload["kind"] == "work"
+    assert payload["status"] == "completed"
+    assert payload["artifact"] == {
+        "schema_version": 1,
+        "artifact_id": "subagent_group:fanout_abc12345",
+        "artifact_type": "subagent_group",
+        "kind": "work",
+        "status": "completed",
+        "title": "Parallel subagents",
+        "detail": "Completed 2/2 parallel subagent task(s).",
+        "metadata": {
+            "status": "completed",
+            "group_id": "fanout_abc12345",
+            "total_tasks": 2,
+            "max_parallel": 2,
+            "completed_count": 2,
+            "failed_count": 0,
+            "cancelled_count": 0,
+            "task_ids": ["task_a", "task_b"],
+            "tasks": [
+                {"task_id": "task_a", "prompt_type": "researcher", "status": "completed"},
+                {"task_id": "task_b", "prompt_type": "code-reviewer", "status": "completed"},
+            ],
+            "summary": "Completed 2/2 parallel subagent task(s).",
+        },
+    }
+
+
 def test_serialize_run_event_classifies_part_delta_as_streaming_text():
     event = SimpleNamespace(
         event_id=44,
