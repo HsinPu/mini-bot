@@ -12,6 +12,7 @@ from typing import Any, Awaitable, Callable
 from ..llms import ChatMessage
 from ..storage import StorageProvider
 from ..storage.base import StoredDelegatedTask
+from ..subagent_output import parse_structured_subagent_output
 from ..subagent_prompts import get_all_subagents
 from ..subagent_session import (
     build_child_subagent_session_id,
@@ -70,6 +71,7 @@ class SubagentTaskOutcome:
     verification_attempted: bool = False
     verification_passed: bool = False
     is_resume: bool = False
+    structured_output: dict[str, Any] | None = None
     group_id: str | None = None
     group_index: int | None = None
     group_total: int | None = None
@@ -301,9 +303,13 @@ class SubagentRunService:
         status: str,
         summary: str = "",
         error: str = "",
+        structured_output: dict[str, Any] | None = None,
         created_at: float = 0.0,
         updated_at: float = 0.0,
     ) -> None:
+        metadata = self._delegation_metadata(prepared)
+        if structured_output is not None:
+            metadata = {**metadata, "structured_output": structured_output}
         self._record_delegated_task_update(
             prepared.parent_run_id,
             StoredDelegatedTask(
@@ -315,11 +321,33 @@ class SubagentRunService:
                 error=error,
                 child_session_id=prepared.child_session_id,
                 last_child_run_id=prepared.child_run_id,
-                metadata=self._delegation_metadata(prepared),
+                metadata=metadata,
                 created_at=created_at,
                 updated_at=updated_at,
             ),
         )
+
+    @staticmethod
+    def _compact_structured_output(structured_output: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not isinstance(structured_output, dict):
+            return None
+        return {
+            "schema_version": structured_output.get("schema_version"),
+            "contract": structured_output.get("contract"),
+            "prompt_type": structured_output.get("prompt_type"),
+            "status": structured_output.get("status"),
+            "summary": structured_output.get("summary"),
+            "section_count": structured_output.get("section_count", 0),
+            "item_count": structured_output.get("item_count", 0),
+            "finding_count": structured_output.get("finding_count", 0),
+            "question_count": structured_output.get("question_count", 0),
+            "residual_risk_count": structured_output.get("residual_risk_count", 0),
+            "sections": structured_output.get("sections", []),
+            "questions": structured_output.get("questions", []),
+            "residual_risks": structured_output.get("residual_risks", []),
+            "sources": structured_output.get("sources", []),
+            "truncated": bool(structured_output.get("truncated")),
+        }
 
     @staticmethod
     def _group_status_counts(statuses: list[str]) -> dict[str, int]:
@@ -382,6 +410,17 @@ class SubagentRunService:
                     item["summary"] = outcome.summary
                 if outcome.error:
                     item["error"] = outcome.error
+                compact_structured_output = cls._compact_structured_output(outcome.structured_output)
+                if compact_structured_output is not None:
+                    item["structured_output"] = {
+                        "status": compact_structured_output.get("status"),
+                        "summary": compact_structured_output.get("summary"),
+                        "section_count": compact_structured_output.get("section_count", 0),
+                        "item_count": compact_structured_output.get("item_count", 0),
+                        "finding_count": compact_structured_output.get("finding_count", 0),
+                        "question_count": compact_structured_output.get("question_count", 0),
+                        "residual_risk_count": compact_structured_output.get("residual_risk_count", 0),
+                    }
             tasks_payload.append(item)
 
         counts = cls._group_status_counts(statuses)
@@ -539,7 +578,15 @@ class SubagentRunService:
                 prepared.child_run_id,
                 sub_result.llm_step_events,
             )
-            result_summary = self._format_log_preview(sub_result.content, max_chars=240)
+            display_content, structured_output, parse_error = parse_structured_subagent_output(
+                sub_result.content,
+                prompt_type=prepared.prompt_type,
+            )
+            compact_structured_output = self._compact_structured_output(structured_output)
+            result_summary = self._format_log_preview(
+                (compact_structured_output or {}).get("summary") or display_content,
+                max_chars=240,
+            )
             result_metadata = {
                 "kind": "subagent_result",
                 "task_id": prepared.task_id,
@@ -550,13 +597,17 @@ class SubagentRunService:
                 "summary": result_summary,
                 **self._delegation_metadata(prepared),
             }
+            if compact_structured_output is not None:
+                result_metadata["structured_output"] = compact_structured_output
+            if parse_error is not None:
+                result_metadata["structured_output_parse_error"] = parse_error
             await self.run_trace.record_assistant_message_part(
                 prepared.child_session_id,
                 prepared.child_run_id,
-                sub_result.content,
+                display_content,
                 metadata={
                     **result_metadata,
-                    "response_len": len(sub_result.content or ""),
+                    "response_len": len(display_content or ""),
                     "executed_tool_calls": sub_result.executed_tool_calls,
                     "had_tool_error": sub_result.had_tool_error,
                     "verification_attempted": sub_result.verification_attempted,
@@ -566,7 +617,7 @@ class SubagentRunService:
             await self._save_message(
                 prepared.child_session_id,
                 "assistant",
-                sub_result.content,
+                display_content,
                 None,
                 result_metadata,
             )
@@ -586,6 +637,10 @@ class SubagentRunService:
                 "verification_passed": sub_result.verification_passed,
                 **self._delegation_metadata(prepared),
             }
+            if compact_structured_output is not None:
+                completion_payload["structured_output"] = compact_structured_output
+            if parse_error is not None:
+                completion_payload["structured_output_parse_error"] = parse_error
             await self.run_trace.complete_run(
                 prepared.child_session_id,
                 prepared.child_run_id,
@@ -596,6 +651,7 @@ class SubagentRunService:
                 prepared,
                 status="completed",
                 summary=result_summary,
+                structured_output=compact_structured_output,
                 created_at=started_at,
                 updated_at=time.time(),
             )
@@ -611,13 +667,14 @@ class SubagentRunService:
                 child_session_id=prepared.child_session_id,
                 child_run_id=prepared.child_run_id,
                 status="completed",
-                content=sub_result.content,
+                content=display_content,
                 summary=result_summary,
                 executed_tool_calls=sub_result.executed_tool_calls,
                 had_tool_error=sub_result.had_tool_error,
                 verification_attempted=sub_result.verification_attempted,
                 verification_passed=sub_result.verification_passed,
                 is_resume=prepared.is_resume,
+                structured_output=compact_structured_output,
                 group_id=prepared.group_id,
                 group_index=prepared.group_index,
                 group_total=prepared.group_total,
@@ -731,6 +788,24 @@ class SubagentRunService:
                 lines.extend(["Error:", outcome.error or outcome.summary or "unknown failure"])
         return "\n".join(lines)
 
+    async def run_task(
+        self,
+        task: str,
+        prompt_type: str,
+        *,
+        should_cancel: Callable[[], bool] | None = None,
+        raise_on_failure: bool = True,
+    ) -> SubagentTaskOutcome:
+        """Run one child task and return the structured outcome for workflow orchestration."""
+        prepared = await self._prepare_task(task, prompt_type=prompt_type)
+        if isinstance(prepared, str):
+            raise ValueError(prepared.removeprefix("Error: ") if prepared.startswith("Error: ") else prepared)
+        return await self._execute_prepared_task(
+            prepared,
+            should_cancel=should_cancel or (lambda: self._cancel_requested(prepared.parent_session_id, prepared.parent_run_id)),
+            raise_on_failure=raise_on_failure,
+        )
+
     async def run(
         self,
         task: str,
@@ -738,15 +813,23 @@ class SubagentRunService:
         task_id: str | None = None,
     ) -> str:
         """Run or resume a delegated subagent task through a child storage session."""
-        prepared = await self._prepare_task(task, prompt_type=prompt_type, task_id=task_id)
-        if isinstance(prepared, str):
-            return prepared
-
-        outcome = await self._execute_prepared_task(
-            prepared,
-            should_cancel=lambda: self._cancel_requested(prepared.parent_session_id, prepared.parent_run_id),
-            raise_on_failure=True,
-        )
+        if task_id is not None:
+            prepared = await self._prepare_task(task, prompt_type=prompt_type, task_id=task_id)
+            if isinstance(prepared, str):
+                return prepared
+            outcome = await self._execute_prepared_task(
+                prepared,
+                should_cancel=lambda: self._cancel_requested(prepared.parent_session_id, prepared.parent_run_id),
+                raise_on_failure=True,
+            )
+        else:
+            try:
+                outcome = await self.run_task(
+                    task,
+                    str(prompt_type or "").strip() or "writer",
+                )
+            except ValueError as exc:
+                return f"Error: {exc}"
         return (
             f"Task ID: {outcome.task_id}\n"
             f"Subagent: {outcome.prompt_type}\n\n"

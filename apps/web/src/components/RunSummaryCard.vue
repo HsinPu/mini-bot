@@ -65,6 +65,32 @@
           <small v-if="summary.verification.summary">{{ summary.verification.summary }}</small>
         </div>
 
+        <div v-if="structuredSubagents.total > 0" class="run-summary-card__note" :data-tone="structuredSubagentsTone">
+          <strong>{{ copy.runSummary.structuredSubagents }}</strong>
+          <span>{{ structuredSubagentsLabel }}</span>
+          <small v-if="structuredSubagentsDetail">{{ structuredSubagentsDetail }}</small>
+        </div>
+
+        <div v-if="structuredSubagents.results.length" class="run-summary-card__chips">
+          <span>{{ copy.runSummary.structuredSubagentResults }}</span>
+          <code v-for="result in visibleStructuredSubagentResults" :key="`${result.promptType}:${result.taskId || result.createdAt}`">
+            {{ structuredSubagentChip(result) }}
+          </code>
+        </div>
+
+        <div v-if="workflowSummary.total > 0" class="run-summary-card__note" :data-tone="workflowSummaryTone">
+          <strong>{{ copy.runSummary.workflows }}</strong>
+          <span>{{ workflowSummaryLabel }}</span>
+          <small v-if="workflowSummaryDetail">{{ workflowSummaryDetail }}</small>
+        </div>
+
+        <div v-if="workflowSummary.results.length" class="run-summary-card__chips">
+          <span>{{ copy.runSummary.workflowRuns }}</span>
+          <code v-for="workflow in visibleWorkflowResults" :key="workflow.workflowRunId || workflow.createdAt">
+            {{ workflowChip(workflow) }}
+          </code>
+        </div>
+
         <div v-if="parallelDelegation.groupCount > 0" class="run-summary-card__note" :data-tone="parallelDelegationTone">
           <strong>{{ copy.runSummary.parallelDelegation }}</strong>
           <span>{{ parallelDelegationLabel }}</span>
@@ -257,6 +283,80 @@ const verificationTone = computed(() => {
   return summary.value.verification.passed ? "success" : "warning";
 });
 
+const structuredSubagents = computed(() => summary.value?.structuredSubagents || {
+  total: 0,
+  byPromptType: {},
+  byStatus: {},
+  totalSections: 0,
+  totalItems: 0,
+  totalFindings: 0,
+  totalQuestions: 0,
+  totalResidualRisks: 0,
+  results: [],
+});
+
+const visibleStructuredSubagentResults = computed(() => structuredSubagents.value.results.slice(0, 4));
+
+const structuredSubagentsTone = computed(() => {
+  if (!structuredSubagents.value.total) {
+    return "neutral";
+  }
+  if ((structuredSubagents.value.byStatus?.needs_input || 0) > 0 || (structuredSubagents.value.byStatus?.inconclusive || 0) > 0) {
+    return "warning";
+  }
+  return "success";
+});
+
+const structuredSubagentsLabel = computed(() => {
+  const data = structuredSubagents.value;
+  if (!data.total) {
+    return "";
+  }
+  return props.copy.runSummary.structuredSubagentsSummary(data.total, data.totalFindings, data.totalQuestions);
+});
+
+const structuredSubagentsDetail = computed(() => {
+  if (!structuredSubagents.value.total) {
+    return "";
+  }
+  return [
+    props.copy.runSummary.structuredSections(structuredSubagents.value.totalSections),
+    props.copy.runSummary.structuredItems(structuredSubagents.value.totalItems),
+    props.copy.runSummary.structuredResidualRisks(structuredSubagents.value.totalResidualRisks),
+  ].join(" · ");
+});
+
+const workflowSummary = computed(() => summary.value?.workflows || { total: 0, byWorkflow: {}, byStatus: {}, results: [] });
+
+const visibleWorkflowResults = computed(() => workflowSummary.value.results.slice(0, 4));
+
+const workflowSummaryTone = computed(() => {
+  if (!workflowSummary.value.total) {
+    return "neutral";
+  }
+  if ((workflowSummary.value.byStatus?.failed || 0) > 0) {
+    return "warning";
+  }
+  return "success";
+});
+
+const workflowSummaryLabel = computed(() => {
+  const data = workflowSummary.value;
+  if (!data.total) {
+    return "";
+  }
+  return props.copy.runSummary.workflowSummary(data.total);
+});
+
+const workflowSummaryDetail = computed(() => {
+  if (!workflowSummary.value.total) {
+    return "";
+  }
+  return workflowSummary.value.results
+    .map((workflow) => workflowChip(workflow))
+    .join(" · ");
+});
+
 const parallelDelegation = computed(() => summary.value?.parallelDelegation || { groupCount: 0, taskCount: 0, groups: [] });
 
 const visibleParallelGroups = computed(() => parallelDelegation.value.groups.slice(0, 4));
@@ -415,6 +515,24 @@ function buildRunReport() {
     lines.push("", `## ${props.copy.runSummary.diffSummary}`, ...formatDiffSummary(diffSummary.value));
   }
 
+  if (data.structuredSubagents?.total > 0) {
+    lines.push(
+      "",
+      `## ${props.copy.runSummary.structuredSubagents}`,
+      `- ${props.copy.runSummary.structuredSubagentsSummary(data.structuredSubagents.total, data.structuredSubagents.totalFindings, data.structuredSubagents.totalQuestions)}`,
+      ...formatStructuredSubagents(data.structuredSubagents),
+    );
+  }
+
+  if (data.workflows?.total > 0) {
+    lines.push(
+      "",
+      `## ${props.copy.runSummary.workflows}`,
+      `- ${props.copy.runSummary.workflowSummary(data.workflows.total)}`,
+      ...formatWorkflowSummary(data.workflows),
+    );
+  }
+
   if (data.parallelDelegation?.groupCount > 0) {
     lines.push("", `## ${props.copy.runSummary.parallelDelegation}`,
       `- ${props.copy.runSummary.parallelDelegationSummary(data.parallelDelegation.groupCount, data.parallelDelegation.taskCount)}`,
@@ -477,6 +595,53 @@ function formatDiffSummary(diff) {
     lines.push(`- ${props.copy.runSummary.paths}: ${diff.paths.join(", ")}`);
   }
   return lines;
+}
+
+function formatStructuredSubagents(data) {
+  return (data.results || []).flatMap((result) => {
+    const lines = [
+      `### ${structuredSubagentChip(result)}`,
+    ];
+    if (result.summary) {
+      lines.push(`- ${result.summary}`);
+    }
+    if (result.findingCount > 0) {
+      lines.push(`- ${props.copy.runSummary.structuredFindings(result.findingCount)}`);
+    }
+    if (result.questionCount > 0) {
+      lines.push(`- ${props.copy.runSummary.structuredQuestions(result.questionCount)}`);
+    }
+    if (result.residualRiskCount > 0) {
+      lines.push(`- ${props.copy.runSummary.structuredResidualRisks(result.residualRiskCount)}`);
+    }
+    return lines;
+  });
+}
+
+function structuredSubagentChip(result) {
+  return `${result.promptType || props.copy.runSummary.parallelTaskFallback} ${structuredStatusLabel(result.status)} ${result.findingCount}/${result.sectionCount}`;
+}
+
+function structuredStatusLabel(status) {
+  const labels = props.copy.runSummary.structuredStatusLabels || {};
+  return labels[status] || status;
+}
+
+function formatWorkflowSummary(data) {
+  return (data.results || []).map((workflow) => `- ${workflowChip(workflow)}${workflow.summary ? `: ${workflow.summary}` : ""}`);
+}
+
+function workflowChip(workflow) {
+  return `${workflowLabel(workflow)} ${workflowStatusLabel(workflow.status)} ${workflow.completedSteps}/${workflow.totalSteps || 0}`;
+}
+
+function workflowLabel(workflow) {
+  return props.copy.runSummary.workflowLabel(workflow.workflow || "workflow");
+}
+
+function workflowStatusLabel(status) {
+  const labels = props.copy.runSummary.workflowStatusLabels || {};
+  return labels[status] || status;
 }
 
 function formatParallelDelegation(data) {

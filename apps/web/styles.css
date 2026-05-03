@@ -2988,6 +2988,16 @@ button:disabled {
   font-size: 0.76rem;
 }
 
+.run-trace__structured-preview {
+  margin: 0;
+  padding: 0 10px 10px;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
 .run-trace__artifact-card[data-kind="tool"] {
   border-left-color: #3b82f6;
 }

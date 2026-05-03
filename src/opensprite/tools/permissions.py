@@ -51,6 +51,7 @@ DEFAULT_TOOL_RISKS: dict[str, frozenset[str]] = {
     "verify": frozenset({"execute"}),
     "delegate": frozenset({"delegation"}),
     "delegate_many": frozenset({"delegation"}),
+    "run_workflow": frozenset({"delegation"}),
     "web_search": frozenset({"network"}),
     "web_fetch": frozenset({"network"}),
     "send_media": frozenset({"external_side_effect"}),

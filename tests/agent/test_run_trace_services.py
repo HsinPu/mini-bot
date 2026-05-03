@@ -527,6 +527,90 @@ def test_serialize_run_event_projects_parallel_subagent_group_artifact():
     }
 
 
+def test_serialize_run_event_projects_workflow_artifact():
+    event = SimpleNamespace(
+        event_id=50,
+        run_id="run-1",
+        session_id="web:browser-1",
+        event_type="workflow.completed",
+        payload={
+            "workflow_run_id": "workflow_abc12345",
+            "workflow": "implement_then_review",
+            "status": "completed",
+            "summary": "Completed 2/2 workflow step(s).",
+            "total_steps": 2,
+        },
+        created_at=14.0,
+    )
+
+    payload = serialize_run_event(event)
+
+    assert payload["kind"] == "work"
+    assert payload["status"] == "completed"
+    assert payload["artifact"] == {
+        "schema_version": 1,
+        "artifact_id": "workflow:workflow_abc12345",
+        "artifact_type": "workflow",
+        "kind": "work",
+        "status": "completed",
+        "title": "Workflow: implement_then_review",
+        "detail": "Completed 2/2 workflow step(s).",
+        "metadata": {
+            "workflow_run_id": "workflow_abc12345",
+            "workflow": "implement_then_review",
+            "status": "completed",
+            "summary": "Completed 2/2 workflow step(s).",
+            "total_steps": 2,
+        },
+    }
+
+
+def test_serialize_run_event_projects_workflow_step_artifact():
+    event = SimpleNamespace(
+        event_id=51,
+        run_id="run-1",
+        session_id="web:browser-1",
+        event_type="workflow.step.completed",
+        payload={
+            "workflow_run_id": "workflow_abc12345",
+            "workflow": "implement_then_review",
+            "step_id": "review",
+            "label": "Code review",
+            "prompt_type": "code-reviewer",
+            "step_index": 2,
+            "total_steps": 2,
+            "summary": "No major findings.",
+            "status": "completed",
+        },
+        created_at=14.2,
+    )
+
+    payload = serialize_run_event(event)
+
+    assert payload["kind"] == "work"
+    assert payload["status"] == "completed"
+    assert payload["artifact"] == {
+        "schema_version": 1,
+        "artifact_id": "workflow_step:workflow_abc12345:review",
+        "artifact_type": "workflow_step",
+        "kind": "work",
+        "status": "completed",
+        "title": "Workflow step: Code review",
+        "detail": "No major findings.",
+        "metadata": {
+            "workflow_run_id": "workflow_abc12345",
+            "workflow": "implement_then_review",
+            "step_id": "review",
+            "label": "Code review",
+            "prompt_type": "code-reviewer",
+            "step_index": 2,
+            "total_steps": 2,
+            "summary": "No major findings.",
+            "status": "completed",
+        },
+    }
+
+
 def test_serialize_run_event_classifies_part_delta_as_streaming_text():
     event = SimpleNamespace(
         event_id=44,
@@ -913,6 +997,17 @@ def test_serialize_run_summary_builds_stable_card_payload():
     assert summary["duration_seconds"] == 6.5
     assert summary["tools"] == [{"name": "demo", "count": 1}]
     assert summary["verification"] == {"attempted": True, "passed": True, "status": "passed", "name": "pytest", "summary": "ok"}
+    assert summary["structured_subagents"] == {
+        "total": 0,
+        "by_prompt_type": {},
+        "by_status": {},
+        "total_sections": 0,
+        "total_items": 0,
+        "total_findings": 0,
+        "total_questions": 0,
+        "total_residual_risks": 0,
+        "results": [],
+    }
     assert summary["parallel_delegation"] == {
         "group_count": 1,
         "task_count": 2,
@@ -938,6 +1033,152 @@ def test_serialize_run_summary_builds_stable_card_payload():
     assert summary["completion"] == {"status": "complete"}
     assert summary["warnings"] == []
     assert summary["counts"] == {"events": 4, "parts": 1, "tool_calls": 1, "file_changes": 1}
+
+
+def test_serialize_run_summary_collects_structured_subagent_results():
+    trace = SimpleNamespace(
+        run=SimpleNamespace(
+            run_id="run-structured",
+            session_id="web:browser-structured",
+            status="completed",
+            metadata={"objective": "Structured review"},
+            created_at=20.0,
+            updated_at=24.0,
+            finished_at=25.0,
+        ),
+        events=[
+            SimpleNamespace(
+                event_id=1,
+                run_id="run-structured",
+                session_id="web:browser-structured",
+                event_type="subagent.completed",
+                payload={
+                    "status": "completed",
+                    "task_id": "task_review",
+                    "prompt_type": "code-reviewer",
+                    "summary": "One correctness risk found.",
+                    "structured_output": {
+                        "schema_version": 1,
+                        "contract": "readonly_subagent_result",
+                        "prompt_type": "code-reviewer",
+                        "status": "ok",
+                        "summary": "One correctness risk found.",
+                        "section_count": 1,
+                        "item_count": 1,
+                        "finding_count": 1,
+                        "question_count": 0,
+                        "residual_risk_count": 1,
+                        "sections": [
+                            {
+                                "key": "findings",
+                                "title": "Review Findings",
+                                "type": "finding_list",
+                                "items": [{"title": "Null handling", "severity": "high"}],
+                            }
+                        ],
+                        "questions": [],
+                        "residual_risks": ["Did not run integration tests."],
+                        "sources": [{"kind": "file", "path": "src/foo.py", "start_line": 10, "end_line": 14}],
+                        "truncated": False,
+                    },
+                },
+                created_at=22.0,
+            ),
+            SimpleNamespace(
+                event_id=2,
+                run_id="run-structured",
+                session_id="web:browser-structured",
+                event_type="completion_gate.evaluated",
+                payload={"status": "complete"},
+                created_at=23.0,
+            ),
+        ],
+        parts=[],
+        file_changes=[],
+    )
+
+    summary = serialize_run_summary(trace)
+
+    assert summary["structured_subagents"] == {
+        "total": 1,
+        "by_prompt_type": {"code-reviewer": 1},
+        "by_status": {"ok": 1},
+        "total_sections": 1,
+        "total_items": 1,
+        "total_findings": 1,
+        "total_questions": 0,
+        "total_residual_risks": 1,
+        "results": [
+            {
+                "task_id": "task_review",
+                "prompt_type": "code-reviewer",
+                "status": "ok",
+                "summary": "One correctness risk found.",
+                "section_count": 1,
+                "item_count": 1,
+                "finding_count": 1,
+                "question_count": 0,
+                "residual_risk_count": 1,
+                "created_at": 22.0,
+            }
+        ],
+    }
+
+
+def test_serialize_run_summary_collects_workflow_results():
+    trace = SimpleNamespace(
+        run=SimpleNamespace(
+            run_id="run-workflow-summary",
+            session_id="web:browser-workflow",
+            status="completed",
+            metadata={"objective": "Workflow summary"},
+            created_at=30.0,
+            updated_at=35.0,
+            finished_at=36.0,
+        ),
+        events=[
+            SimpleNamespace(
+                event_id=1,
+                run_id="run-workflow-summary",
+                session_id="web:browser-workflow",
+                event_type="workflow.completed",
+                payload={
+                    "workflow_run_id": "workflow_abc12345",
+                    "workflow": "implement_then_review",
+                    "status": "completed",
+                    "task_preview": "Implement a safe change.",
+                    "total_steps": 2,
+                    "completed_steps": 2,
+                    "failed_steps": 0,
+                    "summary": "Completed 2/2 workflow step(s).",
+                },
+                created_at=34.0,
+            ),
+        ],
+        parts=[],
+        file_changes=[],
+    )
+
+    summary = serialize_run_summary(trace)
+
+    assert summary["workflows"] == {
+        "total": 1,
+        "by_workflow": {"implement_then_review": 1},
+        "by_status": {"completed": 1},
+        "results": [
+            {
+                "workflow_run_id": "workflow_abc12345",
+                "workflow": "implement_then_review",
+                "status": "completed",
+                "task_preview": "Implement a safe change.",
+                "total_steps": 2,
+                "completed_steps": 2,
+                "failed_steps": 0,
+                "summary": "Completed 2/2 workflow step(s).",
+                "created_at": 34.0,
+            }
+        ],
+    }
 
 
 def test_serialize_run_summary_marks_parallel_delegation_warnings():
@@ -991,3 +1232,93 @@ def test_serialize_run_summary_marks_parallel_delegation_warnings():
 
     assert summary["parallel_delegation"]["group_count"] == 1
     assert summary["warnings"] == ["parallel_delegation_failed"]
+
+
+def test_serialize_run_summary_includes_structured_subagents():
+    trace = SimpleNamespace(
+        run=SimpleNamespace(
+            run_id="run-3",
+            session_id="web:browser-3",
+            status="completed",
+            metadata={"objective": "Review with structure"},
+            created_at=20.0,
+            updated_at=24.0,
+            finished_at=25.0,
+        ),
+        events=[
+            SimpleNamespace(
+                event_id=1,
+                run_id="run-3",
+                session_id="web:browser-3",
+                event_type="subagent.completed",
+                payload={
+                    "status": "completed",
+                    "task_id": "task_review",
+                    "prompt_type": "code-reviewer",
+                    "summary": "One correctness risk found.",
+                    "structured_output": {
+                        "schema_version": 1,
+                        "contract": "readonly_subagent_result",
+                        "prompt_type": "code-reviewer",
+                        "status": "ok",
+                        "summary": "One correctness risk found.",
+                        "section_count": 1,
+                        "item_count": 1,
+                        "finding_count": 1,
+                        "question_count": 0,
+                        "residual_risk_count": 1,
+                        "sections": [
+                            {
+                                "key": "findings",
+                                "title": "Review Findings",
+                                "type": "finding_list",
+                                "items": [{"title": "Null handling", "severity": "high"}],
+                            }
+                        ],
+                        "questions": [],
+                        "residual_risks": ["Did not run integration tests."],
+                        "sources": [{"kind": "file", "path": "src/foo.py", "start_line": 10, "end_line": 14}],
+                        "truncated": False,
+                    },
+                },
+                created_at=22.0,
+            ),
+            SimpleNamespace(
+                event_id=2,
+                run_id="run-3",
+                session_id="web:browser-3",
+                event_type="completion_gate.evaluated",
+                payload={"status": "complete"},
+                created_at=23.0,
+            ),
+        ],
+        parts=[],
+        file_changes=[],
+    )
+
+    summary = serialize_run_summary(trace)
+
+    assert summary["structured_subagents"] == {
+        "total": 1,
+        "by_prompt_type": {"code-reviewer": 1},
+        "by_status": {"ok": 1},
+        "total_sections": 1,
+        "total_items": 1,
+        "total_findings": 1,
+        "total_questions": 0,
+        "total_residual_risks": 1,
+        "results": [
+            {
+                "task_id": "task_review",
+                "prompt_type": "code-reviewer",
+                "status": "ok",
+                "summary": "One correctness risk found.",
+                "section_count": 1,
+                "item_count": 1,
+                "finding_count": 1,
+                "question_count": 0,
+                "residual_risk_count": 1,
+                "created_at": 22.0,
+            }
+        ],
+    }

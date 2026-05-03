@@ -33,6 +33,7 @@ from .outbound_media import SendMediaTool
 from .run_trace import ListRunFileChangesTool, PreviewRunFileChangeRevertTool
 from .code_navigation import CodeNavigationTool
 from .delegate_many import DelegateManyTool
+from .workflow import RunWorkflowTool
 
 __all__ = [
     "Tool",
@@ -71,4 +72,5 @@ __all__ = [
     "PreviewRunFileChangeRevertTool",
     "CodeNavigationTool",
     "DelegateManyTool",
+    "RunWorkflowTool",
 ]

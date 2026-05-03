@@ -1,9 +1,10 @@
 ---
 name: security-reviewer
 description: Review code and design changes for auth, permissions, secret handling, unsafe input flows, and other practical security risks.
-version: "1.0"
+version: "1.1"
 scope: security-review
 tool_profile: read-only
+structured_output_contract: readonly_subagent_result
 language: zh-TW
 ---
 

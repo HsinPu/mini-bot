@@ -30,3 +30,17 @@ def test_subagent_builder_includes_skill_summary_for_workspace(tmp_path):
     assert "Available skills (use read_skill tool to read instructions):" in prompt
     assert "chat-skill: chat description" in prompt
     assert "global-skill: global description" in prompt
+
+
+def test_subagent_builder_appends_structured_output_contract_for_opted_in_prompt(tmp_path):
+    builder = SubagentMessageBuilder()
+
+    prompt = builder.build_system_prompt(
+        prompt_type="code-reviewer",
+        workspace=tmp_path / "workspace",
+        app_home=tmp_path / "home",
+    )
+
+    assert "## Structured Output Contract" in prompt
+    assert '"contract": "readonly_subagent_result"' in prompt
+    assert '"prompt_type": "code-reviewer"' in prompt

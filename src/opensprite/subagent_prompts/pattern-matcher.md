@@ -1,9 +1,10 @@
 ---
 name: pattern-matcher
 description: Find existing patterns, conventions, and similar implementations inside the current project so new changes can align with what is already there.
-version: "1.0"
+version: "1.1"
 scope: pattern-matching
 tool_profile: read-only
+structured_output_contract: readonly_subagent_result
 language: zh-TW
 ---
 

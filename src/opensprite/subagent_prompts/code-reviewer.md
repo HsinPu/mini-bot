@@ -1,9 +1,10 @@
 ---
 name: code-reviewer
 description: Review code changes for correctness, regressions, security, maintainability, and missing tests by inspecting the actual workspace or diffs, prioritizing concrete findings over style opinions.
-version: "1.1"
+version: "1.2"
 scope: code-review
 tool_profile: read-only
+structured_output_contract: readonly_subagent_result
 language: zh-TW
 ---
 

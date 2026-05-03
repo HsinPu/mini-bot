@@ -56,6 +56,12 @@ const TIMELINE_EVENT_TYPES = new Set([
   "subagent.completed",
   "subagent.failed",
   "subagent.cancelled",
+  "workflow.started",
+  "workflow.step.started",
+  "workflow.step.completed",
+  "workflow.step.failed",
+  "workflow.completed",
+  "workflow.failed",
   "curator.started",
   "curator.completed",
   "curator.failed",
@@ -720,6 +726,14 @@ function formatSubagentGroupDetail(payload) {
   return total > 0 ? `${total} task(s)` : "";
 }
 
+function formatWorkflowDetail(payload) {
+  return String(payload.summary || payload.error || payload.task_preview || payload.message || payload.workflow || "").trim();
+}
+
+function formatWorkflowStepDetail(payload) {
+  return String(payload.summary || payload.error || payload.task_preview || payload.label || "").trim();
+}
+
 function normalizeRunSummary(payload) {
   if (!payload || typeof payload !== "object") {
     return null;
@@ -729,6 +743,8 @@ function normalizeRunSummary(payload) {
   const counts = payload.counts && typeof payload.counts === "object" ? payload.counts : {};
   const artifactCounts = payload.artifact_counts && typeof payload.artifact_counts === "object" ? payload.artifact_counts : {};
   const parallelDelegation = normalizeParallelDelegationSummary(payload.parallel_delegation || payload.parallelDelegation);
+  const structuredSubagents = normalizeStructuredSubagentsSummary(payload.structured_subagents || payload.structuredSubagents);
+  const workflows = normalizeWorkflowSummary(payload.workflows);
   return {
     schemaVersion: coerceNonNegativeInteger(payload.schema_version ?? payload.schemaVersion),
     runId: String(payload.run_id || payload.runId || "").trim(),
@@ -771,6 +787,8 @@ function normalizeRunSummary(payload) {
       summary: String(verification.summary || "").trim(),
     },
     parallelDelegation,
+    structuredSubagents,
+    workflows,
     completion: payload.completion && typeof payload.completion === "object" ? payload.completion : {},
     nextAction: String(payload.next_action || payload.nextAction || "").trim(),
     warnings: coerceStringList(payload.warnings),
@@ -786,6 +804,90 @@ function normalizeRunSummary(payload) {
       toolCalls: coerceNonNegativeInteger(counts.tool_calls ?? counts.toolCalls),
       fileChanges: coerceNonNegativeInteger(counts.file_changes ?? counts.fileChanges),
     },
+  };
+}
+
+function normalizeWorkflowSummary(payload) {
+  if (!payload || typeof payload !== "object") {
+    return { total: 0, byWorkflow: {}, byStatus: {}, results: [] };
+  }
+  const byWorkflow = payload.by_workflow && typeof payload.by_workflow === "object" ? payload.by_workflow : {};
+  const byStatus = payload.by_status && typeof payload.by_status === "object" ? payload.by_status : {};
+  const results = Array.isArray(payload.results)
+    ? payload.results
+        .map((item) => {
+          if (!item || typeof item !== "object") {
+            return null;
+          }
+          return {
+            workflowRunId: String(item.workflow_run_id || item.workflowRunId || "").trim() || null,
+            workflow: String(item.workflow || "").trim() || null,
+            status: String(item.status || "unknown").trim() || "unknown",
+            taskPreview: String(item.task_preview || item.taskPreview || "").trim(),
+            totalSteps: coerceNonNegativeInteger(item.total_steps ?? item.totalSteps),
+            completedSteps: coerceNonNegativeInteger(item.completed_steps ?? item.completedSteps),
+            failedSteps: coerceNonNegativeInteger(item.failed_steps ?? item.failedSteps),
+            summary: String(item.summary || "").trim(),
+            createdAt: normalizeEventTimestamp(item.created_at ?? item.createdAt),
+          };
+        })
+        .filter(Boolean)
+    : [];
+  return {
+    total: coerceNonNegativeInteger(payload.total),
+    byWorkflow: Object.fromEntries(Object.entries(byWorkflow).map(([key, value]) => [String(key || "").trim(), coerceNonNegativeInteger(value)]).filter(([key]) => key)),
+    byStatus: Object.fromEntries(Object.entries(byStatus).map(([key, value]) => [String(key || "").trim(), coerceNonNegativeInteger(value)]).filter(([key]) => key)),
+    results,
+  };
+}
+
+function normalizeStructuredSubagentsSummary(payload) {
+  if (!payload || typeof payload !== "object") {
+    return {
+      total: 0,
+      byPromptType: {},
+      byStatus: {},
+      totalSections: 0,
+      totalItems: 0,
+      totalFindings: 0,
+      totalQuestions: 0,
+      totalResidualRisks: 0,
+      results: [],
+    };
+  }
+  const byPromptType = payload.by_prompt_type && typeof payload.by_prompt_type === "object" ? payload.by_prompt_type : {};
+  const byStatus = payload.by_status && typeof payload.by_status === "object" ? payload.by_status : {};
+  const results = Array.isArray(payload.results)
+    ? payload.results
+        .map((item) => {
+          if (!item || typeof item !== "object") {
+            return null;
+          }
+          return {
+            taskId: String(item.task_id || item.taskId || "").trim() || null,
+            promptType: String(item.prompt_type || item.promptType || "").trim() || null,
+            status: String(item.status || "inconclusive").trim() || "inconclusive",
+            summary: String(item.summary || "").trim(),
+            sectionCount: coerceNonNegativeInteger(item.section_count ?? item.sectionCount),
+            itemCount: coerceNonNegativeInteger(item.item_count ?? item.itemCount),
+            findingCount: coerceNonNegativeInteger(item.finding_count ?? item.findingCount),
+            questionCount: coerceNonNegativeInteger(item.question_count ?? item.questionCount),
+            residualRiskCount: coerceNonNegativeInteger(item.residual_risk_count ?? item.residualRiskCount),
+            createdAt: normalizeEventTimestamp(item.created_at ?? item.createdAt),
+          };
+        })
+        .filter(Boolean)
+    : [];
+  return {
+    total: coerceNonNegativeInteger(payload.total),
+    byPromptType: Object.fromEntries(Object.entries(byPromptType).map(([key, value]) => [String(key || "").trim(), coerceNonNegativeInteger(value)]).filter(([key]) => key)),
+    byStatus: Object.fromEntries(Object.entries(byStatus).map(([key, value]) => [String(key || "").trim(), coerceNonNegativeInteger(value)]).filter(([key]) => key)),
+    totalSections: coerceNonNegativeInteger(payload.total_sections ?? payload.totalSections),
+    totalItems: coerceNonNegativeInteger(payload.total_items ?? payload.totalItems),
+    totalFindings: coerceNonNegativeInteger(payload.total_findings ?? payload.totalFindings),
+    totalQuestions: coerceNonNegativeInteger(payload.total_questions ?? payload.totalQuestions),
+    totalResidualRisks: coerceNonNegativeInteger(payload.total_residual_risks ?? payload.totalResidualRisks),
+    results,
   };
 }
 
@@ -992,6 +1094,54 @@ function describeRunEvent(eventType, payload, copy) {
       label: copy.run.cancelled,
       detail: payload.error || formatSubagentDetail(payload),
       tone: "warning",
+    };
+  }
+
+  if (eventType === "workflow.started") {
+    return {
+      label: copy.run.workflowStarted,
+      detail: formatWorkflowDetail(payload),
+      tone: "running",
+    };
+  }
+
+  if (eventType === "workflow.step.started") {
+    return {
+      label: copy.run.workflowStepStarted,
+      detail: formatWorkflowStepDetail(payload),
+      tone: "running",
+    };
+  }
+
+  if (eventType === "workflow.step.completed") {
+    return {
+      label: copy.run.workflowStepCompleted,
+      detail: formatWorkflowStepDetail(payload),
+      tone: "success",
+    };
+  }
+
+  if (eventType === "workflow.step.failed") {
+    return {
+      label: copy.run.workflowStepFailed,
+      detail: formatWorkflowStepDetail(payload),
+      tone: "error",
+    };
+  }
+
+  if (eventType === "workflow.completed") {
+    return {
+      label: copy.run.workflowCompleted,
+      detail: formatWorkflowDetail(payload),
+      tone: "success",
+    };
+  }
+
+  if (eventType === "workflow.failed") {
+    return {
+      label: copy.run.workflowFailed,
+      detail: formatWorkflowDetail(payload),
+      tone: "error",
     };
   }
 

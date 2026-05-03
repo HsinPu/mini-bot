@@ -1,9 +1,10 @@
 ---
 name: researcher
 description: Organize the topic, requirements, and available material into a research summary, key findings, and missing questions; useful for early-stage information gathering and context building.
-version: "1.0"
+version: "1.1"
 scope: research
 tool_profile: research
+structured_output_contract: readonly_subagent_result
 language: zh-TW
 ---
 

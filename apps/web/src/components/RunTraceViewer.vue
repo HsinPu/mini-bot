@@ -145,6 +145,28 @@
                   <span v-if="artifactDetail(artifact)" class="run-trace__artifact-detail">{{ artifactDetail(artifact) }}</span>
                 </button>
 
+                <details
+                  v-else-if="isStructuredSubagentArtifact(artifact)"
+                  class="run-trace__artifact-card run-trace__artifact-card--details"
+                  :data-kind="artifact.kind"
+                  :data-status="artifact.status"
+                >
+                  <summary class="run-trace__artifact-summary">
+                    <span class="run-trace__artifact-status">{{ artifact.status }}</span>
+                    <strong>{{ artifactTitle(artifact) }}</strong>
+                    <small v-if="artifactSubtitle(artifact)">{{ artifactSubtitle(artifact) }}</small>
+                    <span v-if="artifactDetail(artifact)" class="run-trace__artifact-detail">{{ artifactDetail(artifact) }}</span>
+                  </summary>
+                  <dl v-if="subagentDetailRows(artifact).length" class="run-trace__tool-details">
+                    <div v-for="row in subagentDetailRows(artifact)" :key="row.label" :data-tone="row.tone || 'neutral'">
+                      <dt>{{ row.label }}</dt>
+                      <dd>{{ row.value }}</dd>
+                    </div>
+                  </dl>
+                  <pre v-if="structuredSubagentPreview(artifact)" class="run-trace__structured-preview">{{ structuredSubagentPreview(artifact) }}</pre>
+                  <p v-else class="run-trace__tool-empty">{{ copy.trace.structuredOutputEmpty }}</p>
+                </details>
+
                 <article
                   v-else
                   class="run-trace__artifact-card"
@@ -731,6 +753,9 @@ function artifactDetail(artifact) {
   if (isFileArtifact(artifact)) {
     return artifact.diffLen ? props.copy.trace.diffChars(artifact.diffLen) : artifact.detail;
   }
+  if (isStructuredSubagentArtifact(artifact)) {
+    return structuredSubagentOutput(artifact).summary || artifact.detail;
+  }
   return artifact.detail;
 }
 
@@ -740,6 +765,15 @@ function isToolArtifact(artifact) {
 
 function isFileArtifact(artifact) {
   return (artifact.kind === "file" || Boolean(artifact.path)) && Boolean(artifact.path);
+}
+
+function isStructuredSubagentArtifact(artifact) {
+  return artifact?.artifactType === "subagent_task" && structuredSubagentOutput(artifact) !== null;
+}
+
+function structuredSubagentOutput(artifact) {
+  const structured = artifact?.metadata?.structured_output || artifact?.metadata?.structuredOutput;
+  return structured && typeof structured === "object" ? structured : null;
 }
 
 function relatedToolParts(artifact) {
@@ -776,6 +810,82 @@ function toolDetailRows(artifact) {
     { label: labels.detail, value: artifact.detail },
   ];
   return rows.filter((row) => row.value !== "" && row.value !== null && row.value !== undefined);
+}
+
+function subagentDetailRows(artifact) {
+  const labels = props.copy.trace.detailLabels;
+  const structured = structuredSubagentOutput(artifact) || {};
+  const rows = [
+    { label: labels.structuredStatus, value: structured.status },
+    { label: labels.structuredSections, value: structured.section_count ?? structured.sectionCount },
+    { label: labels.structuredFindings, value: structured.finding_count ?? structured.findingCount },
+    { label: labels.structuredQuestions, value: structured.question_count ?? structured.questionCount },
+    { label: labels.structuredResidualRisks, value: structured.residual_risk_count ?? structured.residualRiskCount },
+    { label: labels.structuredSources, value: structured.source_count ?? structured.sourceCount },
+  ];
+  return rows.filter((row) => row.value !== "" && row.value !== null && row.value !== undefined);
+}
+
+function structuredSubagentPreview(artifact) {
+  const structured = structuredSubagentOutput(artifact);
+  if (!structured) {
+    return "";
+  }
+  const lines = [];
+  for (const section of Array.isArray(structured.sections) ? structured.sections.slice(0, 6) : []) {
+    const title = String(section?.title || section?.key || "Section").trim();
+    const items = Array.isArray(section?.items) ? section.items.slice(0, 6) : [];
+    if (!title && !items.length) {
+      continue;
+    }
+    if (title) {
+      lines.push(`## ${title}`);
+    }
+    for (const item of items) {
+      const preview = structuredSubagentItemPreview(item);
+      if (preview) {
+        lines.push(preview);
+      }
+    }
+    lines.push("");
+  }
+  const questions = Array.isArray(structured.questions) ? structured.questions.slice(0, 4) : [];
+  if (questions.length) {
+    lines.push("## Questions");
+    lines.push(...questions.map((question) => `- ${question}`));
+    lines.push("");
+  }
+  const residualRisks = Array.isArray(structured.residual_risks || structured.residualRisks)
+    ? (structured.residual_risks || structured.residualRisks).slice(0, 4)
+    : [];
+  if (residualRisks.length) {
+    lines.push("## Residual Risks");
+    lines.push(...residualRisks.map((risk) => `- ${risk}`));
+  }
+  return lines.join("\n").trim();
+}
+
+function structuredSubagentItemPreview(item) {
+  if (typeof item === "string") {
+    return `- ${item}`;
+  }
+  if (!item || typeof item !== "object") {
+    return "";
+  }
+  const title = String(item.title || item.name || item.path || "").trim();
+  const severity = String(item.severity || "").trim();
+  const path = String(item.path || "").trim();
+  const why = String(item.why || "").trim();
+  const fix = String(item.fix || "").trim();
+  const summary = [severity ? `[${severity}]` : "", title || path].filter(Boolean).join(" ").trim();
+  const lines = [summary ? `- ${summary}` : `- ${JSON.stringify(item)}`];
+  if (why) {
+    lines.push(`  Why: ${why}`);
+  }
+  if (fix) {
+    lines.push(`  Fix: ${fix}`);
+  }
+  return lines.join("\n");
 }
 
 function firstMetadataValue(sources, keys) {

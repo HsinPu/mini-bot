@@ -108,6 +108,7 @@ def test_implementer_subagent_can_use_profile_tools_but_not_delegate(tmp_path):
     registry.register(DummyTool("process"))
     registry.register(DummyTool("delegate"))
     registry.register(DummyTool("delegate_many"))
+    registry.register(DummyTool("run_workflow"))
     registry.register(DummyTool("cron"))
     registry.register(DummyTool("configure_mcp"))
     registry.register(DummyTool("configure_skill"))
@@ -142,6 +143,7 @@ def test_implementer_subagent_can_use_profile_tools_but_not_delegate(tmp_path):
     assert "process" in tool_names
     assert "delegate" not in tool_names
     assert "delegate_many" not in tool_names
+    assert "run_workflow" not in tool_names
     assert "cron" not in tool_names
     assert "configure_mcp" not in tool_names
     assert "configure_skill" not in tool_names
@@ -208,7 +210,7 @@ def test_custom_subagent_tool_profile_controls_runtime_tools(tmp_path):
     provider = ResumeProvider()
     storage = FakeStorage()
     registry = ToolRegistry()
-    for name in ["read_file", "apply_patch", "exec", "process", "delegate", "delegate_many", "web_search"]:
+    for name in ["read_file", "apply_patch", "exec", "process", "delegate", "delegate_many", "run_workflow", "web_search"]:
         registry.register(DummyTool(name))
     agent = AgentLoop(
         config=Config.load_agent_template_config(),
@@ -236,6 +238,7 @@ def test_custom_subagent_tool_profile_controls_runtime_tools(tmp_path):
     assert "process" in tool_names
     assert "delegate" not in tool_names
     assert "delegate_many" not in tool_names
+    assert "run_workflow" not in tool_names
     assert "web_search" not in tool_names
 
 
@@ -532,6 +535,52 @@ class PartiallyFailingParallelProvider:
         if "broken" in task_text:
             raise RuntimeError("child task failed")
         return LLMResponse(content=f"ok:{task_text}", model="fake-model")
+
+    def get_default_model(self) -> str:
+        return "fake-model"
+
+
+class StructuredReviewProvider:
+    async def chat(self, messages, tools=None, model=None, temperature=0.7, max_tokens=2048, **kwargs):
+        return LLMResponse(
+            content=(
+                "Review Findings\n"
+                "1. high src/foo.py: Null handling bug\n"
+                "   Why: Empty input can raise an exception.\n"
+                "   Fix: Guard the null path before dereference.\n\n"
+                "```json\n"
+                "{\n"
+                '  "schema_version": 1,\n'
+                '  "contract": "readonly_subagent_result",\n'
+                '  "prompt_type": "code-reviewer",\n'
+                '  "status": "ok",\n'
+                '  "summary": "One high-risk bug found.",\n'
+                '  "sections": [\n'
+                '    {\n'
+                '      "key": "findings",\n'
+                '      "title": "Review Findings",\n'
+                '      "type": "finding_list",\n'
+                '      "items": [\n'
+                '        {\n'
+                '          "title": "Null handling bug",\n'
+                '          "severity": "high",\n'
+                '          "path": "src/foo.py",\n'
+                '          "start_line": 10,\n'
+                '          "end_line": 14,\n'
+                '          "why": "Empty input can raise an exception.",\n'
+                '          "fix": "Guard the null path before dereference."\n'
+                '        }\n'
+                '      ]\n'
+                '    }\n'
+                '  ],\n'
+                '  "questions": [],\n'
+                '  "residual_risks": ["Did not run integration tests."],\n'
+                '  "sources": [{"kind": "file", "path": "src/foo.py", "start_line": 10, "end_line": 14}]\n'
+                "}\n"
+                "```"
+            ),
+            model="fake-model",
+        )
 
     def get_default_model(self) -> str:
         return "fake-model"
@@ -844,6 +893,54 @@ def test_run_subagents_many_emits_group_failed_when_one_child_fails(tmp_path):
     assert child_statuses == ["completed", "failed"]
     assert parent_trace is not None
     assert "subagent.group.failed" in [event.event_type for event in parent_trace.events]
+
+
+def test_run_subagent_strips_trailing_json_and_persists_structured_output(tmp_path):
+    async def scenario():
+        storage = MemoryStorage()
+        agent = AgentLoop(
+            config=Config.load_agent_template_config(),
+            provider=StructuredReviewProvider(),
+            storage=storage,
+            context_builder=FakeContextBuilder(tmp_path / "workspace"),
+            tools=ToolRegistry(),
+            memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
+            tools_config=ToolsConfig(max_tool_iterations=3),
+            log_config=LogConfig(),
+            search_config=SearchConfig(),
+            user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+            **Config.packaged_agent_llm_chat_kwargs(),
+        )
+        agent._current_session_id.set("telegram:user-a")
+        agent._current_run_id.set("run_parent")
+        agent._current_channel.set("telegram")
+        agent._current_external_chat_id.set("user-a")
+        agent.app_home = tmp_path / "opensprite-home"
+        await storage.create_run("telegram:user-a", "run_parent", metadata={"objective": "structured review"})
+
+        result = await agent.run_subagent("review this", prompt_type="code-reviewer")
+        child_session_id = next(session_id for session_id in await storage.get_all_sessions() if ":subagent:" in session_id)
+        child_messages = await storage.get_messages(child_session_id)
+        parent_trace = await storage.get_run_trace("telegram:user-a", "run_parent")
+        child_trace = await storage.get_run_trace(child_session_id, (await storage.get_runs(child_session_id, limit=1))[0].run_id)
+        return result, child_messages, parent_trace, child_trace
+
+    result, child_messages, parent_trace, child_trace = asyncio.run(scenario())
+
+    assert "```json" not in result
+    assert "One high-risk bug found." not in result
+    assert child_messages[-1].role == "assistant"
+    assert "```json" not in child_messages[-1].content
+    assert child_messages[-1].metadata["structured_output"]["prompt_type"] == "code-reviewer"
+    assert child_messages[-1].metadata["structured_output"]["finding_count"] == 1
+    assert parent_trace is not None
+    completed_payload = next(event.payload for event in parent_trace.events if event.event_type == "subagent.completed")
+    assert completed_payload["structured_output"]["summary"] == "One high-risk bug found."
+    assert completed_payload["structured_output"]["finding_count"] == 1
+    assert child_trace is not None
+    assistant_part = next(part for part in child_trace.parts if part.part_type == "assistant_message")
+    assert "```json" not in assistant_part.content
+    assert assistant_part.metadata["structured_output"]["residual_risk_count"] == 1
 
 
 def test_subagent_resume_rejects_prompt_type_switch(tmp_path):

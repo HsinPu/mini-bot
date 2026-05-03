@@ -1,9 +1,10 @@
 ---
 name: reference-analyzer
 description: Analyze another project, module, or example implementation to extract useful patterns, design choices, and lessons that can be reused here.
-version: "1.0"
+version: "1.1"
 scope: reference-analysis
 tool_profile: research
+structured_output_contract: readonly_subagent_result
 language: zh-TW
 ---
 

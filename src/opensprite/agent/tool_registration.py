@@ -43,6 +43,7 @@ from ..tools import (
     PreviewRunFileChangeRevertTool,
     CodeNavigationTool,
     DelegateManyTool,
+    RunWorkflowTool,
 )
 from ..tools.delegate import DelegateTool
 from ..tools.permissions import ToolPermissionPolicy
@@ -328,6 +329,23 @@ def register_delegate_tools(
         )
 
 
+def register_workflow_tools(
+    registry: ToolRegistry,
+    *,
+    run_workflow: Callable[[str, str], Awaitable[str]] | None = None,
+    workflow_catalog_getter: Callable[[], dict[str, str]] | None = None,
+) -> None:
+    """Register fixed orchestration workflow tools."""
+    if run_workflow is None or workflow_catalog_getter is None:
+        return
+    registry.register(
+        RunWorkflowTool(
+            run_workflow=run_workflow,
+            workflow_catalog_getter=workflow_catalog_getter,
+        )
+    )
+
+
 def register_search_tools(
     registry: ToolRegistry,
     *,
@@ -388,6 +406,8 @@ def register_default_tools(
     get_session_id: Callable[[], str | None],
     run_subagent: Callable[[str, str | None, str | None], Awaitable[str]],
     run_subagents_many: Callable[[list[dict[str, Any]], int | None], Awaitable[str]] | None = None,
+    run_workflow: Callable[[str, str], Awaitable[str]] | None = None,
+    workflow_catalog_getter: Callable[[], dict[str, str]] | None = None,
     config_path_resolver: Callable[[], Path | None],
     reload_mcp: Callable[[], Awaitable[str]],
     app_home: Path | None = None,
@@ -470,6 +490,11 @@ def register_default_tools(
         run_subagents_many=run_subagents_many,
         app_home=app_home,
         workspace_resolver=workspace_resolver,
+    )
+    register_workflow_tools(
+        registry,
+        run_workflow=run_workflow,
+        workflow_catalog_getter=workflow_catalog_getter,
     )
     register_search_tools(
         registry,

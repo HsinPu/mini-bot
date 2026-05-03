@@ -1,9 +1,10 @@
 ---
 name: api-designer
 description: Design API shapes, contracts, request and response payloads, and endpoint behavior with clear consistency and compatibility rules.
-version: "1.0"
+version: "1.1"
 scope: api-design
 tool_profile: read-only
+structured_output_contract: readonly_subagent_result
 language: zh-TW
 ---
 

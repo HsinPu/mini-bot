@@ -80,6 +80,7 @@ from .turn_context import TurnContextService
 from .turn_input import TurnInputPreparer
 from .turn_runner import AgentTurnRunner
 from .worktree import WorktreeSandboxInspector
+from .workflows import SubagentWorkflowService
 from .work_progress import WorkProgressService, WorkProgressUpdate
 
 class AgentLoop:
@@ -702,6 +703,15 @@ class AgentLoop:
             run_hooks=self.run_hooks,
             record_delegated_task_update=self._record_delegated_task_update,
         )
+        self.workflows = SubagentWorkflowService(
+            current_session_id_getter=self._get_current_session_id,
+            current_run_id_getter=self.turn_context.current_run_id,
+            current_channel_getter=self.turn_context.current_channel,
+            current_external_chat_id_getter=self.turn_context.current_external_chat_id,
+            run_subagent_task=lambda task, prompt_type: self.subagents.run_task(task, prompt_type),
+            emit_run_event=self._emit_run_event,
+            format_log_preview=self._format_log_preview,
+        )
         self.prompt_budget = PromptBudgetService(
             context_builder=self._context_builder,
             provider=self.provider,
@@ -1303,6 +1313,8 @@ class AgentLoop:
             get_session_id=self._get_current_session_id,
             run_subagent=self.run_subagent,
             run_subagents_many=self.run_subagents_many,
+            run_workflow=self.run_workflow,
+            workflow_catalog_getter=lambda: self.workflows.catalog(),
             config_path_resolver=self._get_config_path,
             reload_mcp=self.reload_mcp_from_config,
             app_home=self.app_home,
@@ -1667,6 +1679,10 @@ class AgentLoop:
     ) -> str:
         """Run multiple read-only or research child tasks concurrently."""
         return await self.subagents.run_many(tasks, max_parallel=max_parallel)
+
+    async def run_workflow(self, workflow: str, task: str) -> str:
+        """Run one fixed multi-step orchestration workflow."""
+        return await self.workflows.run(workflow, task)
 
     async def process(self, user_message: UserMessage) -> AssistantMessage:
         """

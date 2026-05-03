@@ -1,9 +1,10 @@
 ---
 name: outliner
 description: Turn the topic, research, and writing goals into a clear outline and section structure; useful for planning article structure before drafting.
-version: "1.0"
+version: "1.1"
 scope: outlining
 tool_profile: read-only
+structured_output_contract: readonly_subagent_result
 language: zh-TW
 ---
 

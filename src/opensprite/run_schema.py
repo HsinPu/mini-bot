@@ -37,6 +37,12 @@ _EVENT_KINDS = {
     "subagent.completed": "work",
     "subagent.failed": "work",
     "subagent.cancelled": "work",
+    "workflow.started": "work",
+    "workflow.step.started": "work",
+    "workflow.step.completed": "work",
+    "workflow.step.failed": "work",
+    "workflow.completed": "work",
+    "workflow.failed": "work",
     "completion_gate.evaluated": "completion",
     "auto_continue.scheduled": "run",
     "auto_continue.completed": "run",
@@ -128,6 +134,12 @@ def run_event_status(event_type: str, payload: dict[str, Any] | None) -> str:
         return explicit or "completed"
     if normalized == "subagent.cancelled":
         return explicit or "cancelled"
+    if normalized in {"workflow.started", "workflow.step.started"}:
+        return explicit or "running"
+    if normalized in {"workflow.completed", "workflow.step.completed"}:
+        return explicit or "completed"
+    if normalized in {"workflow.failed", "workflow.step.failed"}:
+        return explicit or "failed"
     if normalized == "run_finished":
         return explicit or "completed"
     if normalized == "run_failed":
@@ -312,6 +324,50 @@ def event_artifact(event_type: str, payload: dict[str, Any] | None) -> dict[str,
             "kind": "work",
             "status": status,
             "title": "Parallel subagents",
+            "detail": detail,
+            "metadata": data,
+        }
+
+    if normalized in {"workflow.started", "workflow.completed", "workflow.failed"}:
+        workflow = _text(data.get("workflow") or "workflow")
+        workflow_run_id = _text(data.get("workflow_run_id"))
+        detail = _text(data.get("summary") or data.get("error") or data.get("message"))
+        if not detail and normalized == "workflow.started":
+            total_steps = _non_negative_int(data.get("total_steps"))
+            detail = f"Started workflow with {total_steps} step(s)." if total_steps else "Workflow started."
+        if not detail and normalized == "workflow.completed":
+            detail = "Workflow completed."
+        if not detail and normalized == "workflow.failed":
+            detail = "Workflow failed."
+        return {
+            "schema_version": RUN_SCHEMA_VERSION,
+            "artifact_id": f"workflow:{workflow_run_id or workflow}",
+            "artifact_type": "workflow",
+            "kind": "work",
+            "status": status,
+            "title": f"Workflow: {workflow}",
+            "detail": detail,
+            "metadata": data,
+        }
+
+    if normalized in {"workflow.step.started", "workflow.step.completed", "workflow.step.failed"}:
+        workflow_run_id = _text(data.get("workflow_run_id"))
+        step_id = _text(data.get("step_id") or data.get("label") or "step")
+        label = _text(data.get("label") or step_id or "workflow step")
+        detail = _text(data.get("summary") or data.get("error") or data.get("task_preview"))
+        if not detail and normalized == "workflow.step.started":
+            detail = f"Started {label}."
+        if not detail and normalized == "workflow.step.completed":
+            detail = f"Completed {label}."
+        if not detail and normalized == "workflow.step.failed":
+            detail = f"Failed {label}."
+        return {
+            "schema_version": RUN_SCHEMA_VERSION,
+            "artifact_id": f"workflow_step:{workflow_run_id or 'workflow'}:{step_id or label}",
+            "artifact_type": "workflow_step",
+            "kind": "work",
+            "status": status,
+            "title": f"Workflow step: {label}",
             "detail": detail,
             "metadata": data,
         }
@@ -852,6 +908,119 @@ def _summarize_parallel_delegation(events: list[Any]) -> dict[str, Any]:
     }
 
 
+def _summarize_structured_subagents(events: list[Any]) -> dict[str, Any]:
+    results: list[dict[str, Any]] = []
+    by_prompt_type: dict[str, int] = {}
+    by_status: dict[str, int] = {}
+    total_sections = 0
+    total_items = 0
+    total_findings = 0
+    total_questions = 0
+    total_residual_risks = 0
+
+    for event in events:
+        if str(getattr(event, "event_type", "") or "") != "subagent.completed":
+            continue
+        payload = dict(getattr(event, "payload", {}) or {})
+        structured_output = payload.get("structured_output")
+        if not isinstance(structured_output, dict):
+            continue
+        prompt_type = _text(payload.get("prompt_type") or structured_output.get("prompt_type") or "subagent")
+        status = _text(structured_output.get("status") or "inconclusive") or "inconclusive"
+        section_count = _non_negative_int(structured_output.get("section_count"))
+        item_count = _non_negative_int(structured_output.get("item_count"))
+        finding_count = _non_negative_int(structured_output.get("finding_count"))
+        question_count = _non_negative_int(structured_output.get("question_count"))
+        residual_risk_count = _non_negative_int(structured_output.get("residual_risk_count"))
+
+        by_prompt_type[prompt_type] = by_prompt_type.get(prompt_type, 0) + 1
+        by_status[status] = by_status.get(status, 0) + 1
+        total_sections += section_count
+        total_items += item_count
+        total_findings += finding_count
+        total_questions += question_count
+        total_residual_risks += residual_risk_count
+        results.append(
+            {
+                "task_id": _text(payload.get("task_id")) or None,
+                "prompt_type": prompt_type,
+                "status": status,
+                "summary": _text(structured_output.get("summary") or payload.get("summary")),
+                "section_count": section_count,
+                "item_count": item_count,
+                "finding_count": finding_count,
+                "question_count": question_count,
+                "residual_risk_count": residual_risk_count,
+                "created_at": getattr(event, "created_at", None),
+            }
+        )
+
+    return {
+        "total": len(results),
+        "by_prompt_type": by_prompt_type,
+        "by_status": by_status,
+        "total_sections": total_sections,
+        "total_items": total_items,
+        "total_findings": total_findings,
+        "total_questions": total_questions,
+        "total_residual_risks": total_residual_risks,
+        "results": results,
+    }
+
+
+def _summarize_workflows(events: list[Any]) -> dict[str, Any]:
+    workflow_events: dict[str, dict[str, Any]] = {}
+    ordered_ids: list[str] = []
+    for event in events:
+        event_type = str(getattr(event, "event_type", "") or "")
+        if event_type not in {"workflow.completed", "workflow.failed"}:
+            continue
+        payload = dict(getattr(event, "payload", {}) or {})
+        workflow_run_id = _text(payload.get("workflow_run_id"))
+        if not workflow_run_id:
+            continue
+        if workflow_run_id not in workflow_events:
+            ordered_ids.append(workflow_run_id)
+        workflow_events[workflow_run_id] = {
+            "event_type": event_type,
+            "created_at": getattr(event, "created_at", None),
+            "payload": payload,
+        }
+
+    results: list[dict[str, Any]] = []
+    by_workflow: dict[str, int] = {}
+    by_status: dict[str, int] = {}
+    for workflow_run_id in ordered_ids:
+        entry = workflow_events.get(workflow_run_id)
+        if not entry:
+            continue
+        payload = entry["payload"]
+        workflow_id = _text(payload.get("workflow") or "workflow") or "workflow"
+        status = _text(payload.get("status") or run_event_status(entry["event_type"], payload)) or "unknown"
+        by_workflow[workflow_id] = by_workflow.get(workflow_id, 0) + 1
+        by_status[status] = by_status.get(status, 0) + 1
+        results.append(
+            {
+                "workflow_run_id": workflow_run_id,
+                "workflow": workflow_id,
+                "status": status,
+                "task_preview": _text(payload.get("task_preview")),
+                "total_steps": _non_negative_int(payload.get("total_steps")),
+                "completed_steps": _non_negative_int(payload.get("completed_steps")),
+                "failed_steps": _non_negative_int(payload.get("failed_steps")),
+                "summary": _text(payload.get("summary") or payload.get("error") or payload.get("message")),
+                "created_at": entry["created_at"],
+            }
+        )
+
+    return {
+        "total": len(results),
+        "by_workflow": by_workflow,
+        "by_status": by_status,
+        "results": results,
+    }
+
+
 def serialize_run_summary(trace: Any) -> dict[str, Any]:
     """Serialize the compact run summary used by Web inspector cards."""
     run = trace.run
@@ -864,6 +1033,8 @@ def serialize_run_summary(trace: Any) -> dict[str, Any]:
     work_progress = _latest_work_progress(events) or {}
     verification = _summarize_verification(run_metadata, events)
     parallel_delegation = _summarize_parallel_delegation(events)
+    structured_subagents = _summarize_structured_subagents(events)
+    workflows = _summarize_workflows(events)
     had_tool_error = _metadata_bool(run_metadata, "had_tool_error")
     warnings: list[str] = []
     if had_tool_error:
@@ -898,6 +1069,8 @@ def serialize_run_summary(trace: Any) -> dict[str, Any]:
         "diff_summary": serialize_diff_summary(trace),
         "verification": verification,
         "parallel_delegation": parallel_delegation,
+        "structured_subagents": structured_subagents,
+        "workflows": workflows,
         "artifact_counts": {
             "total": len(artifacts),
             "tool": sum(1 for artifact in artifacts if artifact.get("kind") == "tool"),

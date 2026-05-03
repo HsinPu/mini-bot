@@ -29,6 +29,10 @@ async def _fake_run_subagents_many(tasks, max_parallel: int | None) -> str:
     return f"parallel:{len(tasks)}:{max_parallel}"
 
 
+async def _fake_run_workflow(workflow: str, task: str) -> str:
+    return f"workflow:{workflow}:{task}"
+
+
 async def _fake_reload_mcp() -> str:
     return "reloaded"
 
@@ -50,6 +54,8 @@ def test_register_default_tools_includes_optional_skill_and_search_tools(tmp_pat
         get_session_id=lambda: "chat-1",
         run_subagent=_fake_run_subagent,
         run_subagents_many=_fake_run_subagents_many,
+        run_workflow=_fake_run_workflow,
+        workflow_catalog_getter=lambda: {"implement_then_review": "Run implementer then reviewer."},
         config_path_resolver=lambda: Path.cwd() / "opensprite.json",
         reload_mcp=_fake_reload_mcp,
         skills_loader=SkillsLoader(default_skills_dir=tmp_path / "skills"),
@@ -83,6 +89,7 @@ def test_register_default_tools_includes_optional_skill_and_search_tools(tmp_pat
         "send_media",
         "delegate",
         "delegate_many",
+        "run_workflow",
         "search_history",
         "search_knowledge",
         "cron",
@@ -104,6 +111,8 @@ def test_register_default_tools_skips_optional_skill_and_search_tools_when_depen
         get_session_id=lambda: "chat-1",
         run_subagent=_fake_run_subagent,
         run_subagents_many=_fake_run_subagents_many,
+        run_workflow=_fake_run_workflow,
+        workflow_catalog_getter=lambda: {"implement_then_review": "Run implementer then reviewer."},
         config_path_resolver=lambda: Path.cwd() / "opensprite.json",
         reload_mcp=_fake_reload_mcp,
     )
@@ -132,6 +141,7 @@ def test_register_default_tools_skips_optional_skill_and_search_tools_when_depen
         "send_media",
         "delegate",
         "delegate_many",
+        "run_workflow",
         "cron",
         "batch",
     ]
@@ -146,6 +156,8 @@ def test_register_default_tools_applies_typed_tools_config_values():
         get_session_id=lambda: "chat-1",
         run_subagent=_fake_run_subagent,
         run_subagents_many=_fake_run_subagents_many,
+        run_workflow=_fake_run_workflow,
+        workflow_catalog_getter=lambda: {"implement_then_review": "Run implementer then reviewer."},
         config_path_resolver=lambda: Path.cwd() / "opensprite.json",
         reload_mcp=_fake_reload_mcp,
         tools_config=ToolsConfig(
@@ -208,6 +220,8 @@ def test_register_default_tools_includes_run_trace_tools_when_storage_is_availab
         get_session_id=lambda: "chat-1",
         run_subagent=_fake_run_subagent,
         run_subagents_many=_fake_run_subagents_many,
+        run_workflow=_fake_run_workflow,
+        workflow_catalog_getter=lambda: {"implement_then_review": "Run implementer then reviewer."},
         config_path_resolver=lambda: Path.cwd() / "opensprite.json",
         reload_mcp=_fake_reload_mcp,
         storage=MemoryStorage(),
@@ -227,6 +241,8 @@ def test_register_default_tools_applies_permission_policy():
         get_session_id=lambda: "chat-1",
         run_subagent=_fake_run_subagent,
         run_subagents_many=_fake_run_subagents_many,
+        run_workflow=_fake_run_workflow,
+        workflow_catalog_getter=lambda: {"implement_then_review": "Run implementer then reviewer."},
         config_path_resolver=lambda: Path.cwd() / "opensprite.json",
         reload_mcp=_fake_reload_mcp,
         tools_config=ToolsConfig(
@@ -250,6 +266,8 @@ def test_search_and_web_tools_describe_retrieval_preference():
         get_session_id=lambda: "chat-1",
         run_subagent=_fake_run_subagent,
         run_subagents_many=_fake_run_subagents_many,
+        run_workflow=_fake_run_workflow,
+        workflow_catalog_getter=lambda: {"implement_then_review": "Run implementer then reviewer."},
         config_path_resolver=lambda: Path.cwd() / "opensprite.json",
         reload_mcp=_fake_reload_mcp,
         search_store=FakeSearchStore(),
@@ -277,6 +295,8 @@ def test_register_default_tools_applies_cron_default_timezone_from_tools_config(
         get_session_id=lambda: "chat-1",
         run_subagent=_fake_run_subagent,
         run_subagents_many=_fake_run_subagents_many,
+        run_workflow=_fake_run_workflow,
+        workflow_catalog_getter=lambda: {"implement_then_review": "Run implementer then reviewer."},
         config_path_resolver=lambda: Path.cwd() / "opensprite.json",
         reload_mcp=_fake_reload_mcp,
         tools_config=ToolsConfig(**{"cron": {"default_timezone": "Asia/Taipei"}}),

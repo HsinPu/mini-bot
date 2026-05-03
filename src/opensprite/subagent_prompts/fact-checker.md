@@ -1,9 +1,10 @@
 ---
 name: fact-checker
 description: Check whether facts, numbers, causal claims, and inferences are sufficiently supported; useful for pre-publication verification and risk review.
-version: "1.0"
+version: "1.1"
 scope: fact-checking
 tool_profile: research
+structured_output_contract: readonly_subagent_result
 language: zh-TW
 ---
 
