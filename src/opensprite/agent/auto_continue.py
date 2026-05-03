@@ -135,6 +135,13 @@ class AutoContinueService:
     ) -> str:
         """Build the synthetic continuation instruction for the next pass."""
         previous = _truncate(previous_response, max_chars=1200) or "(no previous visible response)"
+        follow_up_detail = str(completion_result.active_task_detail or "").strip()
+        follow_up_instruction = ""
+        if follow_up_detail:
+            follow_up_instruction = (
+                f"\n- Required follow-up: {follow_up_detail}"
+                "\n- Treat the required follow-up as the next concrete step instead of restarting the task broadly."
+            )
         verification_instruction = ""
         if completion_result.status == "needs_verification":
             verification_instruction = (
@@ -143,9 +150,20 @@ class AutoContinueService:
             )
         review_instruction = ""
         if completion_result.status == "needs_review":
-            review_instruction = (
-                "\n- Review evidence is required for the recorded code changes. Use delegated review workflows or review-focused subagents, "
-                "then summarize whether the review found issues that still need follow-up."
+            if completion_result.review_attempted:
+                review_instruction = (
+                    "\n- Review findings already exist. Address the recorded findings first, "
+                    "then rerun delegated review only if needed to confirm the fix."
+                )
+            else:
+                review_instruction = (
+                    "\n- Review evidence is required for the recorded code changes. Use delegated review workflows or review-focused subagents, "
+                    "then summarize whether the review found issues that still need follow-up."
+                )
+        incomplete_instruction = ""
+        if completion_result.status == "incomplete" and follow_up_detail:
+            incomplete_instruction = (
+                "\n- The missing work is already identified. Resume from the required follow-up detail below before doing broader new work."
             )
 
         return (
@@ -155,6 +173,8 @@ class AutoContinueService:
             f"- Completion gate reason: {completion_result.reason}"
             f"{verification_instruction}\n"
             f"{review_instruction}\n"
+            f"{incomplete_instruction}\n"
+            f"{follow_up_instruction}\n"
             "- If the task is complete, provide the final answer with the evidence or verification result.\n"
             "- If the task cannot proceed, state the blocker clearly.\n\n"
             "Previous assistant response:\n"

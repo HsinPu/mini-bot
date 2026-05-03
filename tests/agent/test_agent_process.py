@@ -1069,6 +1069,83 @@ def test_agent_process_stops_auto_continue_when_continuation_has_no_progress(tmp
     assert skipped.payload["completion_status"] == "incomplete"
 
 
+def test_agent_process_auto_continue_prompt_uses_workflow_follow_up_detail(tmp_path):
+    async def scenario():
+        storage = MemoryStorage()
+        agent = AgentLoop(
+            config=Config.load_agent_template_config(),
+            provider=FakeProvider(),
+            storage=storage,
+            context_builder=FakeContextBuilder(tmp_path / "workspace"),
+            tools=ToolRegistry(),
+            memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
+            tools_config=ToolsConfig(),
+            log_config=LogConfig(),
+            search_config=SearchConfig(),
+            user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+            recent_summary_config=RecentSummaryConfig(**{**Config.load_template_data()["recent_summary"], "enabled": False}),
+            **Config.packaged_agent_llm_chat_kwargs(),
+        )
+        calls = []
+
+        async def fake_call_llm(session_id, current_message, **kwargs):
+            calls.append(current_message)
+            if len(calls) == 1:
+                return ExecutionResult(
+                    content="Workflow cancelled.",
+                    executed_tool_calls=1,
+                    workflow_outcomes=(
+                        {
+                            "workflow_run_id": "workflow_abc123",
+                            "workflow": "implement_then_review",
+                            "status": "cancelled",
+                            "summary": "Workflow stopped after 1/2 completed step(s).",
+                            "next_step_id": "review",
+                            "next_step_label": "Code review",
+                        },
+                    ),
+                )
+            return ExecutionResult(
+                content="Workflow finished successfully.",
+                executed_tool_calls=1,
+                file_change_count=1,
+                touched_paths=("src/cleanup.py",),
+                workflow_outcomes=(
+                    {
+                        "workflow_run_id": "workflow_abc123",
+                        "workflow": "implement_then_review",
+                        "status": "completed",
+                        "review_attempted": True,
+                        "review_passed": True,
+                        "review_finding_count": 0,
+                        "review_summary": "No major findings.",
+                        "verification_attempted": False,
+                        "verification_passed": False,
+                    },
+                ),
+            )
+
+        agent.call_llm = fake_call_llm
+        agent._schedule_curator = lambda session_id, run_id, channel, external_chat_id, result: None
+
+        response = await agent.process(
+            UserMessage(
+                text="Please implement the cleanup.",
+                channel="web",
+                external_chat_id="browser-1",
+                session_id="web:browser-1",
+            )
+        )
+        return response, calls
+
+    response, calls = asyncio.run(scenario())
+
+    assert response.text == "Workflow finished successfully."
+    assert len(calls) == 2
+    assert "The missing work is already identified" in calls[1]
+    assert "Required follow-up: Resume with the Code review step in implement_then_review." in calls[1]
+
+
 def test_agent_process_marks_active_task_done_when_completion_gate_completes(tmp_path):
     async def scenario():
         registry = ToolRegistry()

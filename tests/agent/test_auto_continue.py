@@ -47,6 +47,30 @@ def test_auto_continue_allows_missing_review_once():
     assert "Review evidence is required" in decision.prompt
 
 
+def test_auto_continue_uses_review_finding_detail_when_follow_up_is_needed():
+    intent = TaskIntentService().classify("Please implement the cleanup.")
+    completion = CompletionGateResult(
+        status="needs_review",
+        reason="delegated review reported findings that require follow-up",
+        review_required=True,
+        review_attempted=True,
+        review_finding_count=1,
+        active_task_detail="src/foo.py: Null handling bug: Guard the null path before dereference.",
+    )
+
+    decision = AutoContinueService(max_auto_continues=1).decide(
+        task_intent=intent,
+        completion_result=completion,
+        execution_result=ExecutionResult(content="Implemented the cleanup."),
+        attempts_used=0,
+        previous_response="Implemented the cleanup.",
+    )
+
+    assert decision.should_continue is True
+    assert "Review findings already exist" in (decision.prompt or "")
+    assert "Required follow-up: src/foo.py: Null handling bug: Guard the null path before dereference." in (decision.prompt or "")
+
+
 def test_auto_continue_skips_waiting_and_blocked_statuses():
     intent = TaskIntentService().classify("Continue the task")
     service = AutoContinueService(max_auto_continues=1)
@@ -120,6 +144,27 @@ def test_auto_continue_allows_one_coding_retry_when_code_changes_are_missing():
 
     assert decision.should_continue is True
     assert decision.reason == "completion_gate_incomplete"
+
+
+def test_auto_continue_uses_step_level_follow_up_for_incomplete_workflow():
+    intent = TaskIntentService().classify("Please implement the cleanup.")
+    completion = CompletionGateResult(
+        status="incomplete",
+        reason="workflow implement_then_review did not complete successfully",
+        active_task_detail="Resume with the Code review step in implement_then_review. Workflow stopped after 1/2 completed step(s).",
+    )
+
+    decision = AutoContinueService(max_auto_continues=1).decide(
+        task_intent=intent,
+        completion_result=completion,
+        execution_result=ExecutionResult(content="Workflow cancelled.", executed_tool_calls=1),
+        attempts_used=0,
+        previous_response="Workflow cancelled.",
+    )
+
+    assert decision.should_continue is True
+    assert "The missing work is already identified" in (decision.prompt or "")
+    assert "Required follow-up: Resume with the Code review step in implement_then_review." in (decision.prompt or "")
 
 
 def test_auto_continue_uses_work_progress_budget_and_stops_without_progress():
