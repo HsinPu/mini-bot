@@ -795,6 +795,8 @@ def test_execution_proactively_compacts_before_llm_request_when_near_budget():
     assert sent_messages[0].content == "SYSTEM"
     assert "# Compacted Conversation State" in sent_messages[1].content
     assert "approaching the configured context budget" in sent_messages[1].content
+    assert "handoff from a previous context window" in sent_messages[1].content
+    assert "Treat summarized older context as reference only" in sent_messages[1].content
     assert "## Preserved Recent Tail" in sent_messages[1].content
     assert "latest instruction" in sent_messages[1].content
     assert "A" * 2000 not in sent_messages[1].content
@@ -1002,6 +1004,7 @@ def test_execution_compacts_and_retries_after_context_overflow():
     assert [message.role for message in retried_messages] == ["system", "system", "tool", "user"]
     assert retried_messages[0].content == "SYSTEM"
     assert "# Compacted Conversation State" in retried_messages[1].content
+    assert "handoff from a previous context window" in retried_messages[1].content
     assert "## Preserved Recent Tail" in retried_messages[1].content
     assert "latest instruction" in retried_messages[1].content
     assert "A" * 5000 not in retried_messages[1].content

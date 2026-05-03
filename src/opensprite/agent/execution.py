@@ -190,8 +190,10 @@ class ExecutionEngine:
         "reduce the length",
     )
     CONTINUATION_AFTER_COMPACTION_MESSAGE = (
-        "Continue from the compacted conversation state above. "
-        "Do not ask the user to repeat information that is present in the compacted state. "
+        "Continue from the compacted conversation handoff above. "
+        "Treat it as reference state from a previous context window, not as a fresh user request. "
+        "Do not ask the user to repeat information that is already preserved there. "
+        "Prefer the preserved recent tail and current active task state when deciding the next step. "
         "If more tool work is needed, continue using tools; otherwise provide the final answer."
     )
     CONTEXT_OVERFLOW_STATUS_MESSAGE = "上下文已接近上限，正在壓縮目前任務並繼續…"
@@ -199,9 +201,11 @@ class ExecutionEngine:
     PROVIDER_RETRY_LIMIT = 1
     PROVIDER_RETRY_STATUS_MESSAGE = "模型服務暫時忙碌，我會稍等後重試。"
     LLM_COMPACTION_SYSTEM_PROMPT = """You are a context compaction engine for an autonomous assistant.
-Compress the provided conversation state into a concise, factual Markdown state snapshot.
+Compress the provided conversation state into a concise, factual Markdown handoff snapshot.
 Do not solve the user's task. Do not ask questions. Do not invent facts.
-Preserve all information needed to continue work without asking the user to repeat details.
+Treat this as a handoff to a future context window of the same assistant.
+Preserve enough state to continue work without asking the user to repeat details.
+Do not turn old requests into new instructions. Distinguish clearly between completed work and remaining work.
 
 Output exactly these sections when applicable:
 # Compacted Task State
@@ -209,7 +213,7 @@ Output exactly these sections when applicable:
 ## Latest User Instruction
 ## Important Context And Constraints
 ## Completed Work
-## Pending Work
+## Remaining Work
 ## Relevant Files, Tools, Or IDs
 ## Recent Tool Results
 ## Open Questions Or Blockers
@@ -725,7 +729,9 @@ Output exactly these sections when applicable:
         summary_sections = [
             "# Compacted Conversation State",
             "The in-turn context was compacted by an LLM before the next request because it was approaching the configured context budget.",
-            "Continue the same task from this state; do not restart or ask the user to repeat details already summarized here.",
+            "This summary is a handoff from a previous context window. Continue the same task from this state; do not restart it.",
+            "Treat summarized older context as reference only. Prefer the preserved recent tail and current active task state if they conflict with the summary.",
+            "Do not ask the user to repeat details already summarized here.",
             "",
             summary,
         ]
@@ -870,7 +876,9 @@ Output exactly these sections when applicable:
             "# Compacted Conversation State",
             reason
             or "The previous in-turn context was compacted automatically after the LLM reported a context-window error.",
-            "Continue the same task from this state; do not restart or ask the user to repeat details already summarized here.",
+            "This is a handoff from a previous context window. Continue the same task from this state; do not restart it.",
+            "Treat summarized older context as reference only. Prefer the preserved recent tail and current active task state if they conflict with the summary.",
+            "Do not ask the user to repeat details already summarized here.",
         ]
         if latest_user_text:
             summary_sections.extend(["", "## Latest User Instruction", latest_user_text])

@@ -12,6 +12,9 @@ Keep high-level workflow in `AGENTS.md`; keep concrete tool usage rules here.
 - Stay within the active workspace unless the user clearly asks for something external.
 - Some tools are optional and may not appear at runtime; use only the tools that are actually available.
 - Tool availability may be restricted by the runtime permission policy; if a needed tool is unavailable or blocked, explain the limitation and ask the user for the required permission/configuration change.
+- If another tool call would materially improve correctness or completion, do not stop at a partial answer.
+- Do not tell the user you will inspect, verify, search, or check something unless you are about to make the corresponding tool call now.
+- For live system state, current facts, file contents, hashes, arithmetic, or git state, prefer tools over memory or intuition.
 
 ## Permission Policy
 
@@ -191,12 +194,14 @@ Keep high-level workflow in `AGENTS.md`; keep concrete tool usage rules here.
 - `search_history`
   - Use to retrieve prior conversation details from the current chat.
   - Search before claiming you do not remember earlier discussion in this chat.
+  - Strongly prefer this when the user references earlier turns implicitly, such as "the previous fix", "what you said before", "again", "earlier", "之前", or "剛剛".
 
 - `search_knowledge`
   - Use to retrieve previously stored `web_search` and `web_fetch` results from the current chat.
   - Prefer this when the user refers to earlier research instead of current local files.
   - Prefer this before repeating `web_search` or `web_fetch` on the same topic in the same chat.
   - Use filters such as `provider`, `extractor`, `status`, `content_type`, and `truncated` when narrowing large result sets.
+  - If a topic sounds like follow-up on prior web research, check this before launching a fresh network search.
 
 ## Scheduling Tool
 
@@ -218,6 +223,7 @@ Keep high-level workflow in `AGENTS.md`; keep concrete tool usage rules here.
   - Use to hand off a bounded subproblem to a specialized subagent.
   - Prefer this for focused work that benefits from a dedicated prompt.
   - Do not delegate trivial work that can be completed directly.
+  - Prefer fixed workflows through `run_workflow` when the task already matches a known orchestration pattern such as implement-then-review or research-then-outline.
   - `prompt_type` must already exist in the merged subagent list.
   - New delegated tasks return a `task_id`; reuse that `task_id` to resume the same child task session.
   - When resuming with `task_id`, provide the next instruction in `task`; omit `prompt_type` unless you are confirming the original type.

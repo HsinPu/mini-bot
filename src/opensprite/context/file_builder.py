@@ -88,8 +88,35 @@ class FileContextBuilder:
         "錯誤",
         "重構",
     )
+    _RETRIEVAL_TASK_WORD_KEYWORDS = (
+        "again",
+        "before",
+        "earlier",
+        "history",
+        "last time",
+        "previous",
+        "revisit",
+        "repeat",
+        "that fix",
+        "that search",
+        "that change",
+    )
+    _RETRIEVAL_TASK_TEXT_MARKERS = (
+        "之前",
+        "先前",
+        "剛剛",
+        "上次",
+        "剛才",
+        "前面",
+        "那個修復",
+        "那次搜尋",
+    )
     _WORKSPACE_TASK_WORD_PATTERN = re.compile(
         r"\b(?:" + "|".join(re.escape(keyword) for keyword in _WORKSPACE_TASK_WORD_KEYWORDS) + r")\b",
+        re.IGNORECASE,
+    )
+    _RETRIEVAL_TASK_WORD_PATTERN = re.compile(
+        r"\b(?:" + "|".join(re.escape(keyword) for keyword in _RETRIEVAL_TASK_WORD_KEYWORDS) + r")\b",
         re.IGNORECASE,
     )
     _WORKSPACE_PATH_PATTERN = re.compile(
@@ -247,6 +274,25 @@ Ids and descriptions below are **merged**: this session's `subagent_prompts/<id>
 This request appears to be a workspace or project task. Use the active workspace autonomously: inspect relevant files and search results first, edit directly when the path forward is clear, run focused verification when feasible, then summarize the changes, verification result, and any remaining risk.
 """
 
+    @classmethod
+    def _looks_like_retrieval_followup(cls, current_message: str) -> bool:
+        text = str(current_message or "").strip()
+        if not text:
+            return False
+        lowered = text.lower()
+        return bool(cls._RETRIEVAL_TASK_WORD_PATTERN.search(text)) or any(
+            marker in lowered for marker in cls._RETRIEVAL_TASK_TEXT_MARKERS
+        )
+
+    @classmethod
+    def _build_retrieval_guidance(cls, current_message: str) -> str:
+        if not cls._looks_like_retrieval_followup(current_message):
+            return ""
+        return """# Retrieval Guidance
+
+This message appears to depend on earlier conversation state or prior research. Before asking the user to repeat context, prefer `search_history` for prior chat details and `search_knowledge` for previously fetched web research in this session.
+"""
+
     def build_system_prompt(self, session_id: str = "default") -> str:
         """Build the system prompt from bootstrap files, skills, and memory."""
         parts = [self._build_session_context(session_id)]
@@ -369,6 +415,9 @@ Be conservative only for actions with external side effects or boundaries outsid
         workspace_task_guidance = self._build_workspace_task_guidance(current_message)
         if workspace_task_guidance:
             messages.append({"role": "system", "content": workspace_task_guidance})
+        retrieval_guidance = self._build_retrieval_guidance(current_message)
+        if retrieval_guidance:
+            messages.append({"role": "system", "content": retrieval_guidance})
         planning_mode_guidance = resolve_planning_mode(current_message).overlay
         if planning_mode_guidance:
             messages.append({"role": "system", "content": planning_mode_guidance})

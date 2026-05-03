@@ -70,3 +70,20 @@ def test_build_messages_adds_planning_mode_overlay_for_explicit_plan_only_reques
     assert messages[2]["content"].startswith("# Planning Mode")
     assert "MUST NOT edit files" in messages[2]["content"]
     assert "read-only planning mode" in messages[2]["content"]
+
+
+def test_build_messages_adds_retrieval_guidance_for_follow_up_message(tmp_path):
+    builder = _builder(tmp_path)
+
+    messages = builder.build_messages(
+        history=[],
+        current_message="Use the earlier fix again and compare it to what you found before.",
+        channel="web",
+        session_id="web:browser-1",
+    )
+
+    assert [message["role"] for message in messages] == ["system", "system", "system", "user", "user"]
+    assert messages[1]["content"].startswith("# Workspace Task Guidance")
+    assert messages[2]["content"].startswith("# Retrieval Guidance")
+    assert "prefer `search_history`" in messages[2]["content"]
+    assert "`search_knowledge`" in messages[2]["content"]

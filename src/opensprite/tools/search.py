@@ -43,7 +43,7 @@ class SearchHistoryTool(_BaseSearchTool):
 
     @property
     def description(self) -> str:
-        return "Search saved conversation history for the current session only."
+        return "Search saved conversation history for the current session only. Prefer this before asking the user to restate earlier chat details."
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -86,7 +86,7 @@ class SearchKnowledgeTool(_BaseSearchTool):
 
     @property
     def description(self) -> str:
-        return "Search stored web search and web fetch results for the current session only. Prefer this before repeating web_search or web_fetch on topics already researched in this session."
+        return "Search stored web search and web fetch results for the current session only. Prefer this before repeating web_search or web_fetch on topics already researched in this session, especially when the user is following up on earlier research."
 
     @property
     def parameters(self) -> dict[str, Any]:
