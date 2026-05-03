@@ -241,6 +241,40 @@ def test_completion_gate_allows_workflow_completion_with_clean_review():
     assert result.reason == "workflow implement_then_review completed with clean review evidence"
 
 
+def test_completion_gate_uses_workflow_review_finding_detail_without_delegated_tasks():
+    intent = TaskIntentService().classify("Please implement the final cleanup.")
+
+    result = CompletionGateService().evaluate(
+        task_intent=intent,
+        response_text="Workflow: implement_then_review\nStatus: completed",
+        execution_result=ExecutionResult(
+            content="Workflow: implement_then_review\nStatus: completed",
+            file_change_count=1,
+            touched_paths=("src/cleanup.py",),
+            workflow_outcomes=(
+                {
+                    "workflow_run_id": "workflow_abc123",
+                    "workflow": "implement_then_review",
+                    "status": "completed",
+                    "review_attempted": True,
+                    "review_passed": False,
+                    "review_finding_count": 1,
+                    "review_summary": "One high-risk bug found.",
+                    "review_first_finding": "src/foo.py: Null handling bug: Guard the null path before dereference.",
+                    "verification_attempted": False,
+                    "verification_passed": False,
+                },
+            ),
+        ),
+    )
+
+    assert result.status == "needs_review"
+    assert result.reason == "workflow implement_then_review completed but review findings still require follow-up"
+    assert result.active_task_detail == "src/foo.py: Null handling bug: Guard the null path before dereference."
+    assert result.review_attempted is True
+    assert result.review_finding_count == 1
+
+
 def test_completion_gate_marks_blocked_when_workflow_fails():
     intent = TaskIntentService().classify("Please implement the final cleanup.")
 
@@ -254,6 +288,8 @@ def test_completion_gate_marks_blocked_when_workflow_fails():
                     "workflow_run_id": "workflow_abc123",
                     "workflow": "implement_then_review",
                     "status": "failed",
+                    "next_step_id": "review",
+                    "next_step_label": "Code review",
                     "error": "review step failed",
                 },
             ),
@@ -262,7 +298,7 @@ def test_completion_gate_marks_blocked_when_workflow_fails():
 
     assert result.status == "blocked"
     assert result.reason == "workflow implement_then_review did not complete successfully"
-    assert result.active_task_detail == "review step failed"
+    assert result.active_task_detail == "Resolve the Code review step failure in implement_then_review: review step failed"
 
 
 def test_completion_gate_marks_incomplete_when_workflow_is_cancelled():
@@ -278,6 +314,8 @@ def test_completion_gate_marks_incomplete_when_workflow_is_cancelled():
                     "workflow_run_id": "workflow_abc123",
                     "workflow": "implement_then_review",
                     "status": "cancelled",
+                    "next_step_id": "review",
+                    "next_step_label": "Code review",
                     "error": "cancelled",
                     "summary": "Workflow stopped after 1/2 completed step(s).",
                 },
@@ -288,7 +326,7 @@ def test_completion_gate_marks_incomplete_when_workflow_is_cancelled():
     assert result.status == "incomplete"
     assert result.reason == "workflow implement_then_review did not complete successfully"
     assert result.active_task_detail == (
-        "Finish the remaining workflow steps for implement_then_review. "
+        "Resume with the Code review step in implement_then_review. "
         "Workflow stopped after 1/2 completed step(s)."
     )
 

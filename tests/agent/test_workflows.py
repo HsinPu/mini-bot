@@ -141,3 +141,6 @@ def test_run_workflow_emits_failed_trace_when_step_errors(tmp_path):
     event_types = [event.event_type for event in trace.events]
     assert "workflow.step.failed" in event_types
     assert "workflow.failed" in event_types
+    failed_event = next(event for event in trace.events if event.event_type == "workflow.failed")
+    assert failed_event.payload["next_step_id"] == "review"
+    assert failed_event.payload["next_step_label"] == "Code review"

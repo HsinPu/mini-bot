@@ -38,6 +38,73 @@ def _result_summary(outcome: SubagentTaskOutcome) -> str:
     return outcome.content
 
 
+def _format_review_finding(item: dict[str, Any]) -> str:
+    title = str(item.get("title") or "").strip()
+    path = str(item.get("path") or "").strip()
+    fix = str(item.get("fix") or "").strip()
+    why = str(item.get("why") or "").strip()
+    subject = f"{path}: {title}" if path and title else title or path
+    if fix:
+        return f"{subject}: {fix}" if subject else fix
+    if why:
+        return f"{subject}: {why}" if subject else why
+    return subject
+
+
+def _first_structured_review_finding(structured_output: dict[str, Any] | None) -> str:
+    sections = structured_output.get("sections") if isinstance(structured_output, dict) else None
+    if not isinstance(sections, list):
+        return ""
+    for section in sections:
+        if not isinstance(section, dict):
+            continue
+        items = section.get("items")
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if isinstance(item, dict):
+                detail = _format_review_finding(item)
+                if detail:
+                    return detail
+            elif isinstance(item, str) and item.strip():
+                return item.strip()
+    return ""
+
+
+def _workflow_progress_fields(
+    steps: tuple[WorkflowStepSpec, ...],
+    outcomes: list[SubagentTaskOutcome],
+    *,
+    status: str,
+) -> dict[str, Any]:
+    completed_prefix = 0
+    for outcome in outcomes[: len(steps)]:
+        if outcome.status != "completed":
+            break
+        completed_prefix += 1
+
+    payload: dict[str, Any] = {}
+    if completed_prefix > 0:
+        last_completed = steps[completed_prefix - 1]
+        payload.update(
+            {
+                "last_completed_step_id": last_completed.step_id,
+                "last_completed_step_label": last_completed.label,
+                "last_completed_prompt_type": last_completed.prompt_type,
+            }
+        )
+    if status != "completed" and completed_prefix < len(steps):
+        next_step = steps[completed_prefix]
+        payload.update(
+            {
+                "next_step_id": next_step.step_id,
+                "next_step_label": next_step.label,
+                "next_step_prompt_type": next_step.prompt_type,
+            }
+        )
+    return payload
+
+
 def _implement_review_steps() -> tuple[WorkflowStepSpec, ...]:
     return (
         WorkflowStepSpec(
@@ -266,6 +333,7 @@ class SubagentWorkflowService:
                 }
                 for spec, outcome in zip(steps, outcomes)
             ],
+            **_workflow_progress_fields(steps, outcomes, status=status),
         }
         if error:
             payload["error"] = error
@@ -308,9 +376,12 @@ class SubagentWorkflowService:
         attempted = any(outcome.status == "completed" for outcome in review_outcomes)
         passed = False
         summary = ""
+        first_finding = ""
         for outcome in review_outcomes:
             if outcome.summary and not summary:
                 summary = outcome.summary
+            if not first_finding:
+                first_finding = _first_structured_review_finding(outcome.structured_output)
             if outcome.status != "completed":
                 continue
             structured = outcome.structured_output or {}
@@ -325,6 +396,7 @@ class SubagentWorkflowService:
             "passed": attempted and passed and finding_count == 0,
             "finding_count": finding_count,
             "summary": summary,
+            "first_finding": first_finding,
         }
 
     @staticmethod
@@ -365,8 +437,10 @@ class SubagentWorkflowService:
             "review_passed": review["passed"],
             "review_finding_count": review["finding_count"],
             "review_summary": review["summary"],
+            "review_first_finding": review["first_finding"],
             "verification_attempted": verification["attempted"],
             "verification_passed": verification["passed"],
+            **_workflow_progress_fields(spec.steps, outcomes, status=status),
             **({"error": error} if error else {}),
         }
 

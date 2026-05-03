@@ -1190,6 +1190,65 @@ def test_serialize_run_summary_collects_workflow_results():
     }
 
 
+def test_serialize_run_summary_collects_failed_workflow_follow_up_detail():
+    trace = SimpleNamespace(
+        run=SimpleNamespace(
+            run_id="run-workflow-failed",
+            session_id="web:browser-workflow",
+            status="completed",
+            metadata={"objective": "Workflow summary"},
+            created_at=30.0,
+            updated_at=35.0,
+            finished_at=36.0,
+        ),
+        events=[
+            SimpleNamespace(
+                event_id=1,
+                run_id="run-workflow-failed",
+                session_id="web:browser-workflow",
+                event_type="workflow.failed",
+                payload={
+                    "workflow_run_id": "workflow_abc12345",
+                    "workflow": "implement_then_review",
+                    "status": "failed",
+                    "task_preview": "Implement a safe change.",
+                    "total_steps": 2,
+                    "completed_steps": 1,
+                    "failed_steps": 1,
+                    "summary": "Workflow stopped after 1/2 completed step(s).",
+                    "next_step_id": "review",
+                    "next_step_label": "Code review",
+                    "error": "review step failed",
+                },
+                created_at=34.0,
+            ),
+        ],
+        parts=[],
+        file_changes=[],
+    )
+
+    summary = serialize_run_summary(trace)
+
+    assert summary["workflows"] == {
+        "total": 1,
+        "by_workflow": {"implement_then_review": 1},
+        "by_status": {"failed": 1},
+        "results": [
+            {
+                "workflow_run_id": "workflow_abc12345",
+                "workflow": "implement_then_review",
+                "status": "failed",
+                "task_preview": "Implement a safe change.",
+                "total_steps": 2,
+                "completed_steps": 1,
+                "failed_steps": 1,
+                "summary": "Resolve the Code review step failure: review step failed",
+                "created_at": 34.0,
+            }
+        ],
+    }
+
+
 def test_serialize_run_summary_marks_parallel_delegation_warnings():
     trace = SimpleNamespace(
         run=SimpleNamespace(

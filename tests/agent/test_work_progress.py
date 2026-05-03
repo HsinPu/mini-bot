@@ -360,7 +360,7 @@ def test_work_progress_uses_incomplete_follow_up_detail_as_pending_step():
     plan = service.create_plan(intent)
     initial = service.build_initial_state(session_id="web:browser-1", task_intent=intent, work_plan=plan)
     assert initial is not None
-    detail = "Finish the remaining workflow steps for implement_then_review. Workflow stopped after 1/2 completed step(s)."
+    detail = "Resume with the Code review step in implement_then_review. Workflow stopped after 1/2 completed step(s)."
     progress = service.evaluate(
         task_intent=intent,
         completion_result=CompletionGateResult(

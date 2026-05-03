@@ -158,6 +158,12 @@ class CompletionGateService:
             )
 
         if workflow_gate is not None:
+            workflow_verification_attempted = bool(workflow_gate.get("verification_attempted", verification_attempted))
+            workflow_verification_passed = bool(workflow_gate.get("verification_passed", verification_passed))
+            workflow_review_attempted = bool(workflow_gate.get("review_attempted", review["attempted"]))
+            workflow_review_passed = bool(workflow_gate.get("review_passed", review["passed"]))
+            workflow_review_summary = str(workflow_gate.get("review_summary") or review["summary"] or "").strip()
+            workflow_review_finding_count = int(workflow_gate.get("review_finding_count", review["finding_count"]))
             return CompletionGateResult(
                 status=workflow_gate["status"],
                 reason=workflow_gate["reason"],
@@ -165,14 +171,14 @@ class CompletionGateService:
                 active_task_detail=workflow_gate.get("detail") or None,
                 should_update_active_task=workflow_gate["status"] == "complete" and task_intent.should_seed_active_task,
                 verification_required=verification_required,
-                verification_attempted=verification_attempted,
-                verification_passed=verification_passed,
+                verification_attempted=workflow_verification_attempted,
+                verification_passed=workflow_verification_passed,
                 review_required=review_required,
-                review_attempted=review["attempted"],
-                review_passed=review["passed"],
-                review_summary=review["summary"],
+                review_attempted=workflow_review_attempted,
+                review_passed=workflow_review_passed,
+                review_summary=workflow_review_summary,
                 review_prompt_types=review["prompt_types"],
-                review_finding_count=review["finding_count"],
+                review_finding_count=workflow_review_finding_count,
             )
 
         if expects_code_change and execution_result.file_change_count <= 0:
@@ -380,7 +386,7 @@ def _workflow_gate_outcome(
     verification_required: bool,
     verification_attempted: bool,
     verification_passed: bool,
-) -> dict[str, str] | None:
+) -> dict[str, Any] | None:
     relevant_outcomes = [
         outcome
         for outcome in workflow_outcomes
@@ -396,10 +402,21 @@ def _workflow_gate_outcome(
     review_finding_count = int(workflow.get("review_finding_count") or 0)
     workflow_verification_attempted = bool(workflow.get("verification_attempted"))
     workflow_verification_passed = bool(workflow.get("verification_passed"))
+    workflow_review_summary = str(workflow.get("review_summary") or "").strip()
+    workflow_review_first_finding = str(workflow.get("review_first_finding") or "").strip()
+    metadata = {
+        "review_attempted": review_attempted,
+        "review_passed": review_passed,
+        "review_finding_count": review_finding_count,
+        "review_summary": workflow_review_summary,
+        "verification_attempted": workflow_verification_attempted,
+        "verification_passed": workflow_verification_passed,
+    }
 
     if workflow_status in {"failed", "cancelled"}:
         detail = _workflow_follow_up_detail(workflow_id, workflow_status, workflow)
         return {
+            **metadata,
             "status": "blocked" if workflow_status == "failed" else "incomplete",
             "reason": f"workflow {workflow_id} did not complete successfully",
             "detail": detail,
@@ -407,12 +424,14 @@ def _workflow_gate_outcome(
 
     if workflow_id == "research_then_outline":
         return {
+            **metadata,
             "status": "complete",
             "reason": "workflow research_then_outline completed all required steps",
         }
 
     if verification_required and not (verification_passed or workflow_verification_passed):
         return {
+            **metadata,
             "status": "needs_verification",
             "reason": "workflow completed but required verification evidence is still missing",
             "detail": str(workflow.get("summary") or "").strip(),
@@ -421,23 +440,29 @@ def _workflow_gate_outcome(
     if workflow_id in {"implement_then_review", "bugfix_then_test_then_review"}:
         if not review_attempted:
             return {
+                **metadata,
                 "status": "needs_review",
                 "reason": f"workflow {workflow_id} completed but review evidence is missing",
                 "detail": "Run or rerun a delegated review step for the changed code before treating the workflow as complete.",
             }
         if not review_passed or review_finding_count > 0:
             return {
+                **metadata,
                 "status": "needs_review",
                 "reason": f"workflow {workflow_id} completed but review findings still require follow-up",
-                "detail": str(workflow.get("review_summary") or workflow.get("summary") or "").strip(),
+                "detail": workflow_review_first_finding
+                or workflow_review_summary
+                or str(workflow.get("summary") or "").strip(),
             }
         return {
+            **metadata,
             "status": "complete",
             "reason": f"workflow {workflow_id} completed with clean review evidence",
         }
 
     if task_intent.kind in {"analysis", "review"}:
         return {
+            **metadata,
             "status": "complete",
             "reason": f"workflow {workflow_id} completed all required steps",
         }
@@ -486,10 +511,19 @@ def _review_follow_up_detail(review: dict[str, Any]) -> str | None:
 
 
 def _workflow_follow_up_detail(workflow_id: str, workflow_status: str, workflow: dict[str, Any]) -> str:
+    step_label = str(workflow.get("next_step_label") or workflow.get("next_step_id") or "").strip()
     error = str(workflow.get("error") or "").strip()
     summary = str(workflow.get("summary") or "").strip()
     if workflow_status == "cancelled":
+        if step_label and summary:
+            return f"Resume with the {step_label} step in {workflow_id}. {summary}"
+        if step_label:
+            return f"Resume with the {step_label} step in {workflow_id}."
         if summary:
             return f"Finish the remaining workflow steps for {workflow_id}. {summary}"
         return f"Finish the remaining workflow steps for {workflow_id}."
+    if step_label and error:
+        return f"Resolve the {step_label} step failure in {workflow_id}: {error}"
+    if step_label:
+        return f"Resolve the {step_label} step failure in {workflow_id}."
     return error or summary

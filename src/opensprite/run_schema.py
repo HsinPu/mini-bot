@@ -1036,7 +1036,7 @@ def _summarize_workflows(events: list[Any]) -> dict[str, Any]:
                 "total_steps": _non_negative_int(payload.get("total_steps")),
                 "completed_steps": _non_negative_int(payload.get("completed_steps")),
                 "failed_steps": _non_negative_int(payload.get("failed_steps")),
-                "summary": _text(payload.get("summary") or payload.get("error") or payload.get("message")),
+                "summary": _workflow_result_summary(payload, status=status),
                 "created_at": entry["created_at"],
             }
         )
@@ -1047,6 +1047,24 @@ def _summarize_workflows(events: list[Any]) -> dict[str, Any]:
         "by_status": by_status,
         "results": results,
     }
+
+
+def _workflow_result_summary(payload: dict[str, Any], *, status: str) -> str:
+    summary = _text(payload.get("summary") or payload.get("error") or payload.get("message"))
+    step_label = _text(payload.get("next_step_label") or payload.get("next_step_id"))
+    error = _text(payload.get("error"))
+    if status == "cancelled":
+        if step_label and summary:
+            return f"Resume with the {step_label} step. {summary}"
+        if step_label:
+            return f"Resume with the {step_label} step."
+        return summary
+    if status == "failed":
+        if step_label and error:
+            return f"Resolve the {step_label} step failure: {error}"
+        if step_label:
+            return f"Resolve the {step_label} step failure."
+    return summary
 
 
 def serialize_run_summary(trace: Any) -> dict[str, Any]:
