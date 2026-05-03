@@ -10,6 +10,40 @@ from email.utils import parsedate_to_datetime
 from typing import Any
 
 
+_TRANSIENT_ERROR_TYPE_NAMES = frozenset(
+    {
+        "TimeoutError",
+        "ReadTimeout",
+        "WriteTimeout",
+        "ConnectTimeout",
+        "PoolTimeout",
+        "ConnectError",
+        "ReadError",
+        "WriteError",
+        "RemoteProtocolError",
+        "APIConnectionError",
+        "APITimeoutError",
+    }
+)
+_TRANSIENT_ERROR_TEXT_MARKERS = (
+    "timed out",
+    "timeout",
+    "connection reset",
+    "connection aborted",
+    "connection refused",
+    "temporary failure",
+    "temporarily unavailable",
+    "remote protocol error",
+    "stream closed",
+    "transport closed",
+    "server disconnected",
+    "name resolution",
+    "dns",
+    "high traffic detected",
+    "overloaded_error",
+)
+
+
 @dataclass(frozen=True)
 class RetryDelay:
     retryable: bool
@@ -80,6 +114,13 @@ def _parse_text_delay_ms(text: str) -> int | None:
     return None
 
 
+def _looks_like_transient_transport(error: BaseException) -> bool:
+    if type(error).__name__ in _TRANSIENT_ERROR_TYPE_NAMES:
+        return True
+    lowered = str(error or "").lower()
+    return any(marker in lowered for marker in _TRANSIENT_ERROR_TEXT_MARKERS)
+
+
 def retry_delay_from_error(error: BaseException, *, now: float | None = None) -> RetryDelay:
     """Return retry metadata for rate-limit and transient provider failures."""
     current_time = time.time() if now is None else float(now)
@@ -100,7 +141,12 @@ def retry_delay_from_error(error: BaseException, *, now: float | None = None) ->
         retry_after_ms = _parse_text_delay_ms(reason)
 
     status_code = _status_code_from_error(error)
-    retryable = retry_after_ms is not None or status_code == 429 or (status_code is not None and 500 <= status_code <= 599)
+    retryable = (
+        retry_after_ms is not None
+        or status_code == 429
+        or (status_code is not None and 500 <= status_code <= 599)
+        or _looks_like_transient_transport(error)
+    )
     if retry_after_ms is None and retryable:
         retry_after_ms = 1000
     if not retryable:

@@ -1176,9 +1176,16 @@ Output exactly these sections when applicable:
                             continue
 
                     if retry_delay.retryable and request_attempt <= self.PROVIDER_RETRY_LIMIT:
+                        recovered = False
+                        recover_after_error = getattr(self.provider, "recover_after_error", None)
+                        if callable(recover_after_error):
+                            try:
+                                recovered = bool(recover_after_error(exc))
+                            except Exception:
+                                logger.exception(f"[{log_id}] llm.retry.recover-hook.error | iter={iteration + 1}")
                         logger.warning(
                             f"[{log_id}] llm.retryable-error | iter={iteration + 1} attempt={request_attempt} "
-                            f"retry_after_ms={retry_delay.retry_after_ms} error={error_preview}"
+                            f"retry_after_ms={retry_delay.retry_after_ms} recovered={recovered} error={error_preview}"
                         )
                         if on_llm_status is not None:
                             try:

@@ -83,6 +83,7 @@ class RetryableThenSuccessProvider:
     def __init__(self, final_response: str = "retry ok"):
         self.final_response = final_response
         self.calls = []
+        self.recover_calls = 0
 
     async def chat(self, messages, tools=None, model=None, temperature=0.7, max_tokens=2048, **kwargs):
         self.calls.append({"messages": list(messages), "tools": tools})
@@ -92,6 +93,10 @@ class RetryableThenSuccessProvider:
             error.headers = {"retry-after-ms": "0"}
             raise error
         return LLMResponse(content=self.final_response, model="fake-model")
+
+    def recover_after_error(self, error: BaseException) -> bool:
+        self.recover_calls += 1
+        return True
 
 
 class LlmCompactionProvider:
@@ -212,11 +217,46 @@ def test_execution_engine_retries_transient_provider_errors_with_metadata():
 
     assert result.content == "retry ok"
     assert len(provider.calls) == 2
+    assert provider.recover_calls == 1
     assert [event.status for event in result.llm_step_events] == ["error", "completed"]
     assert result.llm_step_events[0].retryable is True
     assert result.llm_step_events[0].retry_after_ms == 0
     assert result.llm_step_events[0].next_retry_at is not None
     assert statuses == [ExecutionEngine.PROVIDER_RETRY_STATUS_MESSAGE]
+
+
+def test_execution_engine_retries_transient_transport_errors_without_status_code():
+    class TransportThenSuccessProvider:
+        def __init__(self):
+            self.calls = []
+            self.recover_calls = 0
+
+        async def chat(self, messages, tools=None, model=None, temperature=0.7, max_tokens=2048, **kwargs):
+            self.calls.append({"messages": list(messages), "tools": tools})
+            if len(self.calls) == 1:
+                raise RuntimeError("connection reset by peer")
+            return LLMResponse(content="transport ok", model="fake-model")
+
+        def recover_after_error(self, error: BaseException) -> bool:
+            self.recover_calls += 1
+            return True
+
+    provider = TransportThenSuccessProvider()
+    engine = _make_engine(provider, ToolRegistry(), [])
+
+    result = asyncio.run(
+        engine.execute_messages(
+            "chat-1",
+            [ChatMessage(role="user", content="hi")],
+            allow_tools=False,
+        )
+    )
+
+    assert result.content == "transport ok"
+    assert len(provider.calls) == 2
+    assert provider.recover_calls == 1
+    assert result.llm_step_events[0].retryable is True
+    assert result.llm_step_events[0].retry_after_ms == 1000
 
 
 def test_execution_engine_projects_final_response_as_deltas():

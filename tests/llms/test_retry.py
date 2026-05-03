@@ -52,3 +52,11 @@ def test_retry_delay_ignores_non_transient_errors():
     assert delay.retryable is False
     assert delay.retry_after_ms is None
     assert delay.next_retry_at is None
+
+
+def test_retry_delay_treats_transient_transport_errors_as_retryable():
+    delay = retry_delay_from_error(ProviderError("connection reset by peer"), now=100.0)
+
+    assert delay.retryable is True
+    assert delay.retry_after_ms == 1000
+    assert delay.next_retry_at == 101.0

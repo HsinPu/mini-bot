@@ -79,16 +79,18 @@ class MiniMaxLLM(LLMProvider):
             api_key: MiniMax API Key
             default_model: 預設模型名稱
         """
-        from openai import AsyncOpenAI
-        
         self.api_key = api_key
         self.default_model = default_model
-        
-        # MiniMax 使用 OpenAI 相容 API
-        self.client = AsyncOpenAI(
-            api_key=api_key,
-            base_url="https://api.minimax.io/v1"
-        )
+        self._client_kwargs = {
+            "api_key": api_key,
+            "base_url": "https://api.minimax.io/v1",
+        }
+        self.client = self._build_client()
+
+    def _build_client(self):
+        from openai import AsyncOpenAI
+
+        return AsyncOpenAI(**self._client_kwargs)
 
     async def _chat_completions_create(
         self,
@@ -347,3 +349,11 @@ class MiniMaxLLM(LLMProvider):
     
     def get_default_model(self) -> str:
         return self.default_model
+
+    def recover_after_error(self, error: BaseException) -> bool:
+        _ = error
+        try:
+            self.client = self._build_client()
+            return True
+        except Exception:
+            return False

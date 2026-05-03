@@ -70,21 +70,23 @@ class OpenRouterLLM(LLMProvider):
                 - meta-llama/llama-3.1-70b-instruct
                 - google/gemma-2-27b-instruct
         """
-        from openai import AsyncOpenAI
-        
         self.api_key = api_key
         self.default_model = default_model
-        
-        # 建立客戶端
-        self.client = AsyncOpenAI(
-            api_key=api_key,
-            base_url="https://openrouter.ai/api/v1",
+        self._client_kwargs = {
+            "api_key": api_key,
+            "base_url": "https://openrouter.ai/api/v1",
             # OpenRouter 需要這些 headers
-            default_headers={
+            "default_headers": {
                 "HTTP-Referer": "https://github.com/HsinPu/opensprite",
                 "X-Title": "OpenSprite"
-            }
-        )
+            },
+        }
+        self.client = self._build_client()
+
+    def _build_client(self):
+        from openai import AsyncOpenAI
+
+        return AsyncOpenAI(**self._client_kwargs)
     
     async def chat(
         self, 
@@ -236,3 +238,11 @@ class OpenRouterLLM(LLMProvider):
     
     def get_default_model(self) -> str:
         return self.default_model
+
+    def recover_after_error(self, error: BaseException) -> bool:
+        _ = error
+        try:
+            self.client = self._build_client()
+            return True
+        except Exception:
+            return False

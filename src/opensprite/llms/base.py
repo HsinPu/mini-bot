@@ -135,3 +135,8 @@ class LLMProvider(ABC):
             str: 模型名稱
         """
         pass
+
+    def recover_after_error(self, error: BaseException) -> bool:
+        """Best-effort hook for transient provider recovery before one retry."""
+        _ = error
+        return False
