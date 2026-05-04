@@ -208,7 +208,23 @@ setup_command_link() {
     *":$link_dir:"*) ;;
     *)
       log_warn "$link_dir is not on PATH for this shell."
-      log_info 'Add this to your shell profile: export PATH="$HOME/.local/bin:$PATH"'
+      local path_line='export PATH="$HOME/.local/bin:$PATH"'
+      local shell_config=""
+      case "$(basename "${SHELL:-bash}")" in
+        zsh) shell_config="$HOME/.zshrc" ;;
+        bash) shell_config="$HOME/.bashrc" ;;
+        *) shell_config="$HOME/.profile" ;;
+      esac
+      touch "$shell_config"
+      if ! grep -v '^[[:space:]]*#' "$shell_config" | grep -qE 'PATH=.*\.local/bin'; then
+        {
+          printf '\n'
+          printf '# OpenSprite command path\n'
+          printf '%s\n' "$path_line"
+        } >> "$shell_config"
+        log_success "Added ~/.local/bin to PATH in $shell_config"
+      fi
+      log_info "Reload your shell or run: source $shell_config"
       ;;
   esac
 }
@@ -236,6 +252,7 @@ Code: $INSTALL_DIR
 Data: $APP_HOME
 
 Commands:
+  opensprite update
   opensprite service start
   opensprite service status
   opensprite service stop

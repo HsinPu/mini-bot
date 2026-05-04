@@ -19,7 +19,7 @@ from ..cron.presentation import format_cron_timestamp, format_cron_timing, rende
 from ..runtime import gateway as run_gateway
 from ..search.base import SearchHit
 from ..storage.base import StoredMessage
-from . import service_background, service_linux
+from . import service_background, service_linux, update as update_cli
 
 app = typer.Typer(
     name="opensprite",
@@ -59,6 +59,69 @@ def main(
 ) -> None:
     """OpenSprite CLI."""
     return
+
+
+@app.command("update")
+def update_command(
+    branch: str = typer.Option(
+        "main",
+        "--branch",
+        help="Git branch to update from.",
+    ),
+    check: bool = typer.Option(
+        False,
+        "--check",
+        help="Only check whether updates are available.",
+    ),
+    dev: bool = typer.Option(
+        False,
+        "--dev",
+        help="Reinstall development dependencies.",
+    ),
+    restart: bool = typer.Option(
+        False,
+        "--restart",
+        help="Restart the background gateway after a successful update.",
+    ),
+) -> None:
+    """Update a source-checkout OpenSprite install."""
+    try:
+        if check:
+            count = update_cli.check_update_available(branch=branch)
+            if count:
+                typer.echo(f"Update available: {count} commit(s) behind origin/{branch}.")
+            else:
+                typer.echo("OpenSprite is up to date.")
+            return
+
+        typer.echo("Updating OpenSprite...")
+        result = update_cli.update_checkout(branch=branch, install_dev=dev)
+    except update_cli.UpdateError as exc:
+        typer.secho(f"Error: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+
+    if result.updated:
+        typer.echo(f"Updated {result.before_rev[:7]} -> {result.after_rev[:7]} on {result.branch}.")
+    else:
+        typer.echo(f"Already up to date on {result.branch}.")
+    typer.echo(f"Project: {result.project_root}")
+    typer.echo(f"Python: {result.python_executable}")
+
+    if restart:
+        try:
+            if _use_linux_service():
+                service_linux.restart_service()
+                typer.echo("Restarted OpenSprite service.")
+            else:
+                try:
+                    service_background.stop_service()
+                except FileNotFoundError:
+                    pass
+                status = service_background.start_service()
+                typer.echo(f"Restarted OpenSprite background gateway (PID {status.pid}).")
+                typer.echo(f"Log: {status.log_file}")
+        except (FileNotFoundError, RuntimeError) as exc:
+            _handle_service_error(exc)
 
 
 def _start_gateway(config: str | None = None) -> None:
