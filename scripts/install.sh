@@ -3,7 +3,7 @@
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/HsinPu/opensprite/main/scripts/install.sh | bash
-#   curl -fsSL https://raw.githubusercontent.com/HsinPu/opensprite/main/scripts/install.sh | bash -s -- --start
+#   curl -fsSL https://raw.githubusercontent.com/HsinPu/opensprite/main/scripts/install.sh | bash -s -- --no-start
 #
 # Installs source code into ~/.local/share/opensprite/opensprite by default
 # and links the `opensprite` command into ~/.local/bin. Runtime config/data
@@ -19,7 +19,7 @@ PYTHON_VERSION_MIN="3.11"
 NODE_MAJOR=22
 INSTALL_DEV=0
 CREATE_LINK=1
-START_SERVICE=0
+START_SERVICE=1
 INSTALL_SYSTEM_PACKAGES=1
 
 RED='\033[0;31m'
@@ -45,7 +45,8 @@ Options:
   --branch NAME    Git branch to install. Default: main
   --repo URL       Git repository URL. Default: https://github.com/HsinPu/opensprite.git
   --dev            Install development dependencies with -e ".[dev]".
-  --start          Start the background gateway after installation.
+  --start          Start the background gateway after installation. Default: enabled.
+  --no-start       Do not start the background gateway after installation.
   --no-link        Do not create ~/.local/bin/opensprite symlink.
   --no-system      Do not try to install system packages with apt.
   -h, --help       Show this help.
@@ -78,6 +79,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --start)
       START_SERVICE=1
+      shift
+      ;;
+    --no-start)
+      START_SERVICE=0
       shift
       ;;
     --no-link)
@@ -308,6 +313,7 @@ maybe_start_service() {
     return 0
   fi
   log_info "Starting OpenSprite background gateway"
+  "$INSTALL_DIR/.venv/bin/opensprite" service stop >/dev/null 2>&1 || true
   "$INSTALL_DIR/.venv/bin/opensprite" service start
   "$INSTALL_DIR/.venv/bin/opensprite" service status
 }

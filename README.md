@@ -11,16 +11,16 @@
 
 ## Linux Install
 
-一鍵安裝會把程式碼與資料分開，Python dependencies 會裝在專屬 venv，不污染 system Python。
+一鍵安裝會把程式碼與資料分開，Python dependencies 會裝在專屬 venv，不污染 system Python。安裝完成後預設會啟動或重啟背景 gateway。
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/HsinPu/opensprite/main/scripts/install.sh | bash
 ```
 
-安裝後直接啟動背景 gateway：
+如果只想安裝、不啟動 gateway：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/HsinPu/opensprite/main/scripts/install.sh | bash -s -- --start
+curl -fsSL https://raw.githubusercontent.com/HsinPu/opensprite/main/scripts/install.sh | bash -s -- --no-start
 ```
 
 預設路徑：
