@@ -330,62 +330,36 @@ class AgentTurnRunner:
         last_direct_start_step: str | None = None
         current_message = user_message.text
 
-        direct_follow_up = self._extract_follow_up_resume_request(user_message.metadata)
-        if direct_follow_up is not None:
-            workflow_result = await self._run_workflow(
-                direct_follow_up["workflow"],
-                task_intent.objective,
-                direct_follow_up["start_step"],
-            )
-            direct_result = ExecutionResult(content=workflow_result, executed_tool_calls=1)
-            delegated_task_updates = self._consume_delegated_task_updates(run_id)
-            if delegated_task_updates:
-                collected_delegated_tasks = self._merge_delegated_task_updates(
-                    collected_delegated_tasks,
-                    delegated_task_updates,
-                )
-            workflow_outcomes = self._consume_workflow_outcomes(run_id)
-            if workflow_outcomes:
-                collected_workflow_outcomes = self._merge_workflow_outcomes(
-                    collected_workflow_outcomes,
-                    workflow_outcomes,
-                )
-            if collected_delegated_tasks:
-                direct_result = self._with_delegated_tasks(direct_result, collected_delegated_tasks)
-            if collected_workflow_outcomes:
-                direct_result = self._with_workflow_outcomes(direct_result, collected_workflow_outcomes)
-            execution_results.append(direct_result)
-            current_message = self.auto_continue.build_post_workflow_resume_prompt(
-                task_intent=task_intent,
-                completion_result=CompletionGateResult(
-                    status="incomplete",
-                    reason="user requested follow-up resume",
-                    active_task_detail=direct_follow_up["detail"],
-                    follow_up_workflow=direct_follow_up["workflow"],
-                    follow_up_step_id=direct_follow_up["start_step"],
-                    follow_up_step_label=direct_follow_up["step_label"],
-                    follow_up_prompt_type=direct_follow_up["prompt_type"],
-                ),
-                previous_response=user_message.text,
-                workflow_result=workflow_result,
-            )
+        pending_direct_resume = self._extract_follow_up_resume_request(user_message.metadata)
 
         while True:
             self.turn_context.reset_work_progress()
-            exec_result = await self._call_llm(
-                turn.session_id,
-                current_message=current_message,
-                channel=turn.channel,
-                user_images=user_message.images,
-                user_image_files=turn.image_files,
-                user_audio_files=turn.audio_files,
-                user_video_files=turn.video_files,
-                external_chat_id=turn.external_chat_id,
-                emit_tool_progress=True,
-                task_intent=task_intent,
-            )
-            exec_result = self._apply_runtime_progress(exec_result, self.turn_context.snapshot_work_progress())
-            response = exec_result.content
+            direct_resume_context: dict[str, str] | None = None
+            if pending_direct_resume is not None:
+                direct_resume_context = dict(pending_direct_resume)
+                response, exec_result, collected_delegated_tasks, collected_workflow_outcomes = await self._run_direct_workflow_resume(
+                    run_id=run_id,
+                    task_intent=task_intent,
+                    direct_resume=pending_direct_resume,
+                    collected_delegated_tasks=collected_delegated_tasks,
+                    collected_workflow_outcomes=collected_workflow_outcomes,
+                )
+                pending_direct_resume = None
+            else:
+                exec_result = await self._call_llm(
+                    turn.session_id,
+                    current_message=current_message,
+                    channel=turn.channel,
+                    user_images=user_message.images,
+                    user_image_files=turn.image_files,
+                    user_audio_files=turn.audio_files,
+                    user_video_files=turn.video_files,
+                    external_chat_id=turn.external_chat_id,
+                    emit_tool_progress=True,
+                    task_intent=task_intent,
+                )
+                exec_result = self._apply_runtime_progress(exec_result, self.turn_context.snapshot_work_progress())
+                response = exec_result.content
             execution_results.append(exec_result)
 
             await self.run_trace.record_context_compaction_parts(
@@ -485,35 +459,14 @@ class AgentTurnRunner:
                 auto_continue_attempts += 1
                 last_direct_workflow = decision.direct_workflow
                 last_direct_start_step = decision.direct_start_step
-                workflow_result = await self._run_workflow(
-                    decision.direct_workflow,
-                    task_intent.objective,
-                    decision.direct_start_step,
-                )
-                direct_result = ExecutionResult(content=workflow_result, executed_tool_calls=1)
-                delegated_task_updates = self._consume_delegated_task_updates(run_id)
-                if delegated_task_updates:
-                    collected_delegated_tasks = self._merge_delegated_task_updates(
-                        collected_delegated_tasks,
-                        delegated_task_updates,
-                    )
-                workflow_outcomes = self._consume_workflow_outcomes(run_id)
-                if workflow_outcomes:
-                    collected_workflow_outcomes = self._merge_workflow_outcomes(
-                        collected_workflow_outcomes,
-                        workflow_outcomes,
-                    )
-                if collected_delegated_tasks:
-                    direct_result = self._with_delegated_tasks(direct_result, collected_delegated_tasks)
-                if collected_workflow_outcomes:
-                    direct_result = self._with_workflow_outcomes(direct_result, collected_workflow_outcomes)
-                execution_results.append(direct_result)
-                current_message = self.auto_continue.build_post_workflow_resume_prompt(
-                    task_intent=task_intent,
-                    completion_result=completion_result,
-                    previous_response=response,
-                    workflow_result=workflow_result,
-                )
+                pending_direct_resume = {
+                    "workflow": decision.direct_workflow,
+                    "start_step": decision.direct_start_step,
+                    "step_label": completion_result.follow_up_step_label or decision.direct_start_step,
+                    "prompt_type": completion_result.follow_up_prompt_type or "",
+                    "detail": completion_result.active_task_detail or "",
+                    "previous_response": response,
+                }
                 continue
             if decision.should_continue and decision.prompt:
                 await self._emit_run_event(
@@ -529,7 +482,15 @@ class AgentTurnRunner:
                     external_chat_id=turn.external_chat_id,
                 )
                 auto_continue_attempts += 1
-                current_message = decision.prompt
+                if direct_resume_context is not None:
+                    current_message = self.auto_continue.build_post_workflow_resume_prompt(
+                        task_intent=task_intent,
+                        completion_result=completion_result,
+                        previous_response=direct_resume_context.get("previous_response") or "continue",
+                        workflow_result=response,
+                    )
+                else:
+                    current_message = decision.prompt
                 continue
 
             if decision.emit_skipped_event:
@@ -646,7 +607,41 @@ class AgentTurnRunner:
             "step_label": str(payload.get("follow_up_step_label") or start_step).strip() or start_step,
             "prompt_type": str(payload.get("follow_up_prompt_type") or "").strip(),
             "detail": str(payload.get("active_task_detail") or "").strip(),
+            "previous_response": "continue",
         }
+
+    async def _run_direct_workflow_resume(
+        self,
+        *,
+        run_id: str,
+        task_intent: TaskIntent,
+        direct_resume: dict[str, str],
+        collected_delegated_tasks: tuple[StoredDelegatedTask, ...],
+        collected_workflow_outcomes: tuple[dict[str, Any], ...],
+    ) -> tuple[str, ExecutionResult, tuple[StoredDelegatedTask, ...], tuple[dict[str, Any], ...]]:
+        workflow_result = await self._run_workflow(
+            direct_resume["workflow"],
+            task_intent.objective,
+            direct_resume["start_step"],
+        )
+        direct_result = ExecutionResult(content=workflow_result, executed_tool_calls=1)
+        delegated_task_updates = self._consume_delegated_task_updates(run_id)
+        if delegated_task_updates:
+            collected_delegated_tasks = self._merge_delegated_task_updates(
+                collected_delegated_tasks,
+                delegated_task_updates,
+            )
+        workflow_outcomes = self._consume_workflow_outcomes(run_id)
+        if workflow_outcomes:
+            collected_workflow_outcomes = self._merge_workflow_outcomes(
+                collected_workflow_outcomes,
+                workflow_outcomes,
+            )
+        if collected_delegated_tasks:
+            direct_result = self._with_delegated_tasks(direct_result, collected_delegated_tasks)
+        if collected_workflow_outcomes:
+            direct_result = self._with_workflow_outcomes(direct_result, collected_workflow_outcomes)
+        return workflow_result, direct_result, collected_delegated_tasks, collected_workflow_outcomes
 
     @staticmethod
     def _with_delegated_tasks(

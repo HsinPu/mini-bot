@@ -1107,10 +1107,7 @@ def test_agent_process_auto_continue_prompt_uses_workflow_follow_up_detail(tmp_p
                         },
                     ),
                 )
-            return ExecutionResult(
-                content="Here is the resumed workflow outcome.",
-                executed_tool_calls=1,
-            )
+            raise AssertionError("LLM should not be called after a direct workflow resume already completed the task")
 
         async def fake_run_workflow(workflow, task, start_step=None):
             resumed.append((workflow, task, start_step))
@@ -1153,12 +1150,9 @@ def test_agent_process_auto_continue_prompt_uses_workflow_follow_up_detail(tmp_p
 
     response, calls, resumed, events = asyncio.run(scenario())
 
-    assert response.text == "Here is the resumed workflow outcome."
+    assert response.text == "Workflow: implement_then_review\nStatus: completed\n[2] code-reviewer | completed"
     assert resumed == [("implement_then_review", "Please implement the cleanup.", "review")]
-    assert len(calls) == 2
-    assert "The runtime already resumed the workflow follow-up step for you." in calls[1]
-    assert "Workflow follow-up target: implement_then_review -> Code review" in calls[1]
-    assert "Resumed workflow result:" in calls[1]
+    assert len(calls) == 1
     scheduled = next(event for event in events if event.event_type == "auto_continue.scheduled")
     assert scheduled.payload["direct_workflow"] == "implement_then_review"
     assert scheduled.payload["direct_start_step"] == "review"
@@ -1202,15 +1196,7 @@ def test_agent_process_can_chain_changed_workflow_follow_up_targets(tmp_path):
                         },
                     ),
                 )
-            if len(calls) == 2:
-                return ExecutionResult(
-                    content="The review found a bug that still needs a fix.",
-                    executed_tool_calls=1,
-                )
-            return ExecutionResult(
-                content="The workflow fix loop completed successfully.",
-                executed_tool_calls=1,
-            )
+            raise AssertionError("LLM should not be called after direct workflow resumes provide enough evidence")
 
         async def fake_run_workflow(workflow, task, start_step=None):
             resumed.append((workflow, task, start_step))
@@ -1274,12 +1260,12 @@ def test_agent_process_can_chain_changed_workflow_follow_up_targets(tmp_path):
 
     response, calls, resumed, events = asyncio.run(scenario())
 
-    assert response.text == "The workflow fix loop completed successfully."
+    assert response.text == "Workflow: implement_then_review\nStatus: completed\n[1] implementer | completed\n[2] code-reviewer | completed"
     assert resumed == [
         ("implement_then_review", "Please implement the cleanup.", "review"),
         ("implement_then_review", "Please implement the cleanup.", "implement"),
     ]
-    assert len(calls) == 3
+    assert len(calls) == 1
     scheduled = [event for event in events if event.event_type == "auto_continue.scheduled"]
     assert [event.payload.get("direct_start_step") for event in scheduled] == ["review", "implement"]
 
@@ -1321,7 +1307,7 @@ def test_agent_process_metadata_resume_follow_up_runs_workflow_before_llm(tmp_pa
 
         async def fake_call_llm(session_id, current_message, **kwargs):
             calls.append(current_message)
-            return ExecutionResult(content="Here is the resumed workflow outcome.", executed_tool_calls=1)
+            raise AssertionError("LLM should not be called when quick-action workflow resume already completes")
 
         async def fake_run_workflow(workflow, task, start_step=None):
             resumed.append((workflow, task, start_step))
@@ -1371,10 +1357,9 @@ def test_agent_process_metadata_resume_follow_up_runs_workflow_before_llm(tmp_pa
 
     response, calls, resumed = asyncio.run(scenario())
 
-    assert response.text == "Here is the resumed workflow outcome."
+    assert response.text == "Workflow: implement_then_review\nStatus: completed\n[2] code-reviewer | completed"
     assert resumed == [("implement_then_review", "Please implement the cleanup.", "review")]
-    assert len(calls) == 1
-    assert "The runtime already resumed the workflow follow-up step for you." in calls[0]
+    assert len(calls) == 0
 
 
 def test_agent_process_marks_active_task_done_when_completion_gate_completes(tmp_path):
