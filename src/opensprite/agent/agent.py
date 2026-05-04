@@ -40,7 +40,12 @@ from ..context.paths import (
     get_session_workspace,
 )
 from ..documents.recent_summary import RecentSummaryConsolidator, RecentSummaryStore
-from ..media import MediaRouter
+from ..media import (
+    MediaRouter,
+    OpenAICompatibleImageProvider,
+    OpenAICompatibleSpeechProvider,
+    OpenAICompatibleVideoProvider,
+)
 from ..documents.user_profile import UserProfileConsolidator, create_user_profile_store
 from ..documents.user_overlay import UserOverlayIndexStore, UserOverlayPromotionService, UserOverlayStore
 from ..search.base import SearchStore
@@ -1292,6 +1297,43 @@ class AgentLoop:
             "model": provider.get_default_model(),
             "configured": self.llm_configured,
             "context_window_tokens": self.llm_context_window_tokens,
+        }
+
+    def reload_media_from_config(self, config: Config) -> dict[str, Any]:
+        """Reload media analysis providers from an already persisted Config."""
+        vision = getattr(config, "vision", None)
+        speech = getattr(config, "speech", None)
+        video = getattr(config, "video", None)
+
+        if self.media_router is None:
+            self.media_router = MediaRouter()
+
+        self.media_router.image_provider = OpenAICompatibleImageProvider(
+            api_key=vision.api_key,
+            default_model=vision.model,
+            base_url=vision.base_url,
+        ) if vision and vision.enabled else None
+        self.media_router.speech_provider = OpenAICompatibleSpeechProvider(
+            api_key=speech.api_key,
+            default_model=speech.model,
+            base_url=speech.base_url,
+        ) if speech and speech.enabled else None
+        self.media_router.video_provider = OpenAICompatibleVideoProvider(
+            api_key=video.api_key,
+            default_model=video.model,
+            base_url=video.base_url,
+        ) if video and video.enabled else None
+
+        logger.info(
+            "Media runtime reloaded | vision={} speech={} video={}",
+            bool(self.media_router.image_provider),
+            bool(self.media_router.speech_provider),
+            bool(self.media_router.video_provider),
+        )
+        return {
+            "vision_enabled": bool(self.media_router.image_provider),
+            "speech_enabled": bool(self.media_router.speech_provider),
+            "video_enabled": bool(self.media_router.video_provider),
         }
 
     def _get_current_session_id(self) -> str | None:

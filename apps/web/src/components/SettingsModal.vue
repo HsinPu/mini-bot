@@ -394,38 +394,42 @@
             </div>
           </div>
 
-          <div
-            v-for="provider in settingsState.models.providers"
-            :key="provider.id"
-            class="settings-card model-provider-card"
-          >
+          <div v-if="selectedTextProvider" class="settings-card model-provider-card">
             <div class="model-provider-card__header">
               <div class="provider-row__main">
-                <span class="provider-row__mark" aria-hidden="true">{{ provider.name.slice(0, 2) }}</span>
+                <span class="provider-row__mark" aria-hidden="true">{{ selectedTextProvider.name.slice(0, 2) }}</span>
                 <div>
                   <div class="provider-row__title">
-                    <strong>{{ provider.name }}</strong>
-                    <span v-if="provider.is_default" class="provider-row__badge">{{ copy.settings.models.currentBadge }}</span>
+                    <strong>{{ selectedTextProvider.name }}</strong>
+                    <span v-if="selectedTextProvider.is_default" class="provider-row__badge">{{ copy.settings.models.currentBadge }}</span>
                   </div>
-                  <span>{{ provider.selected_model || copy.settings.models.noModel }}</span>
+                  <span>{{ selectedTextProvider.selected_model || copy.settings.models.noModel }}</span>
                 </div>
               </div>
             </div>
 
             <div class="model-select-row">
               <label>
+                <span>{{ copy.settings.models.providerChoice }}</span>
+                <select v-model="settingsState.selectedTextProviderId" :disabled="settingsState.modelsLoading">
+                  <option v-for="provider in settingsState.models.providers" :key="provider.id" :value="provider.id">
+                    {{ provider.name }}{{ provider.is_default ? ` (${copy.settings.models.active})` : '' }}
+                  </option>
+                </select>
+              </label>
+              <label>
                 <span>{{ copy.settings.models.modelChoice }}</span>
-                <select v-model="settingsState.modelSelections[provider.id]" :disabled="settingsState.modelsLoading">
-                  <option v-for="model in provider.models" :key="`${provider.id}:${model}`" :value="model">
-                    {{ model }}{{ provider.is_default && provider.selected_model === model ? ` (${copy.settings.models.active})` : '' }}
+                <select v-model="settingsState.modelSelections[selectedTextProvider.id]" :disabled="settingsState.modelsLoading">
+                  <option v-for="model in textProviderModels" :key="`${selectedTextProvider.id}:${model}`" :value="model">
+                    {{ model }}{{ selectedTextProvider.is_default && selectedTextProvider.selected_model === model ? ` (${copy.settings.models.active})` : '' }}
                   </option>
                 </select>
               </label>
               <button
                 class="secondary-button"
                 type="button"
-                :disabled="settingsState.modelsLoading || !settingsState.modelSelections[provider.id]"
-                @click="$emit('select-model', provider.id, settingsState.modelSelections[provider.id])"
+                :disabled="settingsState.modelsLoading || !settingsState.modelSelections[selectedTextProvider.id]"
+                @click="$emit('select-model', selectedTextProvider.id, settingsState.modelSelections[selectedTextProvider.id])"
               >
                 {{ copy.settings.models.select }}
               </button>
@@ -435,7 +439,7 @@
               <label>
                 <span>{{ copy.settings.models.customModel }}</span>
                 <input
-                  v-model="settingsState.customModels[provider.id]"
+                  v-model="settingsState.customModels[selectedTextProvider.id]"
                   type="text"
                   :placeholder="copy.settings.models.customPlaceholder"
                   spellcheck="false"
@@ -445,7 +449,7 @@
                 class="secondary-button"
                 type="button"
                 :disabled="settingsState.modelsLoading"
-                @click="$emit('select-model', provider.id, settingsState.customModels[provider.id])"
+                @click="$emit('select-model', selectedTextProvider.id, settingsState.customModels[selectedTextProvider.id])"
               >
                 {{ copy.settings.models.useCustom }}
               </button>
@@ -1212,6 +1216,23 @@ const mediaModelCategories = computed(() => [
     description: props.copy.settings.models.mediaCategories.video.description,
   },
 ]);
+
+const selectedTextProvider = computed(() => {
+  const providerId = props.settingsState.selectedTextProviderId;
+  return props.settingsState.models.providers.find((provider) => provider.id === providerId) || null;
+});
+
+const textProviderModels = computed(() => {
+  if (!selectedTextProvider.value) {
+    return [];
+  }
+  const models = Array.isArray(selectedTextProvider.value.models) ? [...selectedTextProvider.value.models] : [];
+  const selected = String(props.settingsState.modelSelections[selectedTextProvider.value.id] || "").trim();
+  if (selected && !models.includes(selected)) {
+    models.unshift(selected);
+  }
+  return models;
+});
 
 function mediaProviderModels(category) {
   const providerId = props.settingsState.mediaSelections[category]?.providerId;

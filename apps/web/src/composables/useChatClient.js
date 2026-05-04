@@ -1391,6 +1391,7 @@ export function useChatClient() {
       active_model: "",
       providers: [],
     },
+    selectedTextProviderId: "",
     modelSelections: {},
     customModels: {},
     mediaLoading: false,
@@ -3348,6 +3349,13 @@ export function useChatClient() {
       ]);
       settingsState.models = models;
       settingsState.media = normalizeMediaSettings(media);
+      if (
+        !settingsState.selectedTextProviderId ||
+        !(settingsState.models.providers || []).some((provider) => provider.id === settingsState.selectedTextProviderId)
+      ) {
+        const activeProvider = (settingsState.models.providers || []).find((provider) => provider.is_default);
+        settingsState.selectedTextProviderId = activeProvider?.id || settingsState.models.providers?.[0]?.id || "";
+      }
       for (const provider of settingsState.models.providers || []) {
         const selectedModel = provider.selected_model || provider.models?.[0] || "";
         settingsState.modelSelections[provider.id] = selectedModel;

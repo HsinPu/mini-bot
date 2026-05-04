@@ -428,6 +428,31 @@ class WebAdapter(MessageAdapter):
         }
         return updated
 
+    def _reload_media_from_config(self, payload: dict[str, Any], *, force: bool = False) -> dict[str, Any]:
+        """Hot-apply persisted media settings to the running agent when possible."""
+        if not force and not payload.get("restart_required"):
+            return payload
+
+        updated = dict(payload)
+        agent = self._get_agent()
+        reload_media = getattr(agent, "reload_media_from_config", None) if agent is not None else None
+        if not callable(reload_media):
+            updated["runtime_reloaded"] = False
+            return updated
+
+        try:
+            runtime = reload_media(Config.load(self._get_config_path()))
+        except Exception as exc:
+            logger.warning("Media runtime reload failed after settings change: {}", exc)
+            updated["runtime_reloaded"] = False
+            updated["reload_error"] = str(exc)
+            return updated
+
+        updated["restart_required"] = False
+        updated["runtime_reloaded"] = True
+        updated["runtime"] = self._json_safe(runtime)
+        return updated
+
     async def _reload_mcp_from_config(self, payload: dict[str, Any], *, force: bool = False) -> dict[str, Any]:
         """Hot-apply persisted MCP settings to the running agent when possible."""
         if not force and not payload.get("restart_required"):
@@ -1095,6 +1120,7 @@ class WebAdapter(MessageAdapter):
             )
         except ProviderSettingsError as exc:
             self._raise_provider_settings_error(exc)
+        payload = self._reload_media_from_config(payload)
         return web.json_response(payload)
 
     async def _handle_settings_model_select(self, request: web.Request) -> web.Response:
