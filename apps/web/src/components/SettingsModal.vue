@@ -10,7 +10,7 @@
     <section class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
       <aside class="settings-nav" aria-label="Settings sections">
         <div class="settings-nav__group">
-          <p>{{ copy.settings.desktop }}</p>
+          <p>{{ copy.settings.web }}</p>
           <button
             class="settings-nav__item"
             :class="{ 'settings-nav__item--active': section === 'general' }"
@@ -187,6 +187,14 @@
               </select>
             </div>
           </div>
+
+          <CuratorCard
+            :copy="copy"
+            :state="curatorState"
+            :status="curatorStatus"
+            @refresh-curator="$emit('refresh-curator')"
+            @run-curator-action="$emit('run-curator-action', $event)"
+          />
         </section>
 
         <section v-show="section === 'shortcuts'" class="settings-page">
@@ -994,6 +1002,7 @@
 
 <script setup>
 import { computed } from "vue";
+import CuratorCard from "./CuratorCard.vue";
 
 const props = defineProps({
   copy: {
@@ -1023,6 +1032,14 @@ const props = defineProps({
   connectionState: {
     type: String,
     required: true,
+  },
+  curatorState: {
+    type: Object,
+    required: true,
+  },
+  curatorStatus: {
+    type: Object,
+    default: null,
   },
 });
 
@@ -1167,6 +1184,8 @@ defineEmits([
   "toggle-mcp-tool-group",
   "apply-mcp-json",
   "save-schedule-settings",
+  "refresh-curator",
+  "run-curator-action",
   "begin-cron-job-create",
   "save-cron-job",
   "edit-cron-job",

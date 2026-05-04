@@ -48,192 +48,29 @@
           @run-verification="$emit('run-verification', $event)"
         />
 
-        <section v-if="permissionRequests.length || permissionState.loading || permissionState.error" class="permission-panel" aria-live="polite">
-          <div class="permission-panel__header">
-            <div>
-              <span>{{ copy.permissions.eyebrow }}</span>
-              <strong>{{ copy.permissions.title }}</strong>
-            </div>
-            <small v-if="permissionState.loading">{{ copy.permissions.loading }}</small>
-          </div>
-
-          <p v-if="permissionState.error" class="permission-panel__error">{{ permissionState.error }}</p>
-
-          <article v-for="request in permissionRequests" :key="request.requestId" class="permission-card">
-            <div class="permission-card__body">
-              <strong>{{ request.toolName }}</strong>
-              <p>{{ request.reason || copy.permissions.noReason }}</p>
-              <dl class="permission-card__meta">
-                <div v-if="request.actionType">
-                  <dt>{{ copy.permissions.actionType }}</dt>
-                  <dd>{{ request.actionType }}</dd>
-                </div>
-                <div v-if="request.riskLevel">
-                  <dt>{{ copy.permissions.riskLevel }}</dt>
-                  <dd>{{ request.riskLevel }}</dd>
-                </div>
-                <div v-if="request.resource">
-                  <dt>{{ copy.permissions.resource }}</dt>
-                  <dd>{{ request.resource }}</dd>
-                </div>
-                <div v-if="request.preview">
-                  <dt>{{ copy.permissions.preview }}</dt>
-                  <dd>{{ request.preview }}</dd>
-                </div>
-              </dl>
-              <code>{{ request.requestId }}</code>
-            </div>
-            <div class="permission-card__actions">
-              <button
-                class="secondary-button"
-                type="button"
-                :disabled="Boolean(permissionState.resolvingIds[request.requestId])"
-                @click="$emit('resolve-permission', request, 'deny')"
-              >
-                {{ copy.permissions.deny }}
-              </button>
-              <button
-                class="primary-button"
-                type="button"
-                :disabled="Boolean(permissionState.resolvingIds[request.requestId])"
-                @click="$emit('resolve-permission', request, 'approve')"
-              >
-                {{ permissionState.resolvingIds[request.requestId] ? copy.permissions.resolving : copy.permissions.approve }}
-              </button>
-            </div>
-          </article>
-        </section>
-
-        <section v-if="runs.length > 1 || runsLoading || runsError" class="run-history" aria-live="polite">
-          <div class="run-history__title">
-            <span>{{ copy.runHistory.title }}</span>
-            <small v-if="runsLoading">{{ copy.runHistory.loading }}</small>
-            <small v-else-if="runsError">{{ copy.runHistory.unavailable }}</small>
-          </div>
-
-          <label v-if="runs.length" class="run-history__select">
-            <span class="sr-only">{{ copy.runHistory.select }}</span>
-            <select :value="currentRun?.runId || ''" @change="$emit('select-run', $event.target.value)">
-              <option v-for="(run, index) in runs" :key="run.runId" :value="run.runId">
-                {{ runOptionLabel(run, index) }}
-              </option>
-            </select>
-          </label>
-        </section>
-
-        <section class="curator-card" aria-live="polite">
-          <div class="curator-card__header">
-            <div>
-              <span>{{ copy.curator.eyebrow }}</span>
-              <strong>{{ copy.curator.title }}</strong>
-            </div>
-            <button class="ghost-button" type="button" :disabled="curatorState.loading" @click="$emit('refresh-curator')">
-              {{ curatorState.loading ? copy.curator.loading : copy.curator.refresh }}
-            </button>
-          </div>
-
-          <p v-if="curatorState.error" class="curator-card__error">{{ curatorState.error }}</p>
-          <dl class="curator-card__grid">
-            <div>
-              <dt>{{ copy.curator.state }}</dt>
-              <dd>{{ curatorStatus?.state || copy.curator.unknown }}</dd>
-            </div>
-            <div>
-              <dt>{{ copy.curator.paused }}</dt>
-              <dd>{{ curatorStatus?.paused ? copy.curator.yes : copy.curator.no }}</dd>
-            </div>
-            <div>
-              <dt>{{ copy.curator.currentJob }}</dt>
-              <dd :title="currentCuratorJobLabel">{{ currentCuratorJobLabel }}</dd>
-            </div>
-            <div>
-              <dt>{{ copy.curator.runCount }}</dt>
-              <dd>{{ curatorStatus?.run_count || 0 }}</dd>
-            </div>
-            <div>
-              <dt>{{ copy.curator.lastRun }}</dt>
-              <dd>{{ curatorStatus?.last_run_at || copy.curator.never }}</dd>
-            </div>
-            <div>
-              <dt>{{ copy.curator.lastJobs }}</dt>
-              <dd :title="lastCuratorJobsLabel">{{ lastCuratorJobsLabel }}</dd>
-            </div>
-            <div>
-              <dt>{{ copy.curator.lastChanged }}</dt>
-              <dd :title="lastCuratorChangedLabel">{{ lastCuratorChangedLabel }}</dd>
-            </div>
-          </dl>
-          <p class="curator-card__summary">
-            {{ curatorStatus?.last_run_summary || copy.curator.noSummary }}
-          </p>
-          <p v-if="curatorStatus?.last_error" class="curator-card__error">{{ copy.curator.lastError }}: {{ curatorStatus.last_error }}</p>
-          <label class="curator-card__scope">
-            <span>{{ copy.curator.scope }}</span>
-            <select v-model="selectedCuratorScope" :disabled="Boolean(curatorState.action || curatorState.loading)">
-              <option v-for="option in curatorScopeOptions" :key="option.value" :value="option.value">
-                {{ option.label }}
-              </option>
-            </select>
-          </label>
-          <div class="curator-card__actions">
-            <button
-              class="secondary-button"
-              type="button"
-              :disabled="curatorActionsDisabled"
-              @click="$emit('run-curator-action', { action: 'run', scope: selectedCuratorScope === 'all' ? '' : selectedCuratorScope })"
-            >
-              {{ curatorState.action === 'run' ? copy.curator.running : copy.curator.run }}
-            </button>
-            <button class="secondary-button" type="button" :disabled="curatorActionsDisabled || curatorStatus?.paused" @click="$emit('run-curator-action', 'pause')">
-              {{ curatorState.action === 'pause' ? copy.curator.pausing : copy.curator.pause }}
-            </button>
-            <button class="secondary-button" type="button" :disabled="curatorActionsDisabled || !curatorStatus?.paused" @click="$emit('run-curator-action', 'resume')">
-              {{ curatorState.action === 'resume' ? copy.curator.resuming : copy.curator.resume }}
-            </button>
-          </div>
-          <section class="curator-card__history" aria-live="polite">
-            <div class="curator-card__history-head">
-              <strong>{{ copy.curator.historyTitle }}</strong>
-              <small v-if="curatorState.historyLoading">{{ copy.curator.historyLoading }}</small>
-            </div>
-            <div v-if="curatorHistoryEntries.length" class="curator-card__history-list">
-              <article v-for="entry in curatorHistoryEntries" :key="entry.key" class="curator-card__history-entry">
-                <div class="curator-card__history-meta">
-                  <strong>{{ entry.runAt }}</strong>
-                  <span>{{ entry.statusLabel }}</span>
-                </div>
-                <p>{{ entry.summary }}</p>
-                <small>{{ copy.curator.lastJobs }}: {{ entry.jobs }}</small>
-                <small v-if="entry.changed">{{ copy.curator.lastChanged }}: {{ entry.changed }}</small>
-                <small v-if="entry.error">{{ copy.curator.lastError }}: {{ entry.error }}</small>
-              </article>
-            </div>
-            <p v-else class="curator-card__history-empty">{{ curatorState.historyError || copy.curator.historyEmpty }}</p>
-          </section>
-        </section>
-
-        <RunSummaryCard
-          v-if="showRunSummary && currentRun && (currentRun.summary || currentRun.summaryLoading || currentRun.summaryError)"
+        <PermissionPanel
           :copy="copy"
-          :run="currentRun"
-          @inspect-file="selectedFileChange = $event"
+          :state="permissionState"
+          :requests="permissionRequests"
+          @resolve-permission="forwardPermissionResolution"
+        />
+
+        <RunDetailsPanel
+          :copy="copy"
+          :runs="runs"
+          :runs-loading="runsLoading"
+          :runs-error="runsError"
+          :current-run="currentRun"
+          :run-timeline="runTimeline"
+          :run-summary="runSummary"
+          :show-run-timeline="showRunTimeline"
+          :show-run-summary="showRunSummary"
+          :show-run-trace="showRunTrace"
+          @select-run="$emit('select-run', $event)"
+          @cancel-run="$emit('cancel-run', $event)"
           @cleanup-worktree="$emit('cleanup-worktree', $event)"
           @resume-follow-up="$emit('resume-follow-up', $event)"
-        />
-
-        <RunTimeline
-          v-if="showRunTimeline && runSummary"
-          :copy="copy"
-          :summary="runSummary"
-          :events="runTimeline"
-        />
-
-        <RunTraceViewer
-          v-if="showRunTrace && currentRun"
-          :copy="copy"
-          :run="currentRun"
-          @cancel-run="$emit('cancel-run', $event)"
-          @inspect-file="selectedFileChange = $event"
+          @revert-file-change="forwardRunFileRevert"
         />
       </div>
     </section>
@@ -253,27 +90,15 @@
       @apply-command-hint="$emit('apply-command-hint', $event)"
     />
 
-    <RunFileChangeDrawer
-      v-if="currentRun && selectedFileChange"
-      :copy="copy"
-      :run="currentRun"
-      :change="selectedFileChange"
-      @close="selectedFileChange = null"
-      @revert-file-change="$emit('revert-file-change', currentRun, $event)"
-    />
   </main>
 </template>
 
 <script setup>
-import { computed, ref, watch } from "vue";
-
 import ChatComposer from "./ChatComposer.vue";
 import EmptyState from "./EmptyState.vue";
 import MessageList from "./MessageList.vue";
-import RunFileChangeDrawer from "./RunFileChangeDrawer.vue";
-import RunSummaryCard from "./RunSummaryCard.vue";
-import RunTimeline from "./RunTimeline.vue";
-import RunTraceViewer from "./RunTraceViewer.vue";
+import PermissionPanel from "./PermissionPanel.vue";
+import RunDetailsPanel from "./RunDetailsPanel.vue";
 import WorkStateCard from "./WorkStateCard.vue";
 
 const props = defineProps({
@@ -328,14 +153,6 @@ const props = defineProps({
   permissionRequests: {
     type: Array,
     required: true,
-  },
-  curatorState: {
-    type: Object,
-    required: true,
-  },
-  curatorStatus: {
-    type: Object,
-    default: null,
   },
   showRunTimeline: {
     type: Boolean,
@@ -407,7 +224,7 @@ const props = defineProps({
   },
 });
 
-defineEmits([
+const emit = defineEmits([
   "connect",
   "apply-prompt",
   "update-message-text",
@@ -421,76 +238,14 @@ defineEmits([
   "cleanup-worktree",
   "resume-follow-up",
   "run-verification",
-  "refresh-curator",
-  "run-curator-action",
   "select-run",
 ]);
 
-const selectedFileChange = ref(null);
-const selectedCuratorScope = ref("all");
-const curatorActionsDisabled = computed(() => {
-  return Boolean(props.curatorState.action || props.curatorState.loading || props.curatorState.error || !props.curatorStatus);
-});
-const curatorScopeOptions = computed(() => {
-  const labels = props.copy.curator.scopes || {};
-  return [
-    { value: "all", label: labels.all || "all" },
-    { value: "maintenance", label: labels.maintenance || "maintenance" },
-    { value: "skills", label: labels.skills || "skills" },
-    { value: "memory", label: labels.memory || "memory" },
-    { value: "recent_summary", label: labels.recent_summary || "recent_summary" },
-    { value: "user_profile", label: labels.user_profile || "user_profile" },
-    { value: "active_task", label: labels.active_task || "active_task" },
-  ];
-});
-const currentCuratorJobLabel = computed(() => {
-  return String(props.curatorStatus?.current_job_label || props.curatorStatus?.current_job || "").trim() || props.copy.curator.none;
-});
-const lastCuratorJobsLabel = computed(() => {
-  const jobs = Array.isArray(props.curatorStatus?.last_run_jobs) ? props.curatorStatus.last_run_jobs : [];
-  return jobs.length ? jobs.join(", ") : props.copy.curator.none;
-});
-const lastCuratorChangedLabel = computed(() => {
-  const changed = Array.isArray(props.curatorStatus?.last_run_changed) ? props.curatorStatus.last_run_changed : [];
-  return changed.length ? changed.join(", ") : props.copy.curator.none;
-});
-const curatorHistoryEntries = computed(() => {
-  const entries = Array.isArray(props.curatorState.history) ? props.curatorState.history : [];
-  return entries.map((entry, index) => ({
-    key: `${entry.run_id || 'history'}:${entry.run_at || index}:${index}`,
-    runAt: formatCuratorHistoryTime(entry.run_at),
-    statusLabel: props.copy.run.statusLabels[String(entry.status || '').trim()] || String(entry.status || props.copy.curator.unknown),
-    summary: String(entry.summary || '').trim() || props.copy.curator.noSummary,
-    jobs: Array.isArray(entry.jobs) && entry.jobs.length ? entry.jobs.join(", ") : props.copy.curator.none,
-    changed: Array.isArray(entry.changed) && entry.changed.length ? entry.changed.join(", ") : "",
-    error: String(entry.error || '').trim(),
-  }));
-});
-
-watch(
-  () => props.currentRun?.runId,
-  () => {
-    selectedFileChange.value = null;
-  },
-);
-
-function shortRunId(runId) {
-  const normalized = String(runId || "run").replace(/^run[_-]?/, "");
-  return normalized.length > 8 ? normalized.slice(0, 8) : normalized;
+function forwardPermissionResolution(request, decision) {
+  emit("resolve-permission", request, decision);
 }
 
-function formatCuratorHistoryTime(value) {
-  const normalized = String(value || "").trim();
-  const date = new Date(normalized);
-  if (!normalized || Number.isNaN(date.getTime())) {
-    return normalized || props.copy.curator.unknown;
-  }
-  return date.toLocaleString();
-}
-
-function runOptionLabel(run, index) {
-  const statusLabel = props.copy.run.statusLabels[run.status] || run.status;
-  const prefix = index === 0 ? props.copy.runHistory.latest : `#${index + 1}`;
-  return `${prefix} · Run ${shortRunId(run.runId)} · ${statusLabel}`;
+function forwardRunFileRevert(run, change) {
+  emit("revert-file-change", run, change);
 }
 </script>

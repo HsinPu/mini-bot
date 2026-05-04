@@ -39,8 +39,6 @@
       :run-summary="currentRunSummary"
       :permission-state="permissionState"
       :permission-requests="currentPermissionRequests"
-      :curator-state="curatorState"
-      :curator-status="currentCuratorStatus"
       :show-run-timeline="state.showRunTimeline"
       :show-run-summary="state.showRunSummary"
       :show-run-trace="state.showRunTrace"
@@ -71,8 +69,6 @@
       @cleanup-worktree="cleanupWorktreeSandbox"
       @resume-follow-up="resumeFollowUp"
       @run-verification="runVerification"
-      @refresh-curator="refreshCuratorState"
-      @run-curator-action="runCuratorAction"
       @select-run="selectRun"
     />
   </div>
@@ -85,6 +81,8 @@
     :form="settingsForm"
     :settings-state="settingsState"
     :connection-state="state.connectionState"
+    :curator-state="curatorState"
+    :curator-status="currentCuratorStatus"
     @close="closeSettings"
     @select-section="selectSettingsSection"
     @save-connection-settings="saveConnectionSettings"
@@ -114,6 +112,8 @@
     @edit-cron-job="beginCronJobEdit"
     @cancel-cron-job-edit="cancelCronJobEdit"
     @cron-job-action="runCronJobAction"
+    @refresh-curator="refreshCuratorState"
+    @run-curator-action="runCuratorAction"
   />
 </template>
 

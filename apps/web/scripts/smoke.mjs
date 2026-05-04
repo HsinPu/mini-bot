@@ -20,12 +20,14 @@ function assertRegex(content, pattern, label) {
   }
 }
 
-const [messageList, runSummaryCard, runTraceViewer, chatComposer, chatPanel, chatClient, copy] = await Promise.all([
+const [messageList, runSummaryCard, runTraceViewer, runDetailsPanel, chatComposer, curatorCard, settingsModal, chatClient, copy] = await Promise.all([
   read("src/components/MessageList.vue"),
   read("src/components/RunSummaryCard.vue"),
   read("src/components/RunTraceViewer.vue"),
+  read("src/components/RunDetailsPanel.vue"),
   read("src/components/ChatComposer.vue"),
-  read("src/components/ChatPanel.vue"),
+  read("src/components/CuratorCard.vue"),
+  read("src/components/SettingsModal.vue"),
   read("src/composables/useChatClient.js"),
   read("src/i18n/copy.js"),
 ]);
@@ -36,9 +38,12 @@ assertIncludes(runSummaryCard, "visibleDiffPathItems", "diff summary file links"
 assertIncludes(runSummaryCard, "cleanup-worktree", "worktree cleanup action");
 assertIncludes(runTraceViewer, "codeNavigationResults", "code navigation trace rendering");
 assertIncludes(runTraceViewer, "showRetentionSummary", "trace retention summary");
+assertIncludes(runDetailsPanel, "RunHistorySelector", "run details history selector");
+assertIncludes(runDetailsPanel, "RunFileChangeDrawer", "run details file drawer");
 assertIncludes(chatComposer, "composer__commands", "slash command hints rendering");
-assertIncludes(chatPanel, "curator-card__scope", "curator scope selector rendering");
-assertIncludes(chatPanel, "curator-card__history", "curator history rendering");
+assertIncludes(curatorCard, "curator-card__scope", "curator scope selector rendering");
+assertIncludes(curatorCard, "curator-card__history", "curator history rendering");
+assertIncludes(settingsModal, "CuratorCard", "curator settings placement");
 assertIncludes(chatClient, "/api/commands", "command catalog fetch");
 assertIncludes(chatClient, "/api/curator/status", "curator status fetch");
 assertIncludes(chatClient, "/api/curator/history", "curator history fetch");

@@ -493,7 +493,7 @@ export const DISPLAY_COPY = {
       },
     },
     settings: {
-      desktop: "桌面",
+      web: "網頁",
       server: "伺服器",
       close: "關閉",
       closeAria: "關閉設定",
@@ -1287,7 +1287,7 @@ export const DISPLAY_COPY = {
       },
     },
     settings: {
-      desktop: "Desktop",
+      web: "Web",
       server: "Server",
       close: "Close",
       closeAria: "Close settings",
