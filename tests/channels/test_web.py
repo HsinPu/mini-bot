@@ -931,6 +931,16 @@ async def _run_web_sessions_api():
                 ),
             ),
             resume_hint="Continue with frontend validation.",
+            metadata={
+                "follow_up_workflow": "implement_then_review",
+                "follow_up_step_id": "review",
+                "follow_up_step_label": "Code review",
+                "follow_up_prompt_type": "code-reviewer",
+                "verification_action": "pytest",
+                "verification_path": ".",
+                "verification_pytest_args": ["tests/test_ui.py::test_card"],
+                "active_task_detail": "Resume with the Code review step in implement_then_review.",
+            },
             created_at=190.0,
             updated_at=201.0,
         )
@@ -1091,6 +1101,14 @@ async def _run_web_sessions_api():
             "touched_paths": ["apps/web/src/App.vue"],
             "verification_attempted": True,
             "verification_passed": False,
+            "follow_up_workflow": "implement_then_review",
+            "follow_up_step_id": "review",
+            "follow_up_step_label": "Code review",
+            "follow_up_prompt_type": "code-reviewer",
+            "verification_action": "pytest",
+            "verification_path": ".",
+            "verification_pytest_args": ["tests/test_ui.py::test_card"],
+            "active_task_detail": "Resume with the Code review step in implement_then_review.",
             "last_next_action": "",
             "delegated_tasks": [
                 {
@@ -1109,7 +1127,16 @@ async def _run_web_sessions_api():
             ],
             "active_delegate_task_id": "task_abc12345",
             "active_delegate_prompt_type": "implementer",
-            "metadata": {},
+            "metadata": {
+                "follow_up_workflow": "implement_then_review",
+                "follow_up_step_id": "review",
+                "follow_up_step_label": "Code review",
+                "follow_up_prompt_type": "code-reviewer",
+                "verification_action": "pytest",
+                "verification_path": ".",
+                "verification_pytest_args": ["tests/test_ui.py::test_card"],
+                "active_task_detail": "Resume with the Code review step in implement_then_review.",
+            },
             "todos": [
                 {
                     "id": "task:1",

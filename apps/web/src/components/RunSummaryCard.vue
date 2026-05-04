@@ -215,6 +215,11 @@
           </button>
         </div>
 
+        <div v-if="automationDetail" class="run-summary-card__note">
+          <strong>{{ copy.runSummary.automation }}</strong>
+          <span>{{ automationDetail }}</span>
+        </div>
+
         <div v-if="summary.warnings.length" class="run-summary-card__note" data-tone="warning">
           <strong>{{ copy.runSummary.warnings }}</strong>
           <span>{{ warningLabels.join(", ") }}</span>
@@ -476,6 +481,12 @@ const followUpTargetText = computed(() => {
 const followUpPromptText = computed(() => {
   const { promptType } = followUpTarget.value;
   return promptType ? props.copy.runSummary.followUpPromptType(promptType) : "";
+});
+
+const automationDetail = computed(() => {
+  const events = Array.isArray(props.run?.events) ? props.run.events : [];
+  const latest = [...events].reverse().find((event) => String(event?.eventType || "").startsWith("auto_continue."));
+  return latest?.detail || "";
 });
 
 const resumeFollowUpMessage = computed(() => {

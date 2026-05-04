@@ -332,7 +332,7 @@ class AgentTurnRunner:
         auto_continue_attempts = 0
         last_direct_workflow: str | None = None
         last_direct_start_step: str | None = None
-        pending_direct_verify: dict[str, Any] | None = None
+        pending_direct_verify: dict[str, Any] | None = self._extract_direct_verify_request(user_message.metadata)
         current_message = user_message.text
 
         pending_direct_resume = self._extract_follow_up_resume_request(user_message.metadata)
@@ -639,6 +639,26 @@ class AgentTurnRunner:
             "prompt_type": str(payload.get("follow_up_prompt_type") or "").strip(),
             "detail": str(payload.get("active_task_detail") or "").strip(),
             "previous_response": "continue",
+        }
+
+    @staticmethod
+    def _extract_direct_verify_request(metadata: dict[str, Any] | None) -> dict[str, Any] | None:
+        payload = dict(metadata or {}) if isinstance(metadata, dict) else {}
+        if str(payload.get("quick_action") or "").strip() != "run_verification":
+            return None
+        action = str(payload.get("verification_action") or "").strip()
+        if not action:
+            return None
+        path = str(payload.get("verification_path") or ".").strip() or "."
+        pytest_args = tuple(
+            str(item or "").strip()
+            for item in (payload.get("verification_pytest_args") or payload.get("verificationPytestArgs") or ())
+            if str(item or "").strip()
+        )
+        return {
+            "action": action,
+            "path": path,
+            "pytest_args": pytest_args,
         }
 
     async def _run_direct_workflow_resume(

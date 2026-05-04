@@ -35,6 +35,22 @@
     <div v-else-if="workState.resumeHint" class="work-state-card__note">
       <strong>{{ copy.workState.resumeHint }}</strong>
       <span>{{ workState.resumeHint }}</span>
+      <button
+        v-if="resumeFollowUpMessage"
+        class="run-summary-card__copy"
+        type="button"
+        @click="$emit('resume-follow-up', resumeFollowUpMessage)"
+      >
+        {{ copy.workState.resumeFollowUp }}
+      </button>
+      <button
+        v-if="runVerificationMessage"
+        class="run-summary-card__copy"
+        type="button"
+        @click="$emit('run-verification', runVerificationMessage)"
+      >
+        {{ copy.workState.runVerification }}
+      </button>
     </div>
 
     <div v-if="delegatedTaskCount" class="work-state-card__note">
@@ -65,6 +81,8 @@ const props = defineProps({
     required: true,
   },
 });
+
+defineEmits(["resume-follow-up", "run-verification"]);
 
 const statusLabel = computed(() => {
   return props.copy.workState.statusLabels[props.workState.status] || props.workState.status;
@@ -149,6 +167,48 @@ const visibleTouchedPaths = computed(() => props.workState.touchedPaths.slice(0,
 
 const hiddenTouchedPathCount = computed(() => {
   return Math.max(0, props.workState.touchedPaths.length - visibleTouchedPaths.value.length);
+});
+
+const followUpTargetText = computed(() => {
+  const workflow = String(props.workState.followUpWorkflow || "").trim();
+  const stepLabel = String(props.workState.followUpStepLabel || props.workState.followUpStepId || "").trim();
+  if (workflow && stepLabel) {
+    return `${workflow} -> ${stepLabel}`;
+  }
+  return workflow || stepLabel;
+});
+
+const resumeFollowUpMessage = computed(() => {
+  if (!followUpTargetText.value) {
+    return null;
+  }
+  return {
+    text: "continue",
+    metadata: {
+      quick_action: "resume_follow_up",
+      follow_up_workflow: props.workState.followUpWorkflow,
+      follow_up_step_id: props.workState.followUpStepId,
+      follow_up_step_label: props.workState.followUpStepLabel,
+      follow_up_prompt_type: props.workState.followUpPromptType,
+      active_task_detail: props.workState.activeTaskDetail,
+    },
+  };
+});
+
+const runVerificationMessage = computed(() => {
+  const action = String(props.workState.verificationAction || "").trim();
+  if (!action) {
+    return null;
+  }
+  return {
+    text: "continue",
+    metadata: {
+      quick_action: "run_verification",
+      verification_action: action,
+      verification_path: props.workState.verificationPath || ".",
+      verification_pytest_args: Array.isArray(props.workState.verificationPytestArgs) ? props.workState.verificationPytestArgs : [],
+    },
+  };
 });
 
 function displayStep(value) {

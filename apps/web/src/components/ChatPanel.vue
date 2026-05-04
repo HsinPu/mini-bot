@@ -40,7 +40,13 @@
 
         <MessageList :copy="copy" :entries="entries" :messages="messages" :display-name="displayName" />
 
-        <WorkStateCard v-if="workState" :copy="copy" :work-state="workState" />
+        <WorkStateCard
+          v-if="workState"
+          :copy="copy"
+          :work-state="workState"
+          @resume-follow-up="$emit('resume-follow-up', $event)"
+          @run-verification="$emit('run-verification', $event)"
+        />
 
         <section v-if="permissionRequests.length || permissionState.loading || permissionState.error" class="permission-panel" aria-live="polite">
           <div class="permission-panel__header">
@@ -414,6 +420,7 @@ defineEmits([
   "revert-file-change",
   "cleanup-worktree",
   "resume-follow-up",
+  "run-verification",
   "refresh-curator",
   "run-curator-action",
   "select-run",

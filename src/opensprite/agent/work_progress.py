@@ -412,6 +412,7 @@ class WorkProgressService:
 
         metadata = dict(current.metadata or {})
         metadata.pop("workboard", None)
+        metadata = _apply_structured_follow_up_metadata(metadata, completion_result)
         workboard = self._build_workboard(
             steps=steps,
             completed_steps=completed_steps,
@@ -700,6 +701,38 @@ def _legacy_workboard(state: StoredWorkState) -> dict[str, Any]:
     metadata = state.metadata if isinstance(state.metadata, dict) else {}
     payload = metadata.get("workboard")
     return payload if isinstance(payload, dict) else {}
+
+
+def _apply_structured_follow_up_metadata(metadata: dict[str, Any], completion_result: CompletionGateResult) -> dict[str, Any]:
+    next_metadata = dict(metadata or {})
+    for key in (
+        "follow_up_workflow",
+        "follow_up_step_id",
+        "follow_up_step_label",
+        "follow_up_prompt_type",
+        "verification_action",
+        "verification_path",
+        "verification_pytest_args",
+        "active_task_detail",
+    ):
+        next_metadata.pop(key, None)
+    if completion_result.follow_up_workflow:
+        next_metadata["follow_up_workflow"] = completion_result.follow_up_workflow
+    if completion_result.follow_up_step_id:
+        next_metadata["follow_up_step_id"] = completion_result.follow_up_step_id
+    if completion_result.follow_up_step_label:
+        next_metadata["follow_up_step_label"] = completion_result.follow_up_step_label
+    if completion_result.follow_up_prompt_type:
+        next_metadata["follow_up_prompt_type"] = completion_result.follow_up_prompt_type
+    if completion_result.verification_action:
+        next_metadata["verification_action"] = completion_result.verification_action
+    if completion_result.verification_path:
+        next_metadata["verification_path"] = completion_result.verification_path
+    if completion_result.verification_pytest_args:
+        next_metadata["verification_pytest_args"] = list(completion_result.verification_pytest_args)
+    if completion_result.active_task_detail:
+        next_metadata["active_task_detail"] = completion_result.active_task_detail
+    return next_metadata
 
 
 def _derive_verification_targets(

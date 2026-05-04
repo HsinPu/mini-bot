@@ -76,3 +76,27 @@ def test_verify_web_build_uses_package_json_build_script(tmp_path):
     assert captured["cwd"] == package_dir.resolve(strict=False)
     assert captured["timeout"] == 9
     assert result.startswith("Verification passed: web_build")
+
+
+def test_verify_web_smoke_uses_package_json_smoke_script(tmp_path):
+    package_dir = tmp_path / "apps" / "web"
+    package_dir.mkdir(parents=True)
+    (package_dir / "package.json").write_text('{"scripts":{"test:smoke":"node smoke.mjs"}}', encoding="utf-8")
+    tool = VerifyTool(workspace=tmp_path)
+    captured = {}
+
+    async def fake_run_command(command, cwd, timeout):
+        captured["command"] = command
+        captured["cwd"] = cwd
+        captured["timeout"] = timeout
+        return VerifyCommandResult(command=command, cwd=cwd, exit_code=0, output="smoke ok")
+
+    tool._resolve_npm_executable = lambda: "npm"
+    tool._run_command = fake_run_command
+
+    result = asyncio.run(tool.execute(action="web_smoke", timeout=11))
+
+    assert captured["command"] == ["npm", "run", "test:smoke"]
+    assert captured["cwd"] == package_dir.resolve(strict=False)
+    assert captured["timeout"] == 11
+    assert result.startswith("Verification passed: web_smoke")

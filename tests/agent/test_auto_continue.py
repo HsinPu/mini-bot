@@ -31,6 +31,29 @@ def test_auto_continue_allows_missing_verification_once():
     assert "verify(action=\"pytest\", path=\".\")" in decision.prompt
 
 
+def test_auto_continue_skips_direct_verify_when_verify_tool_is_unavailable():
+    intent = TaskIntentService().classify("Please refactor the agent and run tests.")
+    completion = CompletionGateResult(
+        status="needs_verification",
+        reason="required verification was not recorded",
+        verification_required=True,
+        verification_action="pytest",
+        verification_path=".",
+    )
+
+    decision = AutoContinueService(max_auto_continues=1).decide(
+        task_intent=intent,
+        completion_result=completion,
+        execution_result=ExecutionResult(content="Completed the refactor."),
+        attempts_used=0,
+        previous_response="Completed the refactor.",
+        verification_available=False,
+    )
+
+    assert decision.should_continue is True
+    assert decision.direct_verify_action is None
+
+
 def test_auto_continue_allows_missing_review_once():
     intent = TaskIntentService().classify("Please implement the cleanup.")
     completion = CompletionGateResult(

@@ -630,6 +630,10 @@ def _verification_follow_up(task_intent: TaskIntent, execution_result: Execution
     touched_paths = _normalized_touched_paths(execution_result.touched_paths)
     lowered_objective = str(task_intent.objective or "").lower()
     test_paths = tuple(path for path in touched_paths if path.startswith("tests/") and path.endswith(".py"))
+    if any(path.startswith("apps/web/") or path == "apps/web" for path in touched_paths) and any(
+        marker in lowered_objective for marker in ("test:smoke", "smoke test", "smoke", "contract check")
+    ):
+        return {"action": "web_smoke", "path": "apps/web", "pytest_args": ()}
     if any(path.startswith("apps/web/") or path == "apps/web" for path in touched_paths) or any(
         marker in lowered_objective for marker in ("web build", "vite build", "frontend build", "frontend", "vite")
     ):

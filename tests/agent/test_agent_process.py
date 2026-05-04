@@ -1437,6 +1437,67 @@ def test_agent_process_metadata_resume_follow_up_runs_workflow_before_llm(tmp_pa
     assert len(calls) == 0
 
 
+def test_agent_process_metadata_run_verification_runs_verify_before_llm(tmp_path):
+    async def scenario():
+        storage = MemoryStorage()
+        agent = AgentLoop(
+            config=Config.load_agent_template_config(),
+            provider=FakeProvider(),
+            storage=storage,
+            context_builder=FakeContextBuilder(tmp_path / "workspace"),
+            tools=ToolRegistry(),
+            memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
+            tools_config=ToolsConfig(),
+            log_config=LogConfig(),
+            search_config=SearchConfig(),
+            user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+            recent_summary_config=RecentSummaryConfig(**{**Config.load_template_data()["recent_summary"], "enabled": False}),
+            **Config.packaged_agent_llm_chat_kwargs(),
+        )
+        calls = []
+        verified = []
+
+        async def fake_call_llm(session_id, current_message, **kwargs):
+            calls.append(current_message)
+            raise AssertionError("LLM should not be called when quick-action verification already completes")
+
+        async def fake_run_verify(action, path, pytest_args=()):
+            verified.append((action, path, tuple(pytest_args)))
+            return ExecutionResult(
+                content="Verification passed: pytest\nCommand: python -m pytest tests/test_ui.py::test_card",
+                executed_tool_calls=1,
+                verification_attempted=True,
+                verification_passed=True,
+            )
+
+        agent.call_llm = fake_call_llm
+        agent.turn_runner._run_verify = fake_run_verify
+        agent._schedule_curator = lambda session_id, run_id, channel, external_chat_id, result: None
+
+        response = await agent.process(
+            UserMessage(
+                text="continue",
+                channel="web",
+                external_chat_id="browser-1",
+                session_id="web:browser-1",
+                metadata={
+                    "quick_action": "run_verification",
+                    "verification_action": "pytest",
+                    "verification_path": ".",
+                    "verification_pytest_args": ["tests/test_ui.py::test_card"],
+                },
+            )
+        )
+
+        return response, calls, verified
+
+    response, calls, verified = asyncio.run(scenario())
+
+    assert response.text == "Verification passed: pytest\nCommand: python -m pytest tests/test_ui.py::test_card"
+    assert len(calls) == 0
+    assert verified == [("pytest", ".", ("tests/test_ui.py::test_card",))]
+
+
 def test_agent_process_marks_active_task_done_when_completion_gate_completes(tmp_path):
     async def scenario():
         registry = ToolRegistry()

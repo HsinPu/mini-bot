@@ -65,6 +65,9 @@ const TIMELINE_EVENT_TYPES = new Set([
   "curator.started",
   "curator.completed",
   "curator.failed",
+  "auto_continue.scheduled",
+  "auto_continue.completed",
+  "auto_continue.skipped",
   "run_finished",
   "run_failed",
   "run_cancelled",
@@ -518,6 +521,14 @@ function normalizeWorkState(payload) {
     touchedPaths: coerceStringList(payload.touched_paths || payload.touchedPaths),
     verificationAttempted: coerceBoolean(payload.verification_attempted ?? payload.verificationAttempted),
     verificationPassed: coerceBoolean(payload.verification_passed ?? payload.verificationPassed),
+    followUpWorkflow: String(payload.follow_up_workflow || payload.followUpWorkflow || "").trim() || null,
+    followUpStepId: String(payload.follow_up_step_id || payload.followUpStepId || "").trim() || null,
+    followUpStepLabel: String(payload.follow_up_step_label || payload.followUpStepLabel || "").trim() || null,
+    followUpPromptType: String(payload.follow_up_prompt_type || payload.followUpPromptType || "").trim() || null,
+    verificationAction: String(payload.verification_action || payload.verificationAction || "").trim() || null,
+    verificationPath: String(payload.verification_path || payload.verificationPath || "").trim() || null,
+    verificationPytestArgs: coerceStringList(payload.verification_pytest_args || payload.verificationPytestArgs),
+    activeTaskDetail: String(payload.active_task_detail || payload.activeTaskDetail || "").trim(),
     lastNextAction: String(payload.last_next_action || payload.lastNextAction || "").trim(),
     delegatedTasks,
     activeDelegateTaskId: String(payload.active_delegate_task_id || payload.activeDelegateTaskId || "").trim() || selectedDelegatedTask?.taskId || null,
@@ -586,6 +597,23 @@ function isTerminalRunStatus(status) {
 function getActiveRun(session) {
   if (!session?.runs?.length) {
     return null;
+  }
+
+  function applyCompletionGateEvent(session, payload, createdAt) {
+    if (!session?.workState) {
+      return;
+    }
+    mergeSessionWorkState(session, {
+      followUpWorkflow: payload.follow_up_workflow || payload.followUpWorkflow || session.workState.followUpWorkflow,
+      followUpStepId: payload.follow_up_step_id || payload.followUpStepId || session.workState.followUpStepId,
+      followUpStepLabel: payload.follow_up_step_label || payload.followUpStepLabel || session.workState.followUpStepLabel,
+      followUpPromptType: payload.follow_up_prompt_type || payload.followUpPromptType || session.workState.followUpPromptType,
+      verificationAction: payload.verification_action || payload.verificationAction || session.workState.verificationAction,
+      verificationPath: payload.verification_path || payload.verificationPath || session.workState.verificationPath,
+      verificationPytestArgs: payload.verification_pytest_args || payload.verificationPytestArgs || session.workState.verificationPytestArgs,
+      activeTaskDetail: payload.active_task_detail || payload.activeTaskDetail || session.workState.activeTaskDetail,
+      updatedAt: createdAt,
+    });
   }
   return session.runs.find((run) => run.runId === session.activeRunId) || session.runs[0];
 }
@@ -732,6 +760,20 @@ function formatWorkflowDetail(payload) {
 
 function formatWorkflowStepDetail(payload) {
   return String(payload.summary || payload.error || payload.task_preview || payload.label || "").trim();
+}
+
+function formatAutoContinueDetail(payload) {
+  const workflow = String(payload.direct_workflow || payload.directWorkflow || "").trim();
+  const startStep = String(payload.direct_start_step || payload.directStartStep || "").trim();
+  const verifyAction = String(payload.direct_verify_action || payload.directVerifyAction || "").trim();
+  const verifyPath = String(payload.direct_verify_path || payload.directVerifyPath || "").trim();
+  if (workflow && startStep) {
+    return `workflow resume: ${workflow} -> ${startStep}`;
+  }
+  if (verifyAction) {
+    return verifyPath ? `verification: ${verifyAction} (${verifyPath})` : `verification: ${verifyAction}`;
+  }
+  return String(payload.reason || payload.completion_reason || payload.completionReason || "").trim();
 }
 
 function normalizeRunSummary(payload) {
@@ -1176,6 +1218,30 @@ function describeRunEvent(eventType, payload, copy) {
       label: copy.run.curatorFailed,
       detail: payload.error || payload.message || "",
       tone: "error",
+    };
+  }
+
+  if (eventType === "auto_continue.scheduled") {
+    return {
+      label: copy.run.autoContinueScheduled,
+      detail: formatAutoContinueDetail(payload),
+      tone: "running",
+    };
+  }
+
+  if (eventType === "auto_continue.completed") {
+    return {
+      label: copy.run.autoContinueCompleted,
+      detail: formatAutoContinueDetail(payload),
+      tone: "success",
+    };
+  }
+
+  if (eventType === "auto_continue.skipped") {
+    return {
+      label: copy.run.autoContinueSkipped,
+      detail: formatAutoContinueDetail(payload),
+      tone: "warning",
     };
   }
 
@@ -1903,6 +1969,10 @@ export function useChatClient() {
     }
     if (eventType === "work_progress.updated") {
       applyWorkProgressEvent(session, payload, createdAt);
+      return;
+    }
+    if (eventType === "completion_gate.evaluated") {
+      applyCompletionGateEvent(session, payload, createdAt);
     }
   }
 
@@ -4046,6 +4116,10 @@ export function useChatClient() {
     sendMessageText(text, { clearComposer: false });
   }
 
+  function runVerification(text) {
+    sendMessageText(text, { clearComposer: false });
+  }
+
   function handleComposerKeydown(event) {
     if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
       submitMessage(event);
@@ -4219,6 +4293,7 @@ export function useChatClient() {
     toggleSettingsConnection,
     submitMessage,
     resumeFollowUp,
+    runVerification,
     handleComposerKeydown,
     applyPrompt,
     applyCommandHint,

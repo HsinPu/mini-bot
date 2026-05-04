@@ -685,6 +685,46 @@ class WebAdapter(MessageAdapter):
             ],
             "active_delegate_task_id": state.active_delegate_task_id,
             "active_delegate_prompt_type": state.active_delegate_prompt_type,
+            **(
+                {"follow_up_workflow": str(state.metadata.get("follow_up_workflow") or "").strip()}
+                if str(state.metadata.get("follow_up_workflow") or "").strip()
+                else {}
+            ),
+            **(
+                {"follow_up_step_id": str(state.metadata.get("follow_up_step_id") or "").strip()}
+                if str(state.metadata.get("follow_up_step_id") or "").strip()
+                else {}
+            ),
+            **(
+                {"follow_up_step_label": str(state.metadata.get("follow_up_step_label") or "").strip()}
+                if str(state.metadata.get("follow_up_step_label") or "").strip()
+                else {}
+            ),
+            **(
+                {"follow_up_prompt_type": str(state.metadata.get("follow_up_prompt_type") or "").strip()}
+                if str(state.metadata.get("follow_up_prompt_type") or "").strip()
+                else {}
+            ),
+            **(
+                {"verification_action": str(state.metadata.get("verification_action") or "").strip()}
+                if str(state.metadata.get("verification_action") or "").strip()
+                else {}
+            ),
+            **(
+                {"verification_path": str(state.metadata.get("verification_path") or "").strip()}
+                if str(state.metadata.get("verification_path") or "").strip()
+                else {}
+            ),
+            **(
+                {"verification_pytest_args": self._json_safe(list(state.metadata.get("verification_pytest_args") or []))}
+                if isinstance(state.metadata.get("verification_pytest_args"), list) and state.metadata.get("verification_pytest_args")
+                else {}
+            ),
+            **(
+                {"active_task_detail": str(state.metadata.get("active_task_detail") or "").strip()}
+                if str(state.metadata.get("active_task_detail") or "").strip()
+                else {}
+            ),
             "metadata": self._json_safe(dict(state.metadata or {})),
             "todos": serialize_work_state_todos(state),
             "created_at": float(state.created_at or 0),

@@ -24,6 +24,24 @@ def test_completion_gate_requires_requested_verification_before_completion():
     assert result.verification_path == "."
 
 
+def test_completion_gate_prefers_web_smoke_when_requested_for_web_changes():
+    intent = TaskIntentService().classify("Please update the web UI and run test:smoke.")
+
+    result = CompletionGateService().evaluate(
+        task_intent=intent,
+        response_text="Updated the web UI.",
+        execution_result=ExecutionResult(
+            content="Updated the web UI.",
+            file_change_count=1,
+            touched_paths=("apps/web/src/App.vue",),
+        ),
+    )
+
+    assert result.status == "needs_verification"
+    assert result.verification_action == "web_smoke"
+    assert result.verification_path == "apps/web"
+
+
 def test_completion_gate_keeps_verification_status_when_verify_fails_with_tool_error():
     intent = TaskIntentService().classify("Please refactor the agent and run tests.")
 

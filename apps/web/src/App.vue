@@ -70,6 +70,7 @@
       @revert-file-change="revertRunFileChange"
       @cleanup-worktree="cleanupWorktreeSandbox"
       @resume-follow-up="resumeFollowUp"
+      @run-verification="runVerification"
       @refresh-curator="refreshCuratorState"
       @run-curator-action="runCuratorAction"
       @select-run="selectRun"
@@ -204,6 +205,7 @@ const {
   revertRunFileChange,
   cleanupWorktreeSandbox,
   resumeFollowUp,
+  runVerification,
   loadCuratorStatus,
   refreshCuratorState,
   runCuratorAction,

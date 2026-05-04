@@ -155,7 +155,7 @@ class VerifyTool(Tool):
     def description(self) -> str:
         return (
             "Run fixed project verification checks after code changes. Supports action=python_compile for syntax checks, "
-            "action=pytest for Python tests, action=web_build for package.json build scripts, and action=auto for safe detected checks. "
+            "action=pytest for Python tests, action=web_build for package.json build scripts, action=web_smoke for package.json smoke checks, and action=auto for safe detected checks. "
             "Use focused pytest_args when possible. This tool does not run arbitrary shell commands."
         )
 
@@ -166,7 +166,7 @@ class VerifyTool(Tool):
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["auto", "python_compile", "pytest", "web_build"],
+                    "enum": ["auto", "python_compile", "pytest", "web_build", "web_smoke"],
                     "description": "Verification mode. Defaults to auto.",
                 },
                 "path": {
@@ -209,6 +209,8 @@ class VerifyTool(Tool):
             return await self._verify_pytest(workspace, target, pytest_args or [], current_timeout)
         if mode == "web_build":
             return await self._verify_web_build(workspace, target, current_timeout)
+        if mode == "web_smoke":
+            return await self._verify_web_smoke(workspace, target, current_timeout)
         if mode == "auto":
             return await self._verify_auto(workspace, target, current_timeout)
         return f"Error: Unknown verification action: {action}"
@@ -270,9 +272,23 @@ class VerifyTool(Tool):
         return self._format_command_verification("pytest", result)
 
     async def _verify_web_build(self, workspace: Path, target: Path, timeout: int) -> str:
+        return await self._verify_web_script(workspace, target, timeout, script_name="build", label="web_build")
+
+    async def _verify_web_smoke(self, workspace: Path, target: Path, timeout: int) -> str:
+        return await self._verify_web_script(workspace, target, timeout, script_name="test:smoke", label="web_smoke")
+
+    async def _verify_web_script(
+        self,
+        workspace: Path,
+        target: Path,
+        timeout: int,
+        *,
+        script_name: str,
+        label: str,
+    ) -> str:
         package_dir = self._find_package_dir(workspace, target)
         if package_dir is None:
-            return f"Error: No package.json found for web_build near {_display_path(workspace, target)}."
+            return f"Error: No package.json found for {label} near {_display_path(workspace, target)}."
 
         package_json = package_dir / "package.json"
         try:
@@ -281,15 +297,15 @@ class VerifyTool(Tool):
             return f"Error: Could not read { _display_path(workspace, package_json) }: {exc}"
 
         scripts = payload.get("scripts") if isinstance(payload, dict) else None
-        if not isinstance(scripts, dict) or "build" not in scripts:
-            return f"Error: { _display_path(workspace, package_json) } does not define scripts.build."
+        if not isinstance(scripts, dict) or script_name not in scripts:
+            return f"Error: { _display_path(workspace, package_json) } does not define scripts.{script_name}."
 
         npm = self._resolve_npm_executable()
         if npm is None:
-            return "Error: npm was not found on PATH; cannot run web_build verification."
+            return f"Error: npm was not found on PATH; cannot run {label} verification."
 
-        result = await self._run_command([npm, "run", "build"], package_dir, timeout)
-        return self._format_command_verification("web_build", result)
+        result = await self._run_command([npm, "run", script_name], package_dir, timeout)
+        return self._format_command_verification(label, result)
 
     def _python_files(self, target: Path) -> list[Path]:
         if target.is_file():

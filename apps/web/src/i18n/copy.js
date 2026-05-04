@@ -183,6 +183,9 @@ export const DISPLAY_COPY = {
       curatorStarted: "背景整理開始",
       curatorCompleted: "背景整理完成",
       curatorFailed: "背景整理失敗",
+      autoContinueScheduled: "自動續跑已排程",
+      autoContinueCompleted: "自動續跑完成",
+      autoContinueSkipped: "自動續跑停止",
       completed: "Run 已完成",
       completedWithWarnings: "Run 完成但有警告",
       finalDelivered: "已送出最終回覆。",
@@ -291,6 +294,7 @@ export const DISPLAY_COPY = {
       followUpPromptType: (promptType) => `優先使用 ${promptType} 這類 focused step`,
       resumeFollowUp: "續跑後續步驟",
       warnings: "警告",
+      automation: "自動化",
       warningLabels: {
         tool_error: "工具執行有警告",
         verification_not_passed: "驗證未通過",
@@ -385,6 +389,8 @@ export const DISPLAY_COPY = {
       verificationFailed: "已嘗試，尚未通過",
       verificationPending: "待驗證",
       verificationNotRequired: "未要求",
+      resumeFollowUp: "續跑後續步驟",
+      runVerification: "執行驗證",
       fileCount: (count) => `${count} 個檔案`,
       morePaths: (count) => `+${count} 個`,
       statusLabels: {
@@ -971,6 +977,9 @@ export const DISPLAY_COPY = {
       curatorStarted: "Curator started",
       curatorCompleted: "Curator completed",
       curatorFailed: "Curator failed",
+      autoContinueScheduled: "Auto-continue scheduled",
+      autoContinueCompleted: "Auto-continue completed",
+      autoContinueSkipped: "Auto-continue stopped",
       completed: "Run completed",
       completedWithWarnings: "Run completed with warnings",
       finalDelivered: "Final response delivered.",
@@ -1079,6 +1088,7 @@ export const DISPLAY_COPY = {
       followUpPromptType: (promptType) => `Prefer a focused ${promptType} step`,
       resumeFollowUp: "Resume follow-up",
       warnings: "Warnings",
+      automation: "Automation",
       warningLabels: {
         tool_error: "Tool execution warning",
         verification_not_passed: "Verification did not pass",
@@ -1173,6 +1183,8 @@ export const DISPLAY_COPY = {
       verificationFailed: "Attempted, not passed",
       verificationPending: "Pending",
       verificationNotRequired: "Not required",
+      resumeFollowUp: "Resume follow-up",
+      runVerification: "Run verification",
       fileCount: (count) => `${count} file(s)`,
       morePaths: (count) => `+${count} more`,
       statusLabels: {
