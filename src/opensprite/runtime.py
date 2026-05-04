@@ -166,7 +166,13 @@ async def create_agent(config: Config):
     """建立 Agent 和 Queue"""
     # 用 Registry 建立 LLM Provider
     cfg = config.llm.get_active()
-    llm = create_llm(api_key=cfg.api_key, model=cfg.model, base_url=cfg.base_url or "", provider_name=config.llm.default or "", enabled=cfg.enabled if hasattr(cfg, 'enabled') else True)
+    llm = create_llm(
+        api_key=cfg.api_key,
+        model=cfg.model,
+        base_url=cfg.base_url or "",
+        provider_name=cfg.provider or config.llm.default or "",
+        enabled=cfg.enabled if hasattr(cfg, 'enabled') else True,
+    )
     
     # 建立 Agent 設定
     agent_config = config.agent

@@ -242,7 +242,7 @@ class SubagentRunService:
                     api_key=getattr(provider_config, "api_key", ""),
                     model=getattr(provider_config, "model", ""),
                     base_url=getattr(provider_config, "base_url", "") or "",
-                    provider_name=llm_provider,
+                    provider_name=getattr(provider_config, "provider", None) or llm_provider,
                     enabled=getattr(provider_config, "enabled", True),
                 )
             else:

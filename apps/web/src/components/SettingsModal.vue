@@ -322,6 +322,7 @@
                   <div class="provider-row__title">
                     <strong>{{ provider.name }}</strong>
                     <span v-if="provider.is_default" class="provider-row__badge">{{ copy.settings.providers.currentBadge }}</span>
+                    <span v-if="provider.preset_name && provider.preset_name !== provider.name" class="provider-row__badge">{{ provider.preset_name }}</span>
                   </div>
                   <span>{{ provider.base_url }}</span>
                 </div>
@@ -354,6 +355,7 @@
                     <div class="provider-row__title">
                       <strong>{{ provider.name }}</strong>
                       <span class="provider-row__badge">{{ copy.settings.providers.builtInBadge }}</span>
+                      <span v-if="provider.connected_count" class="provider-row__badge">{{ copy.settings.providers.connectedCount(provider.connected_count) }}</span>
                     </div>
                     <span>{{ provider.default_base_url }}</span>
                   </div>
@@ -698,6 +700,16 @@
           <p>
             {{ copy.settings.providers.dialogDescription(selectedConnectProvider.name) }}
           </p>
+
+          <label class="provider-connect-field">
+            <span>{{ copy.settings.providers.nameLabel }}</span>
+            <input
+              v-model="settingsState.connectForm.name"
+              type="text"
+              :placeholder="selectedConnectProvider.name"
+              autocomplete="off"
+            />
+          </label>
 
           <label class="provider-connect-field">
             <span>{{ copy.settings.providers.apiKeyLabel(selectedConnectProvider.name) }}</span>

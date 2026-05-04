@@ -1250,7 +1250,7 @@ class AgentLoop:
             api_key=cfg.api_key,
             model=cfg.model,
             base_url=cfg.base_url or "",
-            provider_name=config.llm.default or "",
+            provider_name=cfg.provider or config.llm.default or "",
             enabled=cfg.enabled if hasattr(cfg, "enabled") else True,
         )
 

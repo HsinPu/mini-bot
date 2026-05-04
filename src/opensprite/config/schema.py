@@ -9,7 +9,9 @@ from ..channels.registry import coerce_channel_instances, default_channel_instan
 
 class ProviderConfig(BaseModel):
     """LLM provider configuration."""
-    
+
+    provider: str | None = None
+    name: str | None = None
     api_key: str
     model: str = ""
     base_url: str | None = None

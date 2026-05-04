@@ -1046,6 +1046,7 @@ class WebAdapter(MessageAdapter):
                 provider_id,
                 api_key=self._coerce_optional_text(body.get("api_key")),
                 base_url=self._coerce_optional_text(body.get("base_url")),
+                name=self._coerce_optional_text(body.get("name")),
             )
         except ProviderSettingsError as exc:
             self._raise_provider_settings_error(exc)

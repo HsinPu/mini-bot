@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -119,22 +120,55 @@ def ensure_provider_entry(
     return existing
 
 
+def get_provider_preset_id(provider_id: str, provider: dict[str, Any], presets: Any) -> str | None:
+    """Return the base preset id for a configured provider instance."""
+    configured = str(provider.get("provider", "") or "").strip()
+    if configured in presets.providers:
+        return configured
+    if provider_id in presets.providers:
+        return provider_id
+    return None
+
+
+def make_provider_instance_id(base_provider_id: str, providers: dict[str, Any], display_name: str | None = None) -> str:
+    """Create a stable id for an additional provider connection."""
+    if base_provider_id not in providers:
+        return base_provider_id
+    slug_source = str(display_name or "").strip().lower()
+    slug = re.sub(r"[^a-z0-9]+", "_", slug_source).strip("_")
+    if slug:
+        candidate = f"{base_provider_id}_{slug}"
+        if candidate not in providers:
+            return candidate
+    index = 2
+    while f"{base_provider_id}_{index}" in providers:
+        index += 1
+    return f"{base_provider_id}_{index}"
+
+
 def connect_provider_in_config(
     config_data: dict[str, Any],
     provider_id: str,
     *,
     api_key: str | None,
     base_url: str | None = None,
+    base_provider_id: str | None = None,
+    display_name: str | None = None,
 ) -> dict[str, Any]:
     """Connect or update a provider inside an in-memory config object."""
     presets = load_llm_presets()
-    if provider_id not in presets.providers:
-        raise ProviderSettingsNotFound(f"Unknown provider: {provider_id}")
+    preset_id = base_provider_id or provider_id
+    if preset_id not in presets.providers:
+        raise ProviderSettingsNotFound(f"Unknown provider: {preset_id}")
 
     llm = config_data.setdefault("llm", {})
     providers = llm.setdefault("providers", {})
-    preset = presets.providers[provider_id]
+    preset = presets.providers[preset_id]
     provider = ensure_provider_entry(providers, provider_id, preset)
+    provider["provider"] = preset_id
+    normalized_name = str(display_name or "").strip()
+    if normalized_name:
+        provider["name"] = normalized_name
 
     normalized_key = str(api_key or "").strip()
     if normalized_key:
@@ -162,9 +196,6 @@ def select_model_in_config(
 ) -> dict[str, Any]:
     """Select the active provider/model inside an in-memory config object."""
     presets = load_llm_presets()
-    if provider_id not in presets.providers:
-        raise ProviderSettingsNotFound(f"Unknown provider: {provider_id}")
-
     normalized_model = str(model or "").strip()
     if not normalized_model:
         raise ProviderSettingsValidationError("model is required")
@@ -174,10 +205,13 @@ def select_model_in_config(
     provider = providers.get(provider_id)
     if not isinstance(provider, dict):
         raise ProviderSettingsConflict("Provider must be connected before selecting a model")
+    preset_id = get_provider_preset_id(provider_id, provider, presets)
+    if preset_id is None:
+        raise ProviderSettingsNotFound(f"Unknown provider: {provider_id}")
     if require_api_key and not str(provider.get("api_key", "") or "").strip():
         raise ProviderSettingsConflict("Provider must be connected before selecting a model")
 
-    preset = presets.providers[provider_id]
+    preset = presets.providers[preset_id]
     if not str(provider.get("base_url", "") or "").strip():
         provider["base_url"] = preset.default_base_url
     provider["model"] = normalized_model
@@ -216,7 +250,10 @@ class ProviderSettingsService:
         Config.write_llm_providers_file(self.config_path, providers, llm_data)
 
     @staticmethod
-    def _display_name(provider_id: str, preset: ProviderPreset | None = None) -> str:
+    def _display_name(provider_id: str, preset: ProviderPreset | None = None, provider: dict[str, Any] | None = None) -> str:
+        configured_name = str((provider or {}).get("name", "") or "").strip()
+        if configured_name:
+            return configured_name
         if preset and preset.display_name:
             return preset.display_name
         return provider_id.replace("_", " ").replace("-", " ").title()
@@ -232,11 +269,14 @@ class ProviderSettingsService:
             provider = providers.get(provider_id, {})
             if not isinstance(provider, dict) or not str(provider.get("api_key", "") or "").strip():
                 continue
-            preset = presets.providers.get(provider_id)
+            preset_id = get_provider_preset_id(provider_id, provider, presets)
+            preset = presets.providers.get(preset_id) if preset_id else None
             connected.append(
                 {
                     "id": provider_id,
-                    "name": self._display_name(provider_id, preset),
+                    "provider": preset_id or provider_id,
+                    "name": self._display_name(provider_id, preset, provider),
+                    "preset_name": self._display_name(preset_id or provider_id, preset),
                     "base_url": provider.get("base_url") or (preset.default_base_url if preset else None),
                     "model": provider.get("model") or "",
                     "api_key_configured": True,
@@ -245,16 +285,15 @@ class ProviderSettingsService:
                 }
             )
 
-        connected_ids = {provider["id"] for provider in connected}
         available = [
             {
                 "id": provider_id,
                 "name": self._display_name(provider_id, presets.providers[provider_id]),
                 "default_base_url": presets.providers[provider_id].default_base_url,
                 "model_choices": list(presets.providers[provider_id].model_choices),
+                "connected_count": sum(1 for provider in connected if provider.get("provider") == provider_id),
             }
             for provider_id in presets.provider_order
-            if provider_id not in connected_ids
         ]
 
         return {
@@ -266,22 +305,32 @@ class ProviderSettingsService:
             "providers_file": str(Config.get_llm_providers_file_path(self.config_path, main_data.get("llm", {}))),
         }
 
-    def connect_provider(self, provider_id: str, *, api_key: str | None, base_url: str | None = None) -> dict[str, Any]:
+    def connect_provider(self, provider_id: str, *, api_key: str | None, base_url: str | None = None, name: str | None = None) -> dict[str, Any]:
         """Connect or update one provider without selecting a model."""
         main_data, providers, loaded = self._load_state()
+        instance_id = make_provider_instance_id(provider_id, providers, name)
         config_data = {"llm": {"providers": providers, "default": loaded.llm.default}}
-        provider = connect_provider_in_config(config_data, provider_id, api_key=api_key, base_url=base_url)
+        provider = connect_provider_in_config(
+            config_data,
+            instance_id,
+            api_key=api_key,
+            base_url=base_url,
+            base_provider_id=provider_id,
+            display_name=name,
+        )
         self._persist_llm_state(main_data, providers)
         preset = load_llm_presets().providers[provider_id]
         return {
             "ok": True,
             "provider": {
-                "id": provider_id,
-                "name": self._display_name(provider_id, preset),
+                "id": instance_id,
+                "provider": provider_id,
+                "name": self._display_name(instance_id, preset, provider),
+                "preset_name": self._display_name(provider_id, preset),
                 "base_url": provider.get("base_url") or preset.default_base_url,
                 "model": provider.get("model") or "",
                 "api_key_configured": bool(provider.get("api_key")),
-                "is_default": provider_id == loaded.llm.default,
+                "is_default": instance_id == loaded.llm.default,
                 "enabled": bool(provider.get("enabled")),
             },
             "restart_required": False,
@@ -314,7 +363,8 @@ class ProviderSettingsService:
             provider = providers.get(provider_id, {})
             if not isinstance(provider, dict) or not str(provider.get("api_key", "") or "").strip():
                 continue
-            preset = presets.providers.get(provider_id)
+            preset_id = get_provider_preset_id(provider_id, provider, presets)
+            preset = presets.providers.get(preset_id) if preset_id else None
             choices, _ = get_model_choices(
                 str(provider.get("model") or "") or None,
                 model_choices=preset.model_choices if preset else (),
@@ -322,7 +372,9 @@ class ProviderSettingsService:
             out.append(
                 {
                     "id": provider_id,
-                    "name": self._display_name(provider_id, preset),
+                    "provider": preset_id or provider_id,
+                    "name": self._display_name(provider_id, preset, provider),
+                    "preset_name": self._display_name(preset_id or provider_id, preset),
                     "is_connected": True,
                     "is_default": provider_id == loaded.llm.default,
                     "selected_model": provider.get("model") or "",

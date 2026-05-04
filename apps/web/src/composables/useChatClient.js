@@ -1378,6 +1378,7 @@ export function useChatClient() {
     },
     connectForm: {
       providerId: "",
+      name: "",
       apiKey: "",
       baseUrl: "",
       showAdvanced: false,
@@ -3472,6 +3473,9 @@ export function useChatClient() {
     settingsState.providersError = "";
     cancelChannelConnect();
     settingsState.connectForm.providerId = provider.id;
+    settingsState.connectForm.name = provider.connected_count
+      ? `${provider.name} ${provider.connected_count + 1}`
+      : provider.name;
     settingsState.connectForm.apiKey = "";
     settingsState.connectForm.baseUrl = provider.default_base_url || provider.base_url || "";
     settingsState.connectForm.showAdvanced = false;
@@ -3479,6 +3483,7 @@ export function useChatClient() {
 
   function cancelProviderConnect() {
     settingsState.connectForm.providerId = "";
+    settingsState.connectForm.name = "";
     settingsState.connectForm.apiKey = "";
     settingsState.connectForm.baseUrl = "";
     settingsState.connectForm.showAdvanced = false;
@@ -3496,6 +3501,7 @@ export function useChatClient() {
       await requestSettingsJson(`/api/settings/providers/${encodeURIComponent(providerId)}/connect`, {
         method: "PUT",
         body: JSON.stringify({
+          name: settingsState.connectForm.name,
           api_key: settingsState.connectForm.apiKey,
           base_url: settingsState.connectForm.baseUrl,
         }),

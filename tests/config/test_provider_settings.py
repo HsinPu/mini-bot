@@ -27,9 +27,32 @@ def test_provider_settings_connects_provider_without_leaking_api_key(tmp_path):
     assert providers["openai"]["enabled"] is False
     assert providers["openai"]["model"] == ""
     assert connected["id"] == "openai"
+    assert connected["provider"] == "openai"
     assert connected["api_key_configured"] is True
     assert "api_key" not in connected
-    assert "openai" not in {provider["id"] for provider in listing["available"]}
+    assert "openai" in {provider["id"] for provider in listing["available"]}
+
+
+def test_provider_settings_allows_multiple_connections_for_same_provider(tmp_path):
+    config_path = _copy_config(tmp_path)
+    service = ProviderSettingsService(config_path)
+
+    first = service.connect_provider("openai", api_key="first-key", name="Work")
+    second = service.connect_provider("openai", api_key="second-key", name="Personal")
+    service.select_model(second["provider"]["id"], "gpt-4.1-mini")
+
+    providers = json.loads((tmp_path / "llm.providers.json").read_text(encoding="utf-8"))
+    models = service.list_models()
+
+    assert first["provider"]["id"] == "openai"
+    assert second["provider"]["id"] == "openai_personal"
+    assert providers["openai"]["provider"] == "openai"
+    assert providers["openai_personal"]["provider"] == "openai"
+    assert providers["openai_personal"]["name"] == "Personal"
+    assert providers["openai_personal"]["enabled"] is True
+    assert providers["openai"]["enabled"] is False
+    assert models["default_provider"] == "openai_personal"
+    assert {provider["id"] for provider in models["providers"]} >= {"openai", "openai_personal"}
 
 
 def test_provider_settings_select_model_updates_default_and_enabled_flags(tmp_path):

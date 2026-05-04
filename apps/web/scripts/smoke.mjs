@@ -48,6 +48,7 @@ assertIncludes(curatorSettingsPage, "settings-card", "curator settings card layo
 assertIncludes(curatorSettingsPage, "provider-row", "curator settings history layout");
 assertIncludes(settingsModal, "CuratorSettingsPage", "curator settings placement");
 assertIncludes(settingsModal, "section === 'curator'", "curator settings section");
+assertIncludes(settingsModal, "connectedCount", "multiple provider connection count");
 assertIncludes(chatClient, "/api/commands", "command catalog fetch");
 assertIncludes(chatClient, "/api/curator/status", "curator status fetch");
 assertIncludes(chatClient, "/api/curator/history", "curator history fetch");
@@ -57,6 +58,7 @@ assertIncludes(chatClient, "CURATOR_POLL_INTERVAL_MS", "curator polling interval
 assertIncludes(chatClient, "scheduleCuratorPoll", "curator polling scheduler");
 assertIncludes(chatClient, "curator.completed", "curator event refresh");
 assertIncludes(chatClient, "setSettingsSuccess", "settings success toast routing");
+assertIncludes(chatClient, "connectForm.name", "provider connection naming");
 
 for (const key of [
   "artifactTypes",
