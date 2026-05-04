@@ -109,6 +109,18 @@ opensprite service start
 opensprite service status
 ```
 
+Remove the installed command and code while keeping `~/.opensprite` data:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/HsinPu/opensprite/main/scripts/uninstall.sh | bash
+```
+
+Remove code and runtime data/config/logs:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/HsinPu/opensprite/main/scripts/uninstall.sh | bash -s -- --full
+```
+
 ### Development install · 開發模式安裝
 
 ```powershell

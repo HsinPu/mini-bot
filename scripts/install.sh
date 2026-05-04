@@ -240,6 +240,9 @@ Commands:
   opensprite service status
   opensprite service stop
 
+Uninstall while keeping ~/.opensprite data:
+  curl -fsSL https://raw.githubusercontent.com/HsinPu/opensprite/main/scripts/uninstall.sh | bash
+
 Logs:
   tail -f ~/.opensprite/logs/gateway.log
 
