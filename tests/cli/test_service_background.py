@@ -12,6 +12,9 @@ runner = CliRunner()
 class FakeProcess:
     pid = 4321
 
+    def poll(self):
+        return None
+
 
 def test_start_service_launches_detached_gateway(tmp_path, monkeypatch):
     monkeypatch.setattr(service_background.platform, "system", lambda: "Windows")
@@ -39,6 +42,32 @@ def test_start_service_launches_detached_gateway(tmp_path, monkeypatch):
     assert kwargs["stdin"] == subprocess.DEVNULL
     assert kwargs["stderr"] == subprocess.STDOUT
     assert "creationflags" in kwargs
+
+
+def test_start_service_reports_early_gateway_exit(tmp_path):
+    class ExitedProcess:
+        pid = 1234
+
+        def poll(self):
+            return 1
+
+    def fake_popen(command, **kwargs):
+        return ExitedProcess()
+
+    try:
+        service_background.start_service(
+            home=tmp_path,
+            python_executable=tmp_path / "python",
+            popen=fake_popen,
+            startup_timeout=0.01,
+        )
+    except RuntimeError as exc:
+        assert "exited during startup" in str(exc)
+        assert str(tmp_path / "logs" / "gateway.log") in str(exc)
+    else:
+        raise AssertionError("Expected early gateway exit to fail")
+
+    assert not service_background.get_pid_file(tmp_path).exists()
 
 
 def test_get_service_status_cleans_stale_pid(tmp_path, monkeypatch):

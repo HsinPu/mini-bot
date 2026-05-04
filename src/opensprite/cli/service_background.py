@@ -73,6 +73,7 @@ def start_service(
     home: Path | None = None,
     python_executable: Path | None = None,
     popen=subprocess.Popen,
+    startup_timeout: float = 1.0,
 ) -> BackgroundServiceStatus:
     """Start the gateway as a detached background process."""
     app_home = get_app_home(home)
@@ -112,6 +113,16 @@ def start_service(
         process = popen(command, **popen_kwargs)
     finally:
         log_handle.close()
+
+    if startup_timeout > 0:
+        time.sleep(startup_timeout)
+        return_code = process.poll()
+        if return_code is not None:
+            raise RuntimeError(
+                "OpenSprite gateway exited during startup "
+                f"(exit code {return_code}). Check the log: {log_file}"
+            )
+
     pid_file.write_text(f"{process.pid}\n", encoding="utf-8")
     return BackgroundServiceStatus(running=True, pid=process.pid, pid_file=pid_file, log_file=log_file)
 
