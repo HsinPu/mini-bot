@@ -78,6 +78,30 @@ python -m pip install --upgrade pip
 python -m pip install .
 ```
 
+### Linux one-command setup · Linux 一鍵安裝
+
+**English:** From a cloned repository, run the setup script to create `.venv`, install OpenSprite, and link `opensprite` into `~/.local/bin`.
+
+**中文：** 在已 clone 的 repo 中執行安裝腳本，會建立 `.venv`、安裝 OpenSprite，並把 `opensprite` 連結到 `~/.local/bin`。
+
+```bash
+./setup-opensprite.sh
+```
+
+Start the background gateway after setup:
+
+```bash
+opensprite service start
+opensprite service status
+```
+
+Install dev dependencies or start immediately:
+
+```bash
+./setup-opensprite.sh --dev
+./setup-opensprite.sh --start
+```
+
 ### Development install · 開發模式安裝
 
 ```powershell
