@@ -1098,6 +1098,148 @@ def test_agent_process_direct_verify_can_finish_without_second_llm_pass(tmp_path
     assert scheduled.payload["direct_verify_path"] == "."
 
 
+def test_agent_process_full_deterministic_review_and_verification_matrix(tmp_path):
+    async def scenario():
+        storage = MemoryStorage()
+        agent = AgentLoop(
+            config=Config.load_agent_template_config(),
+            provider=FakeProvider(),
+            storage=storage,
+            context_builder=FakeContextBuilder(tmp_path / "workspace"),
+            tools=ToolRegistry(),
+            memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
+            tools_config=ToolsConfig(),
+            log_config=LogConfig(),
+            search_config=SearchConfig(),
+            user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+            recent_summary_config=RecentSummaryConfig(**{**Config.load_template_data()["recent_summary"], "enabled": False}),
+            **Config.packaged_agent_llm_chat_kwargs(),
+        )
+        calls = []
+        resumed = []
+        verified = []
+
+        async def fake_call_llm(session_id, current_message, **kwargs):
+            calls.append(current_message)
+            if len(calls) == 1:
+                return ExecutionResult(
+                    content="Workflow cancelled.",
+                    executed_tool_calls=1,
+                    file_change_count=1,
+                    touched_paths=("src/agent.py",),
+                    workflow_outcomes=(
+                        {
+                            "workflow_run_id": "workflow_initial",
+                            "workflow": "implement_then_review",
+                            "status": "cancelled",
+                            "summary": "Workflow stopped after 1/2 completed step(s).",
+                            "next_step_id": "review",
+                            "next_step_label": "Code review",
+                            "next_step_prompt_type": "code-reviewer",
+                        },
+                    ),
+                )
+            raise AssertionError("LLM should not be called after deterministic review/verify loop covers the task")
+
+        async def fake_run_workflow(workflow, task, start_step=None):
+            resumed.append((workflow, task, start_step))
+            run_id = agent.turn_context.current_run_id()
+            if start_step == "review":
+                agent._record_workflow_outcome(
+                    run_id,
+                    {
+                        "workflow_run_id": "workflow_review_resume",
+                        "workflow": workflow,
+                        "status": "completed",
+                        "completed_steps": 2,
+                        "failed_steps": 0,
+                        "total_steps": 2,
+                        "summary": "Completed 2/2 workflow step(s).",
+                        "review_attempted": True,
+                        "review_passed": False,
+                        "review_finding_count": 1,
+                        "review_summary": "One high-risk bug found.",
+                        "review_first_finding": "src/foo.py: Null handling bug: Guard the null path before dereference.",
+                        "verification_attempted": False,
+                        "verification_passed": False,
+                    },
+                )
+                return "Workflow: implement_then_review\nStatus: completed\n[2] code-reviewer | completed"
+            agent._record_workflow_outcome(
+                run_id,
+                {
+                    "workflow_run_id": "workflow_fix_resume",
+                    "workflow": workflow,
+                    "status": "completed",
+                    "completed_steps": 2,
+                    "failed_steps": 0,
+                    "total_steps": 2,
+                    "summary": "Completed 2/2 workflow step(s).",
+                    "review_attempted": True,
+                    "review_passed": True,
+                    "review_finding_count": 0,
+                    "review_summary": "No major findings.",
+                    "verification_attempted": False,
+                    "verification_passed": False,
+                },
+            )
+            return "Workflow: implement_then_review\nStatus: completed\n[1] implementer | completed\n[2] code-reviewer | completed"
+
+        async def fake_run_verify(action, path, pytest_args=()):
+            verified.append((action, path, tuple(pytest_args)))
+            if len(verified) == 1:
+                return ExecutionResult(
+                    content="Error: Verification failed: pytest\n[stderr] failing test",
+                    executed_tool_calls=1,
+                    had_tool_error=True,
+                    verification_attempted=True,
+                    verification_passed=False,
+                )
+            return ExecutionResult(
+                content="Verification passed: pytest\nCommand: python -m pytest",
+                executed_tool_calls=1,
+                verification_attempted=True,
+                verification_passed=True,
+            )
+
+        agent.call_llm = fake_call_llm
+        agent.turn_runner._run_workflow = fake_run_workflow
+        agent.turn_runner._run_verify = fake_run_verify
+        agent._schedule_curator = lambda session_id, run_id, channel, external_chat_id, result: None
+
+        response = await agent.process(
+            UserMessage(
+                text="Please refactor the agent and run tests.",
+                channel="web",
+                external_chat_id="browser-1",
+                session_id="web:browser-1",
+            )
+        )
+        run = next(iter(storage._runs.values()))
+        events = await storage.get_run_events("web:browser-1", run.run_id)
+        return response, calls, resumed, verified, events
+
+    response, calls, resumed, verified, events = asyncio.run(scenario())
+
+    assert response.text == "Verification passed: pytest\nCommand: python -m pytest"
+    assert len(calls) == 1
+    assert resumed == [
+        ("implement_then_review", "Please refactor the agent and run tests.", "review"),
+        ("implement_then_review", "Please refactor the agent and run tests.", "implement"),
+    ]
+    assert verified == [
+        ("pytest", ".", ()),
+        ("pytest", ".", ()),
+    ]
+    scheduled = [event for event in events if event.event_type == "auto_continue.scheduled"]
+    assert [event.payload.get("direct_start_step") or event.payload.get("direct_verify_action") for event in scheduled] == [
+        "review",
+        "implement",
+        "pytest",
+        "pytest",
+    ]
+
+
 def test_agent_process_stops_auto_continue_when_continuation_has_no_progress(tmp_path):
     async def scenario():
         storage = MemoryStorage()

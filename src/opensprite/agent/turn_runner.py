@@ -330,8 +330,13 @@ class AgentTurnRunner:
         collected_delegated_tasks: tuple[StoredDelegatedTask, ...] = ()
         collected_workflow_outcomes: tuple[dict[str, Any], ...] = ()
         auto_continue_attempts = 0
+        direct_actions_used = 0
         last_direct_workflow: str | None = None
         last_direct_start_step: str | None = None
+        last_direct_verify_action: str | None = None
+        last_direct_verify_path: str | None = None
+        last_direct_verify_pytest_args: tuple[str, ...] = ()
+        same_target_verify_attempts = 0
         pending_direct_verify: dict[str, Any] | None = self._extract_direct_verify_request(user_message.metadata)
         current_message = user_message.text
 
@@ -452,6 +457,11 @@ class AgentTurnRunner:
                 work_progress=work_progress,
                 last_direct_workflow=last_direct_workflow,
                 last_direct_start_step=last_direct_start_step,
+                direct_actions_used=direct_actions_used,
+                last_direct_verify_action=last_direct_verify_action,
+                last_direct_verify_path=last_direct_verify_path,
+                last_direct_verify_pytest_args=last_direct_verify_pytest_args,
+                same_target_verify_attempts=same_target_verify_attempts,
                 verification_available=self._verification_available(),
             )
             if decision.should_continue and decision.direct_workflow and decision.direct_start_step:
@@ -468,6 +478,7 @@ class AgentTurnRunner:
                     external_chat_id=turn.external_chat_id,
                 )
                 auto_continue_attempts += 1
+                direct_actions_used += 1
                 last_direct_workflow = decision.direct_workflow
                 last_direct_start_step = decision.direct_start_step
                 pending_direct_resume = {
@@ -493,6 +504,18 @@ class AgentTurnRunner:
                     external_chat_id=turn.external_chat_id,
                 )
                 auto_continue_attempts += 1
+                direct_actions_used += 1
+                if (
+                    decision.direct_verify_action == last_direct_verify_action
+                    and (decision.direct_verify_path or ".") == (last_direct_verify_path or ".")
+                    and tuple(decision.direct_verify_pytest_args) == tuple(last_direct_verify_pytest_args)
+                ):
+                    same_target_verify_attempts += 1
+                else:
+                    same_target_verify_attempts = 1
+                last_direct_verify_action = decision.direct_verify_action
+                last_direct_verify_path = decision.direct_verify_path or "."
+                last_direct_verify_pytest_args = tuple(decision.direct_verify_pytest_args)
                 pending_direct_verify = {
                     "action": decision.direct_verify_action,
                     "path": decision.direct_verify_path or ".",

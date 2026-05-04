@@ -58,8 +58,16 @@ class AutoContinueDecision:
 class AutoContinueService:
     """Allow at most a small number of safe self-continuations."""
 
-    def __init__(self, *, max_auto_continues: int = 1):
+    def __init__(
+        self,
+        *,
+        max_auto_continues: int = 1,
+        max_deterministic_actions: int = 4,
+        max_same_target_verifications: int = 2,
+    ):
         self.max_auto_continues = max(0, max_auto_continues)
+        self.max_deterministic_actions = max(0, max_deterministic_actions)
+        self.max_same_target_verifications = max(1, max_same_target_verifications)
 
     def decide(
         self,
@@ -72,6 +80,11 @@ class AutoContinueService:
         work_progress: WorkProgressUpdate | None = None,
         last_direct_workflow: str | None = None,
         last_direct_start_step: str | None = None,
+        direct_actions_used: int = 0,
+        last_direct_verify_action: str | None = None,
+        last_direct_verify_path: str | None = None,
+        last_direct_verify_pytest_args: tuple[str, ...] = (),
+        same_target_verify_attempts: int = 0,
         verification_available: bool = True,
     ) -> AutoContinueDecision:
         """Return whether another bounded pass should run."""
@@ -91,39 +104,6 @@ class AutoContinueService:
                 max_attempts=max_attempts,
                 emit_event=False,
             )
-        if attempts_used >= max_attempts:
-            return self._skip(
-                "max_auto_continues_reached",
-                attempt=attempts_used,
-                max_attempts=max_attempts,
-                emit_event=True,
-            )
-        if attempts_used > 0 and work_progress is not None and not work_progress.has_progress:
-            return self._skip(
-                "no_progress_during_continuation",
-                attempt=next_attempt,
-                max_attempts=max_attempts,
-                emit_event=True,
-            )
-        if execution_result.had_tool_error:
-            return self._skip(
-                "tool_error_requires_blocker_or_user_handoff",
-                attempt=next_attempt,
-                max_attempts=max_attempts,
-                emit_event=True,
-            )
-        if (
-            completion_result.status == "incomplete"
-            and execution_result.executed_tool_calls == 0
-            and not task_intent.expects_code_change
-        ):
-            return self._skip(
-                "no_tool_progress_after_incomplete_response",
-                attempt=next_attempt,
-                max_attempts=max_attempts,
-                emit_event=True,
-            )
-
         direct_workflow, direct_start_step = self._deterministic_workflow_resume_target(
             completion_result,
             attempts_used=attempts_used,
@@ -134,7 +114,53 @@ class AutoContinueService:
             completion_result,
             attempts_used=attempts_used,
             verification_available=verification_available,
+            last_direct_verify_action=last_direct_verify_action,
+            last_direct_verify_path=last_direct_verify_path,
+            last_direct_verify_pytest_args=last_direct_verify_pytest_args,
+            same_target_verify_attempts=same_target_verify_attempts,
+            max_same_target_verifications=self.max_same_target_verifications,
         )
+        direct_action_available = bool((direct_workflow and direct_start_step) or direct_verify_action)
+        if direct_action_available and direct_actions_used >= self.max_deterministic_actions:
+            return self._skip(
+                "max_deterministic_actions_reached",
+                attempt=next_attempt,
+                max_attempts=max_attempts,
+                emit_event=True,
+            )
+        if not direct_action_available and attempts_used >= max_attempts:
+            return self._skip(
+                "max_auto_continues_reached",
+                attempt=attempts_used,
+                max_attempts=max_attempts,
+                emit_event=True,
+            )
+        if attempts_used > 0 and work_progress is not None and not work_progress.has_progress and not direct_action_available:
+            return self._skip(
+                "no_progress_during_continuation",
+                attempt=next_attempt,
+                max_attempts=max_attempts,
+                emit_event=True,
+            )
+        if execution_result.had_tool_error and not direct_action_available:
+            return self._skip(
+                "tool_error_requires_blocker_or_user_handoff",
+                attempt=next_attempt,
+                max_attempts=max_attempts,
+                emit_event=True,
+            )
+        if (
+            completion_result.status == "incomplete"
+            and execution_result.executed_tool_calls == 0
+            and not task_intent.expects_code_change
+            and not direct_action_available
+        ):
+            return self._skip(
+                "no_tool_progress_after_incomplete_response",
+                attempt=next_attempt,
+                max_attempts=max_attempts,
+                emit_event=True,
+            )
         if completion_result.status == "needs_review" and attempts_used > 0 and not (direct_workflow and direct_start_step):
             reason = "review_findings_require_follow_up" if completion_result.review_attempted else "review_evidence_still_missing"
             return self._skip(
@@ -307,9 +333,12 @@ class AutoContinueService:
         *,
         attempts_used: int,
         verification_available: bool,
+        last_direct_verify_action: str | None,
+        last_direct_verify_path: str | None,
+        last_direct_verify_pytest_args: tuple[str, ...],
+        same_target_verify_attempts: int,
+        max_same_target_verifications: int,
     ) -> tuple[str | None, str | None, tuple[str, ...]]:
-        if attempts_used > 0:
-            return None, None, ()
         if completion_result.status != "needs_verification":
             return None, None, ()
         if not verification_available:
@@ -319,6 +348,15 @@ class AutoContinueService:
             return None, None, ()
         path = str(completion_result.verification_path or ".").strip() or "."
         pytest_args = tuple(str(item or "").strip() for item in completion_result.verification_pytest_args if str(item or "").strip())
+        if attempts_used <= 0:
+            return action, path, pytest_args
+        if (
+            action == str(last_direct_verify_action or "").strip()
+            and path == str(last_direct_verify_path or "").strip()
+            and pytest_args == tuple(last_direct_verify_pytest_args or ())
+            and same_target_verify_attempts >= max_same_target_verifications
+        ):
+            return None, None, ()
         return action, path, pytest_args
 
 

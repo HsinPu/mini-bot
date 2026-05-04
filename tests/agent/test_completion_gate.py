@@ -321,6 +321,37 @@ def test_completion_gate_uses_workflow_review_finding_detail_without_delegated_t
     assert result.review_finding_count == 1
 
 
+def test_completion_gate_prioritizes_workflow_review_follow_up_before_verification():
+    intent = TaskIntentService().classify("Please refactor the agent and run tests.")
+
+    result = CompletionGateService().evaluate(
+        task_intent=intent,
+        response_text="Workflow result attached.",
+        execution_result=ExecutionResult(
+            content="Workflow result attached.",
+            file_change_count=1,
+            touched_paths=("src/agent.py",),
+            workflow_outcomes=(
+                {
+                    "workflow_run_id": "workflow_abc123",
+                    "workflow": "implement_then_review",
+                    "status": "completed",
+                    "review_attempted": True,
+                    "review_passed": False,
+                    "review_finding_count": 1,
+                    "review_summary": "One high-risk bug found.",
+                    "review_first_finding": "src/foo.py: Null handling bug: Guard the null path before dereference.",
+                    "verification_attempted": False,
+                    "verification_passed": False,
+                },
+            ),
+        ),
+    )
+
+    assert result.status == "needs_review"
+    assert result.follow_up_step_id == "implement"
+
+
 def test_completion_gate_sets_workflow_review_step_target_when_review_is_missing():
     intent = TaskIntentService().classify("Please implement the final cleanup.")
 

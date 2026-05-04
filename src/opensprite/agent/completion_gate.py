@@ -491,14 +491,6 @@ def _workflow_gate_outcome(
             "reason": "workflow research_then_outline completed all required steps",
         }
 
-    if verification_required and not (verification_passed or workflow_verification_passed):
-        return {
-            **metadata,
-            "status": "needs_verification",
-            "reason": "workflow completed but required verification evidence is still missing",
-            "detail": str(workflow.get("summary") or "").strip(),
-        }
-
     if workflow_id in {"implement_then_review", "bugfix_then_test_then_review"}:
         if not review_attempted:
             review_step = _workflow_review_follow_up_fields(workflow_id)
@@ -520,10 +512,25 @@ def _workflow_gate_outcome(
                 or str(workflow.get("summary") or "").strip(),
                 **fix_step,
             }
+        if verification_required and not (verification_passed or workflow_verification_passed):
+            return {
+                **metadata,
+                "status": "needs_verification",
+                "reason": "workflow completed but required verification evidence is still missing",
+                "detail": str(workflow.get("summary") or "").strip(),
+            }
         return {
             **metadata,
             "status": "complete",
             "reason": f"workflow {workflow_id} completed with clean review evidence",
+        }
+
+    if verification_required and not (verification_passed or workflow_verification_passed):
+        return {
+            **metadata,
+            "status": "needs_verification",
+            "reason": "workflow completed but required verification evidence is still missing",
+            "detail": str(workflow.get("summary") or "").strip(),
         }
 
     if task_intent.kind in {"analysis", "review"}:

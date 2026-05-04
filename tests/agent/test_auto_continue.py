@@ -288,6 +288,56 @@ def test_auto_continue_skips_second_direct_resume_when_target_is_unchanged():
     assert decision.reason == "review_findings_require_follow_up"
 
 
+def test_auto_continue_limits_same_target_verify_retries():
+    intent = TaskIntentService().classify("Please refactor the agent and run tests.")
+    completion = CompletionGateResult(
+        status="needs_verification",
+        reason="required verification did not pass",
+        verification_required=True,
+        verification_attempted=True,
+        verification_passed=False,
+        verification_action="pytest",
+        verification_path=".",
+    )
+    progress = WorkProgressService().evaluate(
+        task_intent=intent,
+        completion_result=completion,
+        execution_result=ExecutionResult(content="Error: Verification failed: pytest", executed_tool_calls=1, had_tool_error=True, verification_attempted=True),
+        auto_continue_attempts=3,
+        pass_index=4,
+    )
+
+    allowed = AutoContinueService(max_auto_continues=1).decide(
+        task_intent=intent,
+        completion_result=completion,
+        execution_result=ExecutionResult(content="Error: Verification failed: pytest", executed_tool_calls=1, had_tool_error=True, verification_attempted=True),
+        attempts_used=3,
+        previous_response="Verification failed.",
+        work_progress=progress,
+        direct_actions_used=3,
+        last_direct_verify_action="pytest",
+        last_direct_verify_path=".",
+        same_target_verify_attempts=1,
+    )
+    blocked = AutoContinueService(max_auto_continues=1).decide(
+        task_intent=intent,
+        completion_result=completion,
+        execution_result=ExecutionResult(content="Verification did not pass.", executed_tool_calls=1, verification_attempted=True),
+        attempts_used=1,
+        previous_response="Verification failed again.",
+        work_progress=progress,
+        direct_actions_used=2,
+        last_direct_verify_action="pytest",
+        last_direct_verify_path=".",
+        same_target_verify_attempts=2,
+    )
+
+    assert allowed.should_continue is True
+    assert allowed.direct_verify_action == "pytest"
+    assert blocked.should_continue is True
+    assert blocked.direct_verify_action is None
+
+
 def test_auto_continue_uses_work_progress_budget_and_stops_without_progress():
     intent = TaskIntentService().classify("Please refactor the agent and run tests.")
     completion = CompletionGateResult(status="needs_verification", reason="required verification was not recorded")
