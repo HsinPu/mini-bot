@@ -20,12 +20,13 @@ function assertRegex(content, pattern, label) {
   }
 }
 
-const [messageList, runSummaryCard, runTraceViewer, runDetailsPanel, chatComposer, curatorSettingsPage, settingsModal, chatClient, copy] = await Promise.all([
+const [messageList, runSummaryCard, runTraceViewer, runDetailsPanel, chatComposer, toastStack, curatorSettingsPage, settingsModal, chatClient, copy] = await Promise.all([
   read("src/components/MessageList.vue"),
   read("src/components/RunSummaryCard.vue"),
   read("src/components/RunTraceViewer.vue"),
   read("src/components/RunDetailsPanel.vue"),
   read("src/components/ChatComposer.vue"),
+  read("src/components/ToastStack.vue"),
   read("src/components/CuratorSettingsPage.vue"),
   read("src/components/SettingsModal.vue"),
   read("src/composables/useChatClient.js"),
@@ -41,6 +42,8 @@ assertIncludes(runTraceViewer, "showRetentionSummary", "trace retention summary"
 assertIncludes(runDetailsPanel, "RunHistorySelector", "run details history selector");
 assertIncludes(runDetailsPanel, "RunFileChangeDrawer", "run details file drawer");
 assertIncludes(chatComposer, "composer__commands", "slash command hints rendering");
+assertIncludes(toastStack, "toast-stack", "toast stack rendering");
+assertIncludes(toastStack, "dismiss-toast", "toast dismiss event");
 assertIncludes(curatorSettingsPage, "settings-card", "curator settings card layout");
 assertIncludes(curatorSettingsPage, "provider-row", "curator settings history layout");
 assertIncludes(settingsModal, "CuratorSettingsPage", "curator settings placement");
@@ -53,6 +56,7 @@ assertIncludes(chatClient, 'params.set("scope", scope)', "curator scoped action 
 assertIncludes(chatClient, "CURATOR_POLL_INTERVAL_MS", "curator polling interval");
 assertIncludes(chatClient, "scheduleCuratorPoll", "curator polling scheduler");
 assertIncludes(chatClient, "curator.completed", "curator event refresh");
+assertIncludes(chatClient, "setSettingsSuccess", "settings success toast routing");
 
 for (const key of [
   "artifactTypes",

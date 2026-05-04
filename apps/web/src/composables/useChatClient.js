@@ -1338,6 +1338,7 @@ export function useChatClient() {
   const messageText = ref("");
   const messageInput = ref(null);
   const messageStage = ref(null);
+  const toasts = ref([]);
   const sidebarOpen = ref(false);
   const sidebarCollapsed = ref(readStoredBoolean(STORAGE_KEYS.sidebarCollapsed, false));
   const sessionChannelFilter = ref("all");
@@ -1471,6 +1472,8 @@ export function useChatClient() {
   const runBackfillTimes = new Map();
   let curatorPollTimer = null;
   let curatorPollSessionId = "";
+  let toastId = 0;
+  const toastTimers = new Map();
   let curatorActionToken = "";
 
   function applyDocumentPreferences() {
@@ -2141,6 +2144,31 @@ export function useChatClient() {
   function setNotice(text, tone) {
     state.notice.text = text;
     state.notice.tone = tone;
+  }
+
+  function showToast(text, tone = "info") {
+    const normalized = String(text || "").trim();
+    if (!normalized) {
+      return;
+    }
+    const id = `toast-${Date.now()}-${toastId += 1}`;
+    toasts.value = [...toasts.value, { id, text: normalized, tone }].slice(-4);
+    const timer = window.setTimeout(() => dismissToast(id), 4500);
+    toastTimers.set(id, timer);
+  }
+
+  function dismissToast(id) {
+    const timer = toastTimers.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      toastTimers.delete(id);
+    }
+    toasts.value = toasts.value.filter((toast) => toast.id !== id);
+  }
+
+  function setSettingsSuccess(noticeKey, text) {
+    settingsState[noticeKey] = text;
+    showToast(text, "success");
   }
 
   function setActiveSession(externalChatId) {
@@ -3410,7 +3438,7 @@ export function useChatClient() {
           token: settingsState.channelConnectForm.token,
         }),
       });
-      settingsState.channelsNotice = copy.value.notices.channelConnected(payload.channel.name, payload.restart_required);
+      setSettingsSuccess("channelsNotice", copy.value.notices.channelConnected(payload.channel.name, payload.restart_required));
       upsertConnectedChannel(payload.channel);
       cancelChannelConnect();
       await loadChannelSettings();
@@ -3429,7 +3457,7 @@ export function useChatClient() {
       const payload = await requestSettingsJson(`/api/settings/channels/${encodeURIComponent(channel.id)}/disconnect`, {
         method: "POST",
       });
-      settingsState.channelsNotice = copy.value.notices.channelDisconnected(channel.name, payload.restart_required);
+      setSettingsSuccess("channelsNotice", copy.value.notices.channelDisconnected(channel.name, payload.restart_required));
       removeConnectedChannel(channel.id);
       await loadChannelSettings();
     } catch (error) {
@@ -3472,7 +3500,7 @@ export function useChatClient() {
           base_url: settingsState.connectForm.baseUrl,
         }),
       });
-      settingsState.providersNotice = copy.value.notices.providerConnected;
+      setSettingsSuccess("providersNotice", copy.value.notices.providerConnected);
       cancelProviderConnect();
       await loadProviderSettings();
       await loadModelSettings();
@@ -3491,7 +3519,7 @@ export function useChatClient() {
       const payload = await requestSettingsJson(`/api/settings/providers/${encodeURIComponent(provider.id)}/disconnect`, {
         method: "POST",
       });
-      settingsState.providersNotice = copy.value.notices.providerDisconnected(provider.name, payload.restart_required);
+      setSettingsSuccess("providersNotice", copy.value.notices.providerDisconnected(provider.name, payload.restart_required));
       await loadProviderSettings();
       await loadModelSettings();
     } catch (error) {
@@ -3516,9 +3544,10 @@ export function useChatClient() {
         method: "POST",
         body: JSON.stringify({ provider_id: providerId, model: normalizedModel }),
       });
-      settingsState.modelsNotice = payload.restart_required
-        ? copy.value.notices.modelRestartRequired
-        : copy.value.notices.modelApplied;
+      setSettingsSuccess(
+        "modelsNotice",
+        payload.restart_required ? copy.value.notices.modelRestartRequired : copy.value.notices.modelApplied,
+      );
       settingsState.customModels[providerId] = "";
       settingsState.modelSelections[providerId] = normalizedModel;
       await loadModelSettings();
@@ -3611,7 +3640,7 @@ export function useChatClient() {
     form.headersJson = formatJsonObject(server.headers) || form.headersJson;
     form.showAdvanced = Boolean(server.env || server.headers || server.tool_timeout || server.toolTimeout || server.enabled_tools || server.enabledTools);
     form.showJsonInput = false;
-    settingsState.mcpNotice = copy.value.notices.mcpJsonApplied;
+    setSettingsSuccess("mcpNotice", copy.value.notices.mcpJsonApplied);
   }
 
   async function saveMcpServer() {
@@ -3642,7 +3671,7 @@ export function useChatClient() {
         body: JSON.stringify(payload),
       });
       settingsState.mcp = normalizeMcpSettings(response);
-      settingsState.mcpNotice = response.reload_message || copy.value.notices.mcpSaved;
+      setSettingsSuccess("mcpNotice", response.reload_message || copy.value.notices.mcpSaved);
       resetMcpForm();
     } catch (error) {
       settingsState.mcpError = error?.message || copy.value.notices.mcpSaveFailed;
@@ -3660,7 +3689,7 @@ export function useChatClient() {
         method: "DELETE",
       });
       settingsState.mcp = normalizeMcpSettings(response);
-      settingsState.mcpNotice = response.reload_message || copy.value.notices.mcpRemoved;
+      setSettingsSuccess("mcpNotice", response.reload_message || copy.value.notices.mcpRemoved);
       if (settingsState.mcpForm.editingId === server.id) {
         resetMcpForm();
       }
@@ -3678,7 +3707,7 @@ export function useChatClient() {
     try {
       const response = await requestSettingsJson("/api/settings/mcp/reload", { method: "POST" });
       settingsState.mcp = normalizeMcpSettings(response);
-      settingsState.mcpNotice = response.reload_message || copy.value.notices.mcpReloaded;
+      setSettingsSuccess("mcpNotice", response.reload_message || copy.value.notices.mcpReloaded);
     } catch (error) {
       settingsState.mcpError = error?.message || copy.value.notices.mcpReloadFailed;
     } finally {
@@ -3698,9 +3727,12 @@ export function useChatClient() {
       });
       settingsState.schedule = payload;
       settingsState.scheduleForm.defaultTimezone = payload.default_timezone || defaultTimezone;
-      settingsState.scheduleNotice = payload.restart_required
-        ? copy.value.notices.scheduleRestartRequired
-        : copy.value.notices.scheduleSaved(settingsState.scheduleForm.defaultTimezone);
+      setSettingsSuccess(
+        "scheduleNotice",
+        payload.restart_required
+          ? copy.value.notices.scheduleRestartRequired
+          : copy.value.notices.scheduleSaved(settingsState.scheduleForm.defaultTimezone),
+      );
     } catch (error) {
       settingsState.scheduleError = error?.message || copy.value.notices.scheduleSaveFailed;
     } finally {
@@ -3757,7 +3789,7 @@ export function useChatClient() {
         method: jobId ? "PUT" : "POST",
         body: JSON.stringify(payload),
       });
-      settingsState.cronJobsNotice = jobId ? copy.value.notices.cronJobUpdated : copy.value.notices.cronJobCreated;
+      setSettingsSuccess("cronJobsNotice", jobId ? copy.value.notices.cronJobUpdated : copy.value.notices.cronJobCreated);
       resetCronJobForm();
       await loadCronJobs();
     } catch (error) {
@@ -3788,7 +3820,7 @@ export function useChatClient() {
           body: JSON.stringify({ session_id: sessionId }),
         });
       }
-      settingsState.cronJobsNotice = copy.value.notices.cronJobActionDone;
+      setSettingsSuccess("cronJobsNotice", copy.value.notices.cronJobActionDone);
       await loadCronJobs();
     } catch (error) {
       settingsState.cronJobsError = error?.message || copy.value.notices.cronJobActionFailed;
@@ -4205,6 +4237,10 @@ export function useChatClient() {
     runSummaryTimers.clear();
     runBackfillTimes.clear();
     clearCuratorPollTimer();
+    for (const timer of toastTimers.values()) {
+      clearTimeout(timer);
+    }
+    toastTimers.clear();
     removeColorSchemeListener();
     document.removeEventListener("keydown", handleGlobalKeydown);
     document.body.classList.remove("settings-open", "sidebar-open");
@@ -4229,6 +4265,7 @@ export function useChatClient() {
     settingsSection,
     settingsForm,
     settingsState,
+    toasts,
     permissionState,
     currentEntries,
     currentMessages,
@@ -4314,5 +4351,6 @@ export function useChatClient() {
     handleComposerKeydown,
     applyPrompt,
     applyCommandHint,
+    dismissToast,
   };
 }

@@ -233,9 +233,6 @@
           <p v-if="settingsState.channelsError" class="settings-inline-status settings-inline-status--error">
             {{ settingsState.channelsError }}
           </p>
-          <p v-if="settingsState.channelsNotice" class="settings-inline-status settings-inline-status--success">
-            {{ settingsState.channelsNotice }}
-          </p>
 
           <h3>{{ copy.settings.channels.connectedTitle }}</h3>
           <div class="settings-card provider-card">
@@ -308,9 +305,6 @@
           <p v-if="settingsState.providersError" class="settings-inline-status settings-inline-status--error">
             {{ settingsState.providersError }}
           </p>
-          <p v-if="settingsState.providersNotice" class="settings-inline-status settings-inline-status--success">
-            {{ settingsState.providersNotice }}
-          </p>
 
           <h3>{{ copy.settings.providers.connectedTitle }}</h3>
           <div class="settings-card provider-card">
@@ -382,9 +376,6 @@
           <p v-if="settingsState.modelsLoading" class="settings-inline-status">{{ copy.settings.models.loading }}</p>
           <p v-if="settingsState.modelsError" class="settings-inline-status settings-inline-status--error">
             {{ settingsState.modelsError }}
-          </p>
-          <p v-if="settingsState.modelsNotice" class="settings-inline-status settings-inline-status--success">
-            {{ settingsState.modelsNotice }}
           </p>
 
           <div v-if="settingsState.models.providers.length === 0" class="settings-card">
@@ -460,9 +451,6 @@
           <p v-if="settingsState.mcpLoading" class="settings-inline-status">{{ copy.settings.mcp.loading }}</p>
           <p v-if="settingsState.mcpError" class="settings-inline-status settings-inline-status--error">
             {{ settingsState.mcpError }}
-          </p>
-          <p v-if="settingsState.mcpNotice" class="settings-inline-status settings-inline-status--success">
-            {{ settingsState.mcpNotice }}
           </p>
 
           <h3>{{ copy.settings.mcp.runtimeTitle }}</h3>
@@ -554,9 +542,6 @@
           <p v-if="settingsState.scheduleError" class="settings-inline-status settings-inline-status--error">
             {{ settingsState.scheduleError }}
           </p>
-          <p v-if="settingsState.scheduleNotice" class="settings-inline-status settings-inline-status--success">
-            {{ settingsState.scheduleNotice }}
-          </p>
 
           <h3>{{ copy.settings.schedule.defaultsTitle }}</h3>
           <div class="settings-card settings-card--form">
@@ -605,9 +590,6 @@
           </div>
           <p v-if="settingsState.cronJobsError" class="settings-inline-status settings-inline-status--error">
             {{ settingsState.cronJobsError }}
-          </p>
-          <p v-if="settingsState.cronJobsNotice" class="settings-inline-status settings-inline-status--success">
-            {{ settingsState.cronJobsNotice }}
           </p>
 
           <h3>{{ copy.settings.schedule.jobsTitle }}</h3>

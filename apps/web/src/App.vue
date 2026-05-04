@@ -115,12 +115,15 @@
     @refresh-curator="refreshCuratorState"
     @run-curator-action="runCuratorAction"
   />
+
+  <ToastStack :copy="copy" :toasts="toasts" @dismiss-toast="dismissToast" />
 </template>
 
 <script setup>
 import ChatPanel from "./components/ChatPanel.vue";
 import SettingsModal from "./components/SettingsModal.vue";
 import SidebarNav from "./components/SidebarNav.vue";
+import ToastStack from "./components/ToastStack.vue";
 import { useChatClient } from "./composables/useChatClient";
 
 const {
@@ -136,6 +139,7 @@ const {
   settingsSection,
   settingsForm,
   settingsState,
+  toasts,
   permissionState,
   currentEntries,
   currentMessages,
@@ -214,5 +218,6 @@ const {
   handleComposerKeydown,
   applyPrompt,
   applyCommandHint,
+  dismissToast,
 } = useChatClient();
 </script>
