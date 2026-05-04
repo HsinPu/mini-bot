@@ -20,6 +20,30 @@ def test_completion_gate_requires_requested_verification_before_completion():
     assert result.status == "needs_verification"
     assert result.reason == "required verification was not recorded"
     assert result.should_update_active_task is False
+    assert result.verification_action == "pytest"
+    assert result.verification_path == "."
+
+
+def test_completion_gate_keeps_verification_status_when_verify_fails_with_tool_error():
+    intent = TaskIntentService().classify("Please refactor the agent and run tests.")
+
+    result = CompletionGateService().evaluate(
+        task_intent=intent,
+        response_text="Verification failed.",
+        execution_result=ExecutionResult(
+            content="Verification failed.",
+            file_change_count=1,
+            touched_paths=("src/agent.py",),
+            verification_attempted=True,
+            verification_passed=False,
+            had_tool_error=True,
+        ),
+    )
+
+    assert result.status == "needs_verification"
+    assert result.reason == "required verification did not pass"
+    assert result.verification_action == "pytest"
+    assert result.verification_path == "."
 
 
 def test_completion_gate_marks_blocked_when_tool_error_reports_blocker():

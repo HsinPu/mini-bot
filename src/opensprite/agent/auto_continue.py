@@ -26,6 +26,9 @@ class AutoContinueDecision:
     prompt: str | None = None
     direct_workflow: str | None = None
     direct_start_step: str | None = None
+    direct_verify_action: str | None = None
+    direct_verify_path: str | None = None
+    direct_verify_pytest_args: tuple[str, ...] = ()
     emit_skipped_event: bool = False
 
     def to_metadata(self) -> dict[str, Any]:
@@ -43,6 +46,12 @@ class AutoContinueDecision:
             payload["direct_workflow"] = self.direct_workflow
         if self.direct_start_step:
             payload["direct_start_step"] = self.direct_start_step
+        if self.direct_verify_action:
+            payload["direct_verify_action"] = self.direct_verify_action
+        if self.direct_verify_path:
+            payload["direct_verify_path"] = self.direct_verify_path
+        if self.direct_verify_pytest_args:
+            payload["direct_verify_pytest_args"] = list(self.direct_verify_pytest_args)
         return payload
 
 
@@ -63,6 +72,7 @@ class AutoContinueService:
         work_progress: WorkProgressUpdate | None = None,
         last_direct_workflow: str | None = None,
         last_direct_start_step: str | None = None,
+        verification_available: bool = True,
     ) -> AutoContinueDecision:
         """Return whether another bounded pass should run."""
         next_attempt = attempts_used + 1
@@ -120,6 +130,11 @@ class AutoContinueService:
             last_direct_workflow=last_direct_workflow,
             last_direct_start_step=last_direct_start_step,
         )
+        direct_verify_action, direct_verify_path, direct_verify_pytest_args = self._deterministic_verify_target(
+            completion_result,
+            attempts_used=attempts_used,
+            verification_available=verification_available,
+        )
         if completion_result.status == "needs_review" and attempts_used > 0 and not (direct_workflow and direct_start_step):
             reason = "review_findings_require_follow_up" if completion_result.review_attempted else "review_evidence_still_missing"
             return self._skip(
@@ -140,6 +155,9 @@ class AutoContinueService:
             ),
             direct_workflow=direct_workflow,
             direct_start_step=direct_start_step,
+            direct_verify_action=direct_verify_action,
+            direct_verify_path=direct_verify_path,
+            direct_verify_pytest_args=direct_verify_pytest_args,
         )
 
     def build_prompt(
@@ -182,6 +200,13 @@ class AutoContinueService:
                 "\n- Verification is required. Use available verification tools or clearly state the blocker "
                 "if verification cannot be run."
             )
+            if completion_result.verification_action:
+                verification_instruction += (
+                    "\n- If the direct verification target still fits, prefer calling "
+                    f"`verify(action=\"{completion_result.verification_action}\""
+                    f"{_format_verify_path_hint(completion_result.verification_path)}"
+                    f"{_format_verify_pytest_args_hint(completion_result.verification_pytest_args)})`."
+                )
         review_instruction = ""
         if completion_result.status == "needs_review":
             if completion_result.review_attempted:
@@ -276,6 +301,26 @@ class AutoContinueService:
             return None, None
         return workflow, start_step
 
+    @staticmethod
+    def _deterministic_verify_target(
+        completion_result: CompletionGateResult,
+        *,
+        attempts_used: int,
+        verification_available: bool,
+    ) -> tuple[str | None, str | None, tuple[str, ...]]:
+        if attempts_used > 0:
+            return None, None, ()
+        if completion_result.status != "needs_verification":
+            return None, None, ()
+        if not verification_available:
+            return None, None, ()
+        action = str(completion_result.verification_action or "").strip()
+        if not action:
+            return None, None, ()
+        path = str(completion_result.verification_path or ".").strip() or "."
+        pytest_args = tuple(str(item or "").strip() for item in completion_result.verification_pytest_args if str(item or "").strip())
+        return action, path, pytest_args
+
 
 def _truncate(text: str, *, max_chars: int) -> str:
     compact = str(text or "").strip()
@@ -290,3 +335,17 @@ def _workflow_follow_up_target(completion_result: CompletionGateResult) -> str:
     if workflow and step_label:
         return f"{workflow} -> {step_label}"
     return workflow or step_label
+
+
+def _format_verify_path_hint(path: str | None) -> str:
+    normalized = str(path or "").strip()
+    if not normalized:
+        return ""
+    return f", path=\"{normalized}\""
+
+
+def _format_verify_pytest_args_hint(pytest_args: tuple[str, ...]) -> str:
+    if not pytest_args:
+        return ""
+    rendered = ", ".join(f'\"{item}\"' for item in pytest_args)
+    return f", pytest_args=[{rendered}]"

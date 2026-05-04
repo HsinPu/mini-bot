@@ -62,6 +62,9 @@ class CompletionGateResult:
     follow_up_step_id: str | None = None
     follow_up_step_label: str | None = None
     follow_up_prompt_type: str | None = None
+    verification_action: str | None = None
+    verification_path: str | None = None
+    verification_pytest_args: tuple[str, ...] = ()
     should_update_active_task: bool = False
     verification_required: bool = False
     verification_attempted: bool = False
@@ -102,6 +105,12 @@ class CompletionGateResult:
             payload["follow_up_step_label"] = self.follow_up_step_label
         if self.follow_up_prompt_type:
             payload["follow_up_prompt_type"] = self.follow_up_prompt_type
+        if self.verification_action:
+            payload["verification_action"] = self.verification_action
+        if self.verification_path:
+            payload["verification_path"] = self.verification_path
+        if self.verification_pytest_args:
+            payload["verification_pytest_args"] = list(self.verification_pytest_args)
         return payload
 
 
@@ -120,6 +129,7 @@ class CompletionGateService:
         expects_code_change = task_intent.expects_code_change
         verification_attempted = execution_result.verification_attempted
         verification_passed = execution_result.verification_passed
+        verification_follow_up = _verification_follow_up(task_intent, execution_result)
         review = _review_evidence(execution_result.delegated_tasks)
         review_required = expects_code_change and execution_result.file_change_count > 0
         workflow_gate = _workflow_gate_outcome(
@@ -155,6 +165,23 @@ class CompletionGateService:
             )
 
         if execution_result.had_tool_error:
+            if verification_required and verification_attempted and not verification_passed:
+                return CompletionGateResult(
+                    status="needs_verification",
+                    reason="required verification did not pass",
+                    verification_required=True,
+                    verification_attempted=True,
+                    verification_passed=False,
+                    verification_action=verification_follow_up["action"],
+                    verification_path=verification_follow_up["path"],
+                    verification_pytest_args=verification_follow_up["pytest_args"],
+                    review_required=review_required,
+                    review_attempted=review["attempted"],
+                    review_passed=review["passed"],
+                    review_summary=review["summary"],
+                    review_prompt_types=review["prompt_types"],
+                    review_finding_count=review["finding_count"],
+                )
             return CompletionGateResult(
                 status="incomplete",
                 reason="tool execution reported an error without a clear blocker handoff",
@@ -189,6 +216,9 @@ class CompletionGateService:
                 verification_required=verification_required,
                 verification_attempted=workflow_verification_attempted,
                 verification_passed=workflow_verification_passed,
+                verification_action=verification_follow_up["action"] if workflow_gate["status"] == "needs_verification" else None,
+                verification_path=verification_follow_up["path"] if workflow_gate["status"] == "needs_verification" else None,
+                verification_pytest_args=verification_follow_up["pytest_args"] if workflow_gate["status"] == "needs_verification" else (),
                 review_required=review_required,
                 review_attempted=workflow_review_attempted,
                 review_passed=workflow_review_passed,
@@ -224,6 +254,9 @@ class CompletionGateService:
                 verification_required=True,
                 verification_attempted=verification_attempted,
                 verification_passed=False,
+                verification_action=verification_follow_up["action"],
+                verification_path=verification_follow_up["path"],
+                verification_pytest_args=verification_follow_up["pytest_args"],
                 review_required=review_required,
                 review_attempted=review["attempted"],
                 review_passed=review["passed"],
@@ -591,3 +624,49 @@ def _workflow_fix_follow_up_fields(workflow_id: str) -> dict[str, str]:
 def _string_or_none(value: Any) -> str | None:
     text = str(value or "").strip()
     return text or None
+
+
+def _verification_follow_up(task_intent: TaskIntent, execution_result: ExecutionResult) -> dict[str, Any]:
+    touched_paths = _normalized_touched_paths(execution_result.touched_paths)
+    lowered_objective = str(task_intent.objective or "").lower()
+    test_paths = tuple(path for path in touched_paths if path.startswith("tests/") and path.endswith(".py"))
+    if any(path.startswith("apps/web/") or path == "apps/web" for path in touched_paths) or any(
+        marker in lowered_objective for marker in ("web build", "vite build", "frontend build", "frontend", "vite")
+    ):
+        return {"action": "web_build", "path": "apps/web", "pytest_args": ()}
+    if test_paths or any(marker in lowered_objective for marker in ("pytest", "run tests", "run the tests", "test", "tests", "測試")):
+        return {"action": "pytest", "path": ".", "pytest_args": test_paths}
+    if any(path.endswith(".py") for path in touched_paths) or any(marker in lowered_objective for marker in ("compile", "syntax", "編譯")):
+        return {
+            "action": "python_compile",
+            "path": _common_verification_path(touched_paths) or ".",
+            "pytest_args": (),
+        }
+    return {
+        "action": "auto",
+        "path": _common_verification_path(touched_paths) or ".",
+        "pytest_args": (),
+    }
+
+
+def _normalized_touched_paths(paths: tuple[str, ...]) -> tuple[str, ...]:
+    normalized = [str(path or "").replace("\\", "/").strip("/") for path in paths]
+    return tuple(path for path in normalized if path)
+
+
+def _common_verification_path(paths: tuple[str, ...]) -> str | None:
+    if not paths:
+        return None
+    parts_list = [path.split("/") for path in paths if path]
+    if not parts_list:
+        return None
+    common: list[str] = []
+    for segments in zip(*parts_list):
+        if len(set(segments)) != 1:
+            break
+        common.append(segments[0])
+    if not common:
+        return "."
+    if len(common) == len(parts_list[0]) and not paths[0].endswith("/"):
+        return "/".join(common[:-1]) or "."
+    return "/".join(common) or "."

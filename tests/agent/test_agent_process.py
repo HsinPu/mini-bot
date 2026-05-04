@@ -1023,6 +1023,81 @@ def test_agent_process_auto_continues_once_when_code_changes_are_missing(tmp_pat
     assert any(part.part_type == "task_checklist" for part in parts)
 
 
+def test_agent_process_direct_verify_can_finish_without_second_llm_pass(tmp_path):
+    async def scenario():
+        storage = MemoryStorage()
+        agent = AgentLoop(
+            config=Config.load_agent_template_config(),
+            provider=FakeProvider(),
+            storage=storage,
+            context_builder=FakeContextBuilder(tmp_path / "workspace"),
+            tools=ToolRegistry(),
+            memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
+            tools_config=ToolsConfig(),
+            log_config=LogConfig(),
+            search_config=SearchConfig(),
+            user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+            recent_summary_config=RecentSummaryConfig(**{**Config.load_template_data()["recent_summary"], "enabled": False}),
+            **Config.packaged_agent_llm_chat_kwargs(),
+        )
+        calls = []
+        verified = []
+
+        async def fake_call_llm(session_id, current_message, **kwargs):
+            calls.append(current_message)
+            if len(calls) == 1:
+                return ExecutionResult(
+                    content="Implemented the refactor.",
+                    executed_tool_calls=1,
+                    file_change_count=1,
+                    touched_paths=("src/agent.py",),
+                    delegated_tasks=(
+                        StoredDelegatedTask(
+                            task_id="task_review",
+                            prompt_type="code-reviewer",
+                            status="completed",
+                            summary="No major findings.",
+                            metadata={"structured_output": {"status": "ok", "summary": "No major findings.", "finding_count": 0}},
+                        ),
+                    ),
+                )
+            raise AssertionError("LLM should not be called after deterministic verification already completed the task")
+
+        async def fake_run_verify(action, path, pytest_args=()):
+            verified.append((action, path, tuple(pytest_args)))
+            return ExecutionResult(
+                content="Verification passed: pytest\nCommand: python -m pytest",
+                executed_tool_calls=1,
+                verification_attempted=True,
+                verification_passed=True,
+            )
+
+        agent.call_llm = fake_call_llm
+        agent.turn_runner._run_verify = fake_run_verify
+        agent._schedule_curator = lambda session_id, run_id, channel, external_chat_id, result: None
+
+        response = await agent.process(
+            UserMessage(
+                text="Please refactor the agent and run tests.",
+                channel="web",
+                external_chat_id="browser-1",
+                session_id="web:browser-1",
+            )
+        )
+        run = next(iter(storage._runs.values()))
+        events = await storage.get_run_events("web:browser-1", run.run_id)
+        return response, calls, verified, events
+
+    response, calls, verified, events = asyncio.run(scenario())
+
+    assert response.text == "Verification passed: pytest\nCommand: python -m pytest"
+    assert len(calls) == 1
+    assert verified == [("pytest", ".", ())]
+    scheduled = next(event for event in events if event.event_type == "auto_continue.scheduled")
+    assert scheduled.payload["direct_verify_action"] == "pytest"
+    assert scheduled.payload["direct_verify_path"] == "."
+
+
 def test_agent_process_stops_auto_continue_when_continuation_has_no_progress(tmp_path):
     async def scenario():
         storage = MemoryStorage()

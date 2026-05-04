@@ -47,6 +47,7 @@ from ..tools import ToolRegistry
 from ..tools.approval import PermissionRequest, PermissionRequestManager
 from ..tools.permissions import PermissionApprovalResult, PermissionDecision
 from ..tools.process_runtime import BackgroundProcessManager, BackgroundSession
+from ..tools.verify import classify_verification_result
 from ..utils.log import logger
 from ..config import AgentConfig, MemoryConfig, ToolsConfig, LogConfig, SearchConfig, UserProfileConfig, ActiveTaskConfig, RecentSummaryConfig, MessagesConfig, Config
 from ..storage.base import clear_storage_work_state, get_storage_work_state, upsert_storage_work_state
@@ -647,6 +648,8 @@ class AgentLoop:
             emit_run_event=lambda *args, **kwargs: self._emit_run_event(*args, **kwargs),
             call_llm=lambda *args, **kwargs: self.call_llm(*args, **kwargs),
             run_workflow=lambda workflow, task, start_step=None: self.run_workflow(workflow, task, start_step),
+            run_verify=lambda action, path, pytest_args=(): self.run_verify(action=action, path=path, pytest_args=pytest_args),
+            verification_available=lambda: self.tools.get("verify") is not None,
             get_queued_outbound_media=self._get_queued_outbound_media,
             media_saved_ack=lambda: self.messages.agent.media_saved_ack,
             llm_not_configured_message=lambda: self.messages.agent.llm_not_configured,
@@ -1722,6 +1725,56 @@ class AgentLoop:
     async def run_workflow(self, workflow: str, task: str, start_step: str | None = None) -> str:
         """Run one fixed multi-step orchestration workflow."""
         return await self.workflows.run_from_step(workflow, task, start_step=start_step)
+
+    async def run_verify(
+        self,
+        *,
+        action: str = "auto",
+        path: str = ".",
+        pytest_args: tuple[str, ...] = (),
+    ) -> ExecutionResult:
+        """Run deterministic verification through the registered verify tool."""
+        session_id = self._get_current_session_id()
+        run_id = self.turn_context.current_run_id()
+        if session_id is None or run_id is None:
+            return ExecutionResult(content="Error: No active run is available for deterministic verification.", had_tool_error=True)
+
+        tool_args: dict[str, Any] = {
+            "action": str(action or "auto").strip() or "auto",
+            "path": str(path or ".").strip() or ".",
+        }
+        if pytest_args:
+            tool_args["pytest_args"] = [str(item) for item in pytest_args if str(item).strip()]
+
+        before = self._make_tool_progress_hook(
+            channel=self.turn_context.current_channel(),
+            external_chat_id=self.turn_context.current_external_chat_id(),
+            session_id=session_id,
+            run_id=run_id,
+            enabled=True,
+        )
+        after = self._make_tool_result_hook(
+            channel=self.turn_context.current_channel(),
+            external_chat_id=self.turn_context.current_external_chat_id(),
+            session_id=session_id,
+            run_id=run_id,
+            enabled=True,
+        )
+
+        if before is not None:
+            await before("verify", tool_args)
+        result = await self.tools.execute("verify", tool_args)
+        if after is not None:
+            await after("verify", tool_args, result)
+
+        verification = classify_verification_result(result)
+        return ExecutionResult(
+            content=result,
+            executed_tool_calls=1,
+            had_tool_error=str(result or "").lstrip().startswith("Error:"),
+            verification_attempted=bool(verification["attempted"]),
+            verification_passed=bool(verification["ok"]),
+        )
 
     async def process(self, user_message: UserMessage) -> AssistantMessage:
         """

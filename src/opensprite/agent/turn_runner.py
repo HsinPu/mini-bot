@@ -45,6 +45,8 @@ class AgentTurnRunner:
         emit_run_event: Callable[..., Awaitable[None]],
         call_llm: Callable[..., Awaitable[ExecutionResult]],
         run_workflow: Callable[[str, str, str | None], Awaitable[str]],
+        run_verify: Callable[[str, str, tuple[str, ...]], Awaitable[ExecutionResult]],
+        verification_available: Callable[[], bool],
         get_queued_outbound_media: Callable[[], dict[str, list[str]]],
         media_saved_ack: Callable[[], str],
         llm_not_configured_message: Callable[[], str],
@@ -75,6 +77,8 @@ class AgentTurnRunner:
         self._emit_run_event = emit_run_event
         self._call_llm = call_llm
         self._run_workflow = run_workflow
+        self._run_verify = run_verify
+        self._verification_available = verification_available
         self._get_queued_outbound_media = get_queued_outbound_media
         self._media_saved_ack = media_saved_ack
         self._llm_not_configured_message = llm_not_configured_message
@@ -328,6 +332,7 @@ class AgentTurnRunner:
         auto_continue_attempts = 0
         last_direct_workflow: str | None = None
         last_direct_start_step: str | None = None
+        pending_direct_verify: dict[str, Any] | None = None
         current_message = user_message.text
 
         pending_direct_resume = self._extract_follow_up_resume_request(user_message.metadata)
@@ -345,6 +350,11 @@ class AgentTurnRunner:
                     collected_workflow_outcomes=collected_workflow_outcomes,
                 )
                 pending_direct_resume = None
+            elif pending_direct_verify is not None:
+                response, exec_result = await self._run_direct_verification(
+                    direct_verify=pending_direct_verify,
+                )
+                pending_direct_verify = None
             else:
                 exec_result = await self._call_llm(
                     turn.session_id,
@@ -442,6 +452,7 @@ class AgentTurnRunner:
                 work_progress=work_progress,
                 last_direct_workflow=last_direct_workflow,
                 last_direct_start_step=last_direct_start_step,
+                verification_available=self._verification_available(),
             )
             if decision.should_continue and decision.direct_workflow and decision.direct_start_step:
                 await self._emit_run_event(
@@ -466,6 +477,26 @@ class AgentTurnRunner:
                     "prompt_type": completion_result.follow_up_prompt_type or "",
                     "detail": completion_result.active_task_detail or "",
                     "previous_response": response,
+                }
+                continue
+            if decision.should_continue and decision.direct_verify_action:
+                await self._emit_run_event(
+                    turn.session_id,
+                    run_id,
+                    "auto_continue.scheduled",
+                    {
+                        **decision.to_metadata(),
+                        "completion_status": completion_result.status,
+                        "completion_reason": completion_result.reason,
+                    },
+                    channel=turn.channel,
+                    external_chat_id=turn.external_chat_id,
+                )
+                auto_continue_attempts += 1
+                pending_direct_verify = {
+                    "action": decision.direct_verify_action,
+                    "path": decision.direct_verify_path or ".",
+                    "pytest_args": tuple(decision.direct_verify_pytest_args),
                 }
                 continue
             if decision.should_continue and decision.prompt:
@@ -642,6 +673,18 @@ class AgentTurnRunner:
         if collected_workflow_outcomes:
             direct_result = self._with_workflow_outcomes(direct_result, collected_workflow_outcomes)
         return workflow_result, direct_result, collected_delegated_tasks, collected_workflow_outcomes
+
+    async def _run_direct_verification(
+        self,
+        *,
+        direct_verify: dict[str, Any],
+    ) -> tuple[str, ExecutionResult]:
+        result = await self._run_verify(
+            str(direct_verify.get("action") or "auto"),
+            str(direct_verify.get("path") or "."),
+            tuple(str(item or "").strip() for item in (direct_verify.get("pytest_args") or ()) if str(item or "").strip()),
+        )
+        return result.content, result
 
     @staticmethod
     def _with_delegated_tasks(

@@ -11,6 +11,8 @@ def test_auto_continue_allows_missing_verification_once():
         status="needs_verification",
         reason="required verification was not recorded",
         verification_required=True,
+        verification_action="pytest",
+        verification_path=".",
     )
 
     decision = AutoContinueService(max_auto_continues=1).decide(
@@ -23,7 +25,10 @@ def test_auto_continue_allows_missing_verification_once():
 
     assert decision.should_continue is True
     assert decision.reason == "completion_gate_needs_verification"
+    assert decision.direct_verify_action == "pytest"
+    assert decision.direct_verify_path == "."
     assert "Verification is required" in decision.prompt
+    assert "verify(action=\"pytest\", path=\".\")" in decision.prompt
 
 
 def test_auto_continue_allows_missing_review_once():

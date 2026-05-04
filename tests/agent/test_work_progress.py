@@ -29,6 +29,8 @@ def test_work_progress_tracks_verification_and_next_action():
         status="needs_verification",
         reason="required verification was not recorded",
         verification_required=True,
+        verification_action="pytest",
+        verification_path=".",
     )
 
     update = WorkProgressService().evaluate(
@@ -51,6 +53,49 @@ def test_work_progress_tracks_verification_and_next_action():
     assert update.touched_paths == ("src/agent.py",)
     assert update.next_action == "continue_verification"
     assert update.continuation_budget == 3
+
+
+def test_work_progress_resume_hint_uses_verification_target():
+    service = WorkProgressService()
+    intent = TaskIntentService().classify("Please refactor the agent and run tests.")
+    plan = service.create_plan(intent)
+    initial = service.build_initial_state(session_id="web:browser-1", task_intent=intent, work_plan=plan)
+    assert initial is not None
+    progress = service.evaluate(
+        task_intent=intent,
+        completion_result=CompletionGateResult(
+            status="needs_verification",
+            reason="required verification was not recorded",
+            verification_required=True,
+            verification_action="pytest",
+            verification_path=".",
+        ),
+        execution_result=ExecutionResult(
+            content="Implemented.",
+            executed_tool_calls=1,
+            file_change_count=1,
+            touched_paths=("src/agent.py",),
+        ),
+        auto_continue_attempts=0,
+        pass_index=1,
+    )
+    updated = service.update_state(
+        session_id="web:browser-1",
+        state=initial,
+        task_intent=intent,
+        work_plan=plan,
+        progress=progress,
+        completion_result=CompletionGateResult(
+            status="needs_verification",
+            reason="required verification was not recorded",
+            verification_required=True,
+            verification_action="pytest",
+            verification_path=".",
+        ),
+    )
+
+    assert updated is not None
+    assert updated.resume_hint == "Resume by running verify pytest for `.`."
 
 
 def test_work_progress_tracks_missing_review_and_follow_up_action():

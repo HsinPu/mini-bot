@@ -755,9 +755,13 @@ def _build_resume_hint(
     workflow = str(getattr(completion_result, "follow_up_workflow", "") or "").strip()
     step_label = str(getattr(completion_result, "follow_up_step_label", "") or getattr(completion_result, "follow_up_step_id", "") or "").strip()
     prompt_type = str(getattr(completion_result, "follow_up_prompt_type", "") or "").strip()
+    verification_action = str(getattr(completion_result, "verification_action", "") or "").strip()
+    verification_path = str(getattr(completion_result, "verification_path", "") or "").strip()
     if next_action == "continue_verification":
         if workflow and step_label:
             return f"Resume by finishing verification around the {step_label} step in {workflow}."
+        if verification_action and verification_path:
+            return f"Resume by running verify {verification_action} for `{verification_path}`."
         return "Resume by running or fixing the required verification."
     if next_action == "collect_review_evidence":
         if workflow and step_label and prompt_type:
