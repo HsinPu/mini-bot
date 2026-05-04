@@ -6,6 +6,7 @@ import asyncio
 from datetime import datetime
 import json
 from pathlib import Path
+import platform
 import statistics
 import time
 
@@ -18,7 +19,7 @@ from ..cron.presentation import format_cron_timestamp, format_cron_timing, rende
 from ..runtime import gateway as run_gateway
 from ..search.base import SearchHit
 from ..storage.base import StoredMessage
-from . import service_linux
+from . import service_background, service_linux
 
 app = typer.Typer(
     name="opensprite",
@@ -28,7 +29,7 @@ app = typer.Typer(
     help="OpenSprite CLI.",
 )
 
-service_app = typer.Typer(help="Manage the Linux systemd user service.")
+service_app = typer.Typer(help="Manage the OpenSprite background gateway service.")
 app.add_typer(service_app, name="service")
 cron_app = typer.Typer(help="Manage per-session scheduled jobs.")
 app.add_typer(cron_app, name="cron")
@@ -79,6 +80,11 @@ def _resolve_config_path(config: str | None = None) -> Path:
 def _format_presence(value: bool) -> str:
     """Return a simple status label."""
     return "yes" if value else "no"
+
+
+def _use_linux_service() -> bool:
+    """Return whether service commands should use an installed Linux systemd unit."""
+    return platform.system() == "Linux" and service_linux.get_service_file_path().exists()
 
 
 def _iter_channel_status(config_obj) -> list[tuple[str, bool]]:
@@ -1296,48 +1302,88 @@ def service_uninstall() -> None:
 
 
 @service_app.command("start")
-def service_start() -> None:
-    """Start the installed OpenSprite Linux systemd user service."""
+def service_start(
+    config: str | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to an OpenSprite JSON config file for detached process mode.",
+    ),
+) -> None:
+    """Start the OpenSprite gateway in the background."""
     try:
-        service_linux.start_service()
+        if _use_linux_service():
+            service_linux.start_service()
+            typer.echo("Started OpenSprite service.")
+            return
+        status = service_background.start_service(config_path=Path(config) if config else None)
     except (FileNotFoundError, RuntimeError) as exc:
         _handle_service_error(exc)
-    typer.echo("Started OpenSprite service.")
+    typer.echo(f"Started OpenSprite background gateway (PID {status.pid}).")
+    typer.echo(f"Log: {status.log_file}")
 
 
 @service_app.command("stop")
 def service_stop() -> None:
-    """Stop the installed OpenSprite Linux systemd user service."""
+    """Stop the OpenSprite background gateway."""
     try:
-        service_linux.stop_service()
+        if _use_linux_service():
+            service_linux.stop_service()
+        else:
+            service_background.stop_service()
     except (FileNotFoundError, RuntimeError) as exc:
         _handle_service_error(exc)
     typer.echo("Stopped OpenSprite service.")
 
 
 @service_app.command("restart")
-def service_restart() -> None:
-    """Restart the installed OpenSprite Linux systemd user service."""
+def service_restart(
+    config: str | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to an OpenSprite JSON config file for detached process mode.",
+    ),
+) -> None:
+    """Restart the OpenSprite background gateway."""
     try:
-        service_linux.restart_service()
+        if _use_linux_service():
+            service_linux.restart_service()
+            typer.echo("Restarted OpenSprite service.")
+            return
+        try:
+            service_background.stop_service()
+        except FileNotFoundError:
+            pass
+        status = service_background.start_service(config_path=Path(config) if config else None)
     except (FileNotFoundError, RuntimeError) as exc:
         _handle_service_error(exc)
-    typer.echo("Restarted OpenSprite service.")
+    typer.echo(f"Restarted OpenSprite background gateway (PID {status.pid}).")
+    typer.echo(f"Log: {status.log_file}")
 
 
 @service_app.command("status")
 def service_status() -> None:
-    """Show OpenSprite Linux systemd user service status."""
+    """Show OpenSprite background gateway status."""
     try:
-        status = service_linux.get_service_status()
+        if _use_linux_service():
+            status = service_linux.get_service_status()
+            typer.echo("OpenSprite Service")
+            typer.echo(f"Service File: {status.service_file}")
+            typer.echo(f"Installed: {_format_presence(status.installed)}")
+            typer.echo(f"Enabled: {_format_presence(status.enabled)}")
+            typer.echo(f"Active: {_format_presence(status.active)}")
+            return
+        status = service_background.get_service_status()
     except RuntimeError as exc:
         _handle_service_error(exc)
 
     typer.echo("OpenSprite Service")
-    typer.echo(f"Service File: {status.service_file}")
-    typer.echo(f"Installed: {_format_presence(status.installed)}")
-    typer.echo(f"Enabled: {_format_presence(status.enabled)}")
-    typer.echo(f"Active: {_format_presence(status.active)}")
+    typer.echo("Mode: detached process")
+    typer.echo(f"Active: {_format_presence(status.running)}")
+    typer.echo(f"PID: {status.pid or '<none>'}")
+    typer.echo(f"PID File: {status.pid_file}")
+    typer.echo(f"Log: {status.log_file}")
 
 
 @cron_app.command("list")

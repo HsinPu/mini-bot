@@ -83,6 +83,12 @@ def test_get_service_status_reports_installed_enabled_and_active(tmp_path, monke
 
 
 def test_service_status_command_renders_status(monkeypatch, tmp_path):
+    monkeypatch.setattr("opensprite.cli.commands.platform.system", lambda: "Linux")
+    monkeypatch.setattr(
+        "opensprite.cli.commands.service_linux.get_service_file_path",
+        lambda: tmp_path / service_linux.SERVICE_NAME,
+    )
+    (tmp_path / service_linux.SERVICE_NAME).write_text("[Unit]\n", encoding="utf-8")
     monkeypatch.setattr(
         "opensprite.cli.commands.service_linux.get_service_status",
         lambda: service_linux.LinuxServiceStatus(
