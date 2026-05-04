@@ -61,6 +61,8 @@ class AutoContinueService:
         attempts_used: int,
         previous_response: str,
         work_progress: WorkProgressUpdate | None = None,
+        last_direct_workflow: str | None = None,
+        last_direct_start_step: str | None = None,
     ) -> AutoContinueDecision:
         """Return whether another bounded pass should run."""
         next_attempt = attempts_used + 1
@@ -78,14 +80,6 @@ class AutoContinueService:
                 attempt=next_attempt,
                 max_attempts=max_attempts,
                 emit_event=False,
-            )
-        if completion_result.status == "needs_review" and attempts_used > 0:
-            reason = "review_findings_require_follow_up" if completion_result.review_attempted else "review_evidence_still_missing"
-            return self._skip(
-                reason,
-                attempt=next_attempt,
-                max_attempts=max_attempts,
-                emit_event=True,
             )
         if attempts_used >= max_attempts:
             return self._skip(
@@ -123,7 +117,17 @@ class AutoContinueService:
         direct_workflow, direct_start_step = self._deterministic_workflow_resume_target(
             completion_result,
             attempts_used=attempts_used,
+            last_direct_workflow=last_direct_workflow,
+            last_direct_start_step=last_direct_start_step,
         )
+        if completion_result.status == "needs_review" and attempts_used > 0 and not (direct_workflow and direct_start_step):
+            reason = "review_findings_require_follow_up" if completion_result.review_attempted else "review_evidence_still_missing"
+            return self._skip(
+                reason,
+                attempt=next_attempt,
+                max_attempts=max_attempts,
+                emit_event=True,
+            )
         return AutoContinueDecision(
             should_continue=True,
             reason=f"completion_gate_{completion_result.status}",
@@ -257,14 +261,18 @@ class AutoContinueService:
         completion_result: CompletionGateResult,
         *,
         attempts_used: int,
+        last_direct_workflow: str | None,
+        last_direct_start_step: str | None,
     ) -> tuple[str | None, str | None]:
-        if attempts_used > 0:
-            return None, None
         if completion_result.status not in {"incomplete", "needs_review"}:
             return None, None
         workflow = str(completion_result.follow_up_workflow or "").strip()
         start_step = str(completion_result.follow_up_step_id or "").strip()
         if not workflow or not start_step:
+            return None, None
+        if attempts_used <= 0:
+            return workflow, start_step
+        if workflow == str(last_direct_workflow or "").strip() and start_step == str(last_direct_start_step or "").strip():
             return None, None
         return workflow, start_step
 

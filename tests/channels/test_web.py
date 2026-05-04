@@ -141,8 +141,23 @@ async def _run_web_roundtrip():
                 assert second_reply["session_id"] == "web:browser-2"
                 assert second_reply["text"] == "echo:second round"
 
+                await ws.send_json({
+                    "external_chat_id": "browser-2",
+                    "text": "continue",
+                    "metadata": {
+                        "quick_action": "resume_follow_up",
+                        "follow_up_workflow": "implement_then_review",
+                        "follow_up_step_id": "review",
+                    },
+                })
+                third_reply = await receive_message_frame()
+                assert third_reply["text"] == "echo:continue"
+
         seen_sessions = [message.session_id for message in agent.seen_messages]
-        assert seen_sessions == [session_frame["session_id"], "web:browser-2"]
+        assert seen_sessions == [session_frame["session_id"], "web:browser-2", "web:browser-2"]
+        assert agent.seen_messages[2].metadata["quick_action"] == "resume_follow_up"
+        assert agent.seen_messages[2].metadata["follow_up_workflow"] == "implement_then_review"
+        assert agent.seen_messages[2].metadata["follow_up_step_id"] == "review"
     finally:
         adapter_task.cancel()
         try:

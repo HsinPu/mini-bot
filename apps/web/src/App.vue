@@ -69,6 +69,7 @@
       @resolve-permission="resolvePermissionRequest"
       @revert-file-change="revertRunFileChange"
       @cleanup-worktree="cleanupWorktreeSandbox"
+      @resume-follow-up="resumeFollowUp"
       @refresh-curator="refreshCuratorState"
       @run-curator-action="runCuratorAction"
       @select-run="selectRun"
@@ -202,6 +203,7 @@ const {
   resolvePermissionRequest,
   revertRunFileChange,
   cleanupWorktreeSandbox,
+  resumeFollowUp,
   loadCuratorStatus,
   refreshCuratorState,
   runCuratorAction,

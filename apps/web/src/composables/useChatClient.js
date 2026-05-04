@@ -3982,30 +3982,40 @@ export function useChatClient() {
     }
   }
 
-  function submitMessage(event) {
-    event.preventDefault();
-    const text = messageText.value.trim();
+  function normalizeOutgoingMessage(rawValue) {
+    if (rawValue && typeof rawValue === "object" && !Array.isArray(rawValue)) {
+      return {
+        text: String(rawValue.text || "").trim(),
+        metadata: rawValue.metadata && typeof rawValue.metadata === "object" ? rawValue.metadata : {},
+      };
+    }
+    return { text: String(rawValue || "").trim(), metadata: {} };
+  }
+
+  function sendMessageText(rawText, { clearComposer = false } = {}) {
+    const payload = normalizeOutgoingMessage(rawText);
+    const text = payload.text;
     if (!text) {
-      return;
+      return false;
     }
 
     if (!activeSocket || activeSocket.readyState !== WebSocket.OPEN) {
       if (state.connectionState === "connecting") {
         setNotice(copy.value.notices.stillConnecting, "info");
-        return;
+        return false;
       }
       setNotice(copy.value.notices.inactiveConnection, "warning");
       openSettings("general");
-      return;
+      return false;
     }
 
     const session = currentSession.value;
     if (!session) {
-      return;
+      return false;
     }
     if (session.channel !== "web") {
       setNotice(copy.value.composer.readOnlyChannel(session.channel), "info");
-      return;
+      return false;
     }
 
     addMessage(session.externalChatId, makeMessage("user", text, state.displayName || "Local browser"));
@@ -4015,12 +4025,25 @@ export function useChatClient() {
         ...(session.sessionId ? { session_id: session.sessionId } : {}),
         sender_name: state.displayName,
         text,
+        ...(Object.keys(payload.metadata || {}).length ? { metadata: payload.metadata } : {}),
       }),
     );
 
-    messageText.value = "";
-    resizeComposer();
+    if (clearComposer) {
+      messageText.value = "";
+      resizeComposer();
+    }
     scrollMessagesToBottom();
+    return true;
+  }
+
+  function submitMessage(event) {
+    event.preventDefault();
+    sendMessageText(messageText.value, { clearComposer: true });
+  }
+
+  function resumeFollowUp(text) {
+    sendMessageText(text, { clearComposer: false });
   }
 
   function handleComposerKeydown(event) {
@@ -4195,6 +4218,7 @@ export function useChatClient() {
     resolvePermissionRequest,
     toggleSettingsConnection,
     submitMessage,
+    resumeFollowUp,
     handleComposerKeydown,
     applyPrompt,
     applyCommandHint,

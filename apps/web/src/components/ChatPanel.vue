@@ -212,6 +212,7 @@
           :run="currentRun"
           @inspect-file="selectedFileChange = $event"
           @cleanup-worktree="$emit('cleanup-worktree', $event)"
+          @resume-follow-up="$emit('resume-follow-up', $event)"
         />
 
         <RunTimeline
@@ -412,6 +413,7 @@ defineEmits([
   "resolve-permission",
   "revert-file-change",
   "cleanup-worktree",
+  "resume-follow-up",
   "refresh-curator",
   "run-curator-action",
   "select-run",

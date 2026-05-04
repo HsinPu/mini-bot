@@ -326,7 +326,49 @@ class AgentTurnRunner:
         collected_delegated_tasks: tuple[StoredDelegatedTask, ...] = ()
         collected_workflow_outcomes: tuple[dict[str, Any], ...] = ()
         auto_continue_attempts = 0
+        last_direct_workflow: str | None = None
+        last_direct_start_step: str | None = None
         current_message = user_message.text
+
+        direct_follow_up = self._extract_follow_up_resume_request(user_message.metadata)
+        if direct_follow_up is not None:
+            workflow_result = await self._run_workflow(
+                direct_follow_up["workflow"],
+                task_intent.objective,
+                direct_follow_up["start_step"],
+            )
+            direct_result = ExecutionResult(content=workflow_result, executed_tool_calls=1)
+            delegated_task_updates = self._consume_delegated_task_updates(run_id)
+            if delegated_task_updates:
+                collected_delegated_tasks = self._merge_delegated_task_updates(
+                    collected_delegated_tasks,
+                    delegated_task_updates,
+                )
+            workflow_outcomes = self._consume_workflow_outcomes(run_id)
+            if workflow_outcomes:
+                collected_workflow_outcomes = self._merge_workflow_outcomes(
+                    collected_workflow_outcomes,
+                    workflow_outcomes,
+                )
+            if collected_delegated_tasks:
+                direct_result = self._with_delegated_tasks(direct_result, collected_delegated_tasks)
+            if collected_workflow_outcomes:
+                direct_result = self._with_workflow_outcomes(direct_result, collected_workflow_outcomes)
+            execution_results.append(direct_result)
+            current_message = self.auto_continue.build_post_workflow_resume_prompt(
+                task_intent=task_intent,
+                completion_result=CompletionGateResult(
+                    status="incomplete",
+                    reason="user requested follow-up resume",
+                    active_task_detail=direct_follow_up["detail"],
+                    follow_up_workflow=direct_follow_up["workflow"],
+                    follow_up_step_id=direct_follow_up["start_step"],
+                    follow_up_step_label=direct_follow_up["step_label"],
+                    follow_up_prompt_type=direct_follow_up["prompt_type"],
+                ),
+                previous_response=user_message.text,
+                workflow_result=workflow_result,
+            )
 
         while True:
             self.turn_context.reset_work_progress()
@@ -424,6 +466,8 @@ class AgentTurnRunner:
                 attempts_used=auto_continue_attempts,
                 previous_response=response,
                 work_progress=work_progress,
+                last_direct_workflow=last_direct_workflow,
+                last_direct_start_step=last_direct_start_step,
             )
             if decision.should_continue and decision.direct_workflow and decision.direct_start_step:
                 await self._emit_run_event(
@@ -439,6 +483,8 @@ class AgentTurnRunner:
                     external_chat_id=turn.external_chat_id,
                 )
                 auto_continue_attempts += 1
+                last_direct_workflow = decision.direct_workflow
+                last_direct_start_step = decision.direct_start_step
                 workflow_result = await self._run_workflow(
                     decision.direct_workflow,
                     task_intent.objective,
@@ -584,6 +630,23 @@ class AgentTurnRunner:
             videos=outbound_media["videos"] or None,
             after_save=after_response_saved,
         )
+
+    @staticmethod
+    def _extract_follow_up_resume_request(metadata: dict[str, Any] | None) -> dict[str, str] | None:
+        payload = dict(metadata or {}) if isinstance(metadata, dict) else {}
+        if str(payload.get("quick_action") or "").strip() != "resume_follow_up":
+            return None
+        workflow = str(payload.get("follow_up_workflow") or "").strip()
+        start_step = str(payload.get("follow_up_step_id") or "").strip()
+        if not workflow or not start_step:
+            return None
+        return {
+            "workflow": workflow,
+            "start_step": start_step,
+            "step_label": str(payload.get("follow_up_step_label") or start_step).strip() or start_step,
+            "prompt_type": str(payload.get("follow_up_prompt_type") or "").strip(),
+            "detail": str(payload.get("active_task_detail") or "").strip(),
+        }
 
     @staticmethod
     def _with_delegated_tasks(

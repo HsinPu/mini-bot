@@ -205,6 +205,14 @@
           <strong>{{ copy.runSummary.followUpTarget }}</strong>
           <span>{{ followUpTargetText }}</span>
           <small v-if="followUpPromptText">{{ followUpPromptText }}</small>
+          <button
+            v-if="resumeFollowUpMessage"
+            class="run-summary-card__copy"
+            type="button"
+            @click="$emit('resume-follow-up', resumeFollowUpMessage)"
+          >
+            {{ copy.runSummary.resumeFollowUp }}
+          </button>
         </div>
 
         <div v-if="summary.warnings.length" class="run-summary-card__note" data-tone="warning">
@@ -238,7 +246,7 @@ const props = defineProps({
   },
 });
 
-defineEmits(["inspect-file", "cleanup-worktree"]);
+defineEmits(["inspect-file", "cleanup-worktree", "resume-follow-up"]);
 
 const summary = computed(() => props.run.summary || null);
 const expanded = ref(false);
@@ -442,15 +450,19 @@ const warningLabels = computed(() => (summary.value?.warnings || []).map((warnin
 const followUpTarget = computed(() => {
   const completion = summary.value?.completion || {};
   const workflow = String(completion.followUpWorkflow || completion.follow_up_workflow || "").trim();
-  const stepLabel = String(
-    completion.followUpStepLabel
-      || completion.follow_up_step_label
-      || completion.followUpStepId
+  const stepId = String(
+    completion.followUpStepId
       || completion.follow_up_step_id
       || "",
   ).trim();
+  const stepLabel = String(
+    completion.followUpStepLabel
+      || completion.follow_up_step_label
+      || stepId
+      || "",
+  ).trim();
   const promptType = String(completion.followUpPromptType || completion.follow_up_prompt_type || "").trim();
-  return { workflow, stepLabel, promptType };
+  return { workflow, stepId, stepLabel, promptType };
 });
 
 const followUpTargetText = computed(() => {
@@ -464,6 +476,35 @@ const followUpTargetText = computed(() => {
 const followUpPromptText = computed(() => {
   const { promptType } = followUpTarget.value;
   return promptType ? props.copy.runSummary.followUpPromptType(promptType) : "";
+});
+
+const resumeFollowUpMessage = computed(() => {
+  const { workflow, stepId, promptType } = followUpTarget.value;
+  const detail = String(summary.value?.completion?.activeTaskDetail || summary.value?.completion?.active_task_detail || "").trim();
+  if (workflow && stepId) {
+    return {
+      text: "continue",
+      metadata: {
+        quick_action: "resume_follow_up",
+        follow_up_workflow: workflow,
+        follow_up_step_id: stepId,
+        follow_up_step_label: followUpTarget.value.stepLabel,
+        follow_up_prompt_type: promptType,
+        active_task_detail: detail,
+      },
+    };
+  }
+  if (promptType) {
+    return {
+      text: "continue",
+      metadata: {
+        quick_action: "resume_follow_up",
+        follow_up_prompt_type: promptType,
+        active_task_detail: detail,
+      },
+    };
+  }
+  return null;
 });
 
 const diffSummary = computed(() => summary.value?.diffSummary || props.run.diffSummary || null);

@@ -289,6 +289,7 @@ export const DISPLAY_COPY = {
       nextAction: "下一步",
       followUpTarget: "後續目標",
       followUpPromptType: (promptType) => `優先使用 ${promptType} 這類 focused step`,
+      resumeFollowUp: "續跑後續步驟",
       warnings: "警告",
       warningLabels: {
         tool_error: "工具執行有警告",
@@ -1076,6 +1077,7 @@ export const DISPLAY_COPY = {
       nextAction: "Next action",
       followUpTarget: "Follow-up target",
       followUpPromptType: (promptType) => `Prefer a focused ${promptType} step`,
+      resumeFollowUp: "Resume follow-up",
       warnings: "Warnings",
       warningLabels: {
         tool_error: "Tool execution warning",

@@ -185,6 +185,81 @@ def test_auto_continue_uses_step_level_follow_up_for_incomplete_workflow():
     assert "Required follow-up: Resume with the Code review step in implement_then_review." in (decision.prompt or "")
 
 
+def test_auto_continue_allows_second_direct_resume_when_target_changes():
+    intent = TaskIntentService().classify("Please implement the cleanup.")
+    completion = CompletionGateResult(
+        status="needs_review",
+        reason="workflow implement_then_review completed but review findings still require follow-up",
+        follow_up_workflow="implement_then_review",
+        follow_up_step_id="implement",
+        follow_up_step_label="Implement",
+        follow_up_prompt_type="implementer",
+        review_required=True,
+        review_attempted=True,
+        review_finding_count=1,
+        active_task_detail="src/foo.py: Null handling bug: Guard the null path before dereference.",
+    )
+    progress = WorkProgressService().evaluate(
+        task_intent=intent,
+        completion_result=completion,
+        execution_result=ExecutionResult(content="Need one more pass.", executed_tool_calls=1),
+        auto_continue_attempts=1,
+        pass_index=2,
+    )
+
+    decision = AutoContinueService(max_auto_continues=1).decide(
+        task_intent=intent,
+        completion_result=completion,
+        execution_result=ExecutionResult(content="Need one more pass.", executed_tool_calls=1),
+        attempts_used=1,
+        previous_response="Need one more pass.",
+        work_progress=progress,
+        last_direct_workflow="implement_then_review",
+        last_direct_start_step="review",
+    )
+
+    assert decision.should_continue is True
+    assert decision.direct_workflow == "implement_then_review"
+    assert decision.direct_start_step == "implement"
+
+
+def test_auto_continue_skips_second_direct_resume_when_target_is_unchanged():
+    intent = TaskIntentService().classify("Please implement the cleanup.")
+    completion = CompletionGateResult(
+        status="needs_review",
+        reason="workflow implement_then_review completed but review findings still require follow-up",
+        follow_up_workflow="implement_then_review",
+        follow_up_step_id="implement",
+        follow_up_step_label="Implement",
+        follow_up_prompt_type="implementer",
+        review_required=True,
+        review_attempted=True,
+        review_finding_count=1,
+        active_task_detail="src/foo.py: Null handling bug: Guard the null path before dereference.",
+    )
+    progress = WorkProgressService().evaluate(
+        task_intent=intent,
+        completion_result=completion,
+        execution_result=ExecutionResult(content="Need one more pass.", executed_tool_calls=1),
+        auto_continue_attempts=1,
+        pass_index=2,
+    )
+
+    decision = AutoContinueService(max_auto_continues=1).decide(
+        task_intent=intent,
+        completion_result=completion,
+        execution_result=ExecutionResult(content="Need one more pass.", executed_tool_calls=1),
+        attempts_used=1,
+        previous_response="Need one more pass.",
+        work_progress=progress,
+        last_direct_workflow="implement_then_review",
+        last_direct_start_step="implement",
+    )
+
+    assert decision.should_continue is False
+    assert decision.reason == "review_findings_require_follow_up"
+
+
 def test_auto_continue_uses_work_progress_budget_and_stops_without_progress():
     intent = TaskIntentService().classify("Please refactor the agent and run tests.")
     completion = CompletionGateResult(status="needs_verification", reason="required verification was not recorded")
