@@ -4,6 +4,7 @@ from opensprite.agent.execution import ExecutionEngine
 from opensprite.config.schema import Config, ToolsConfig
 from opensprite.llms.base import ChatMessage, LLMResponse, ToolCall
 from opensprite.tools.base import Tool
+from opensprite.tools.credential_store import CredentialStoreTool
 from opensprite.tools.registry import ToolRegistry
 
 
@@ -52,6 +53,30 @@ class ToolInputStreamingProvider:
         if callback is not None:
             await callback("call-1", "demo_tool", '{"value"', 1)
             await callback("call-1", "demo_tool", ':"abc"}', 2)
+        return LLMResponse(content="done", model="fake-model")
+
+
+class CredentialToolProvider:
+    def __init__(self):
+        self.calls = []
+
+    async def chat(self, messages, tools=None, model=None, temperature=0.7, max_tokens=2048, **kwargs):
+        self.calls.append({"messages": list(messages), "tools": tools})
+        callback = kwargs.get("tool_input_delta_callback")
+        if len(self.calls) == 1:
+            if callback is not None:
+                await callback("tc1", "credential_store", '{"secret":"router-secret"}', 1)
+            return LLMResponse(
+                content="saving",
+                model="fake-model",
+                tool_calls=[
+                    ToolCall(
+                        id="tc1",
+                        name="credential_store",
+                        arguments={"action": "add", "provider": "openrouter", "secret": "router-secret"},
+                    )
+                ],
+            )
         return LLMResponse(content="done", model="fake-model")
 
 
@@ -302,6 +327,68 @@ def test_execution_engine_forwards_tool_input_deltas():
 
     assert result.content == "done"
     assert deltas == [("call-1", "demo_tool", '{"value"', 1), ("call-1", "demo_tool", ':"abc"}', 2)]
+
+
+def test_execution_engine_redacts_credential_tool_secret_from_trace_and_followup_context(tmp_path):
+    registry = ToolRegistry()
+    registry.register(CredentialStoreTool(app_home=tmp_path))
+    provider = CredentialToolProvider()
+    save_calls = []
+    before_calls = []
+    after_calls = []
+    input_deltas = []
+    engine = _make_engine(provider, registry, save_calls)
+
+    async def on_before(name, params, call_id, iteration):
+        before_calls.append((name, params, call_id, iteration))
+
+    async def on_after(name, params, result, call_id, iteration, *_):
+        after_calls.append((name, params, result, call_id, iteration))
+
+    async def on_tool_input(call_id, tool_name, delta, sequence):
+        input_deltas.append((call_id, tool_name, delta, sequence))
+
+    messages = [ChatMessage(role="user", content="save my OpenRouter key")]
+
+    result = asyncio.run(
+        engine.execute_messages(
+            "chat-1",
+            messages,
+            allow_tools=True,
+            tool_result_session_id="chat-1",
+            on_tool_before_execute=on_before,
+            on_tool_after_execute=on_after,
+            on_tool_input_delta=on_tool_input,
+        )
+    )
+
+    assert result.content == "done"
+    assert before_calls == [
+        (
+            "credential_store",
+            {"action": "add", "provider": "openrouter", "secret": "***redacted***"},
+            "tc1",
+            1,
+        )
+    ]
+    assert after_calls[0][0:2] == (
+        "credential_store",
+        {"action": "add", "provider": "openrouter", "secret": "***redacted***"},
+    )
+    assert "router-secret" not in after_calls[0][2]
+    assert input_deltas == [("tc1", "credential_store", "***redacted***", 1)]
+    assert save_calls[0][4] == {
+        "tool_args": {"action": "add", "provider": "openrouter", "secret": "***redacted***"}
+    }
+    assert "router-secret" not in save_calls[0][2]
+
+    followup_messages = provider.calls[1]["messages"]
+    rendered_followup = "\n".join(
+        [message.content or "" for message in followup_messages]
+        + [str(message.tool_calls or "") for message in followup_messages]
+    )
+    assert "router-secret" not in rendered_followup
+    assert "***redacted***" in rendered_followup
 
 
 def test_execution_engine_forwards_reasoning_deltas():

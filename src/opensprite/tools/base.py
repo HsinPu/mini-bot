@@ -63,6 +63,10 @@ class Tool(ABC):
         """Return params safe for logs, approvals, and run trace displays."""
         return params
 
+    def sanitize_input_delta_for_display(self, delta: str) -> str:
+        """Return streamed tool-input chunks safe for run trace displays."""
+        return delta
+
     @abstractmethod
     async def _execute(self, **kwargs: Any) -> str:
         """Implement the tool's business logic after validation."""

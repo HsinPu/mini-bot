@@ -79,6 +79,9 @@ class CredentialStoreTool(Tool):
                 safe[key] = "***redacted***"
         return safe
 
+    def sanitize_input_delta_for_display(self, delta: str) -> str:
+        return "***redacted***" if delta else delta
+
     async def _execute(self, **kwargs: Any) -> str:
         action = str(kwargs.get("action") or "").strip()
         provider = str(kwargs.get("provider") or "").strip()

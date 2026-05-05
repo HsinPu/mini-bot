@@ -366,6 +366,13 @@ Output exactly these sections when applicable:
         safe_args = tool.sanitize_params_for_display(tool_args)
         return dict(safe_args) if isinstance(safe_args, dict) else {}
 
+    @staticmethod
+    def _sanitize_tool_input_delta_for_display(active_tools: ToolRegistry, tool_name: str, delta: str) -> str:
+        tool = active_tools.get(tool_name)
+        if tool is None:
+            return str(delta or "")
+        return str(tool.sanitize_input_delta_for_display(str(delta or "")))
+
     @classmethod
     def _summarize_exec_result_for_context(cls, text: str) -> str:
         """Prefer error markers and the latest lines for shell command output."""
@@ -1073,6 +1080,16 @@ Output exactly these sections when applicable:
                 if on_response_delta is not None:
                     await on_response_delta(response_part_id, delta, "running", response_delta_count)
 
+            async def _provider_tool_input_delta(tool_call_id: str, tool_name: str, delta: str, sequence: int = 0) -> None:
+                if on_tool_input_delta is None:
+                    return
+                await on_tool_input_delta(
+                    tool_call_id,
+                    tool_name,
+                    self._sanitize_tool_input_delta_for_display(active_tools, tool_name, delta),
+                    sequence,
+                )
+
             while True:
                 self._raise_if_cancel_requested(should_cancel)
                 request_attempt = len([event for event in llm_step_events if event.iteration == iteration + 1]) + 1
@@ -1097,7 +1114,7 @@ Output exactly these sections when applicable:
                         presence_penalty=dec_pres,
                         status_callback=on_llm_status,
                         response_delta_callback=_provider_response_delta if on_response_delta is not None else None,
-                        tool_input_delta_callback=on_tool_input_delta,
+                        tool_input_delta_callback=_provider_tool_input_delta if on_tool_input_delta is not None else None,
                         reasoning_delta_callback=on_reasoning_delta,
                     )
                     duration_ms = int((time.perf_counter() - started_at) * 1000)
@@ -1302,12 +1319,14 @@ Output exactly these sections when applicable:
 
                 tool_calls_api = []
                 for tc in response.tool_calls:
+                    tool_args = tc.arguments if isinstance(tc.arguments, dict) else {}
+                    display_tool_args = self._sanitize_tool_args_for_display(active_tools, tc.name, tool_args)
                     tool_calls_api.append({
                         "id": tc.id,
                         "type": "function",
                         "function": {
                             "name": tc.name,
-                            "arguments": json.dumps(tc.arguments, ensure_ascii=False),
+                            "arguments": json.dumps(display_tool_args, ensure_ascii=False),
                         },
                     })
 
