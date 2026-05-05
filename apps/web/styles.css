@@ -237,7 +237,8 @@
 
 :root[data-color-scheme="dark"] .openrouter-options,
 :root[data-color-scheme="dark"] .openrouter-option-row,
-:root[data-color-scheme="dark"] .openrouter-option-field {
+:root[data-color-scheme="dark"] .openrouter-option-field,
+:root[data-color-scheme="dark"] .codex-auth-command {
   background: var(--surface);
 }
 
@@ -256,6 +257,7 @@
 :root[data-color-scheme="dark"] .provider-row__main span:not(.provider-row__mark):not(.provider-row__badge),
 :root[data-color-scheme="dark"] .provider-row--empty,
 :root[data-color-scheme="dark"] .provider-row--empty span,
+:root[data-color-scheme="dark"] .codex-auth-command,
 :root[data-color-scheme="dark"] .model-select-row label,
 :root[data-color-scheme="dark"] .settings-muted,
 :root[data-color-scheme="dark"] kbd {
@@ -267,6 +269,7 @@
 :root[data-color-scheme="dark"] .settings-page h3,
 :root[data-color-scheme="dark"] .provider-row--empty strong,
 :root[data-color-scheme="dark"] .provider-row__title strong,
+:root[data-color-scheme="dark"] .codex-auth-command code,
 :root[data-color-scheme="dark"] .openrouter-options__header strong,
 :root[data-color-scheme="dark"] .openrouter-option-row strong,
 :root[data-color-scheme="dark"] .openrouter-option-field select,
@@ -306,6 +309,7 @@
 :root[data-color-scheme="dark"] .settings-inline-status,
 :root[data-color-scheme="dark"] .provider-row__badge,
 :root[data-color-scheme="dark"] .provider-row__action,
+:root[data-color-scheme="dark"] .codex-auth-command,
 :root[data-color-scheme="dark"] .provider-connect-field input,
 :root[data-color-scheme="dark"] .custom-model-row input,
 :root[data-color-scheme="dark"] .channel-field input,
@@ -3579,6 +3583,36 @@ button:disabled {
   color: #9a9a9a;
   background: #f8f8f8;
   box-shadow: none;
+}
+
+.provider-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.codex-auth-row {
+  gap: 14px;
+}
+
+.codex-auth-command {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid #dddddd;
+  border-radius: 9px;
+  background: #f8f8f8;
+  color: #777777;
+  font-size: 0.86rem;
+}
+
+.codex-auth-command code {
+  display: block;
+  overflow-x: auto;
+  white-space: nowrap;
+  color: #232323;
+  font-size: 0.9rem;
 }
 
 .provider-connect-dialog {

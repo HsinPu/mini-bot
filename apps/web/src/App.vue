@@ -97,6 +97,9 @@
     @cancel-provider-connect="cancelProviderConnect"
     @save-provider-connection="saveProviderConnection"
     @disconnect-provider="disconnectProvider"
+    @refresh-codex-auth="loadCodexAuthStatus"
+    @start-codex-auth-login="startCodexAuthLogin"
+    @logout-codex-auth="logoutCodexAuth"
     @select-model="selectModel"
     @apply-openrouter-recommended-options="applyOpenRouterRecommendedOptions"
     @save-openrouter-options="saveOpenRouterOptions"
@@ -189,6 +192,9 @@ const {
   cancelProviderConnect,
   saveProviderConnection,
   disconnectProvider,
+  loadCodexAuthStatus,
+  startCodexAuthLogin,
+  logoutCodexAuth,
   selectModel,
   applyOpenRouterRecommendedOptions,
   saveOpenRouterOptions,

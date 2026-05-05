@@ -1406,6 +1406,17 @@ export function useChatClient() {
       connected: [],
       available: [],
     },
+    codexAuthLoading: false,
+    codexAuthError: "",
+    codexAuthNotice: "",
+    codexAuth: {
+      configured: false,
+      expired: false,
+      expires_at: null,
+      account_id: "",
+      path: "",
+      command: "",
+    },
     connectForm: {
       providerId: "",
       name: "",
@@ -3318,6 +3329,26 @@ export function useChatClient() {
     }
   }
 
+  async function loadCodexAuthStatus() {
+    settingsState.codexAuthLoading = true;
+    settingsState.codexAuthError = "";
+    try {
+      const payload = await requestSettingsJson("/api/settings/auth/openai-codex");
+      settingsState.codexAuth = {
+        ...settingsState.codexAuth,
+        configured: Boolean(payload.configured),
+        expired: Boolean(payload.expired),
+        expires_at: payload.expires_at || null,
+        account_id: payload.account_id || "",
+        path: payload.path || "",
+      };
+    } catch (error) {
+      settingsState.codexAuthError = error?.message || copy.value.notices.codexAuthLoadFailed;
+    } finally {
+      settingsState.codexAuthLoading = false;
+    }
+  }
+
   function visibleChannels(channels) {
     return (channels || []).filter((channel) => channel.id !== "web" && channel.id !== "console");
   }
@@ -3498,6 +3529,7 @@ export function useChatClient() {
     }
     if (sectionName === "providers") {
       loadProviderSettings();
+      loadCodexAuthStatus();
       return;
     }
     if (sectionName === "models") {
@@ -3678,6 +3710,47 @@ export function useChatClient() {
       settingsState.modelsError = error?.message || copy.value.notices.modelSelectFailed;
     } finally {
       settingsState.modelsLoading = false;
+    }
+  }
+
+  async function startCodexAuthLogin() {
+    settingsState.codexAuthLoading = true;
+    settingsState.codexAuthError = "";
+    settingsState.codexAuthNotice = "";
+    try {
+      const payload = await requestSettingsJson("/api/settings/auth/openai-codex/login", { method: "POST" });
+      settingsState.codexAuth = {
+        ...settingsState.codexAuth,
+        command: payload.command || "opensprite auth login openai-codex",
+      };
+      setSettingsSuccess("codexAuthNotice", copy.value.notices.codexAuthLoginReady);
+    } catch (error) {
+      settingsState.codexAuthError = error?.message || copy.value.notices.codexAuthLoginFailed;
+    } finally {
+      settingsState.codexAuthLoading = false;
+    }
+  }
+
+  async function logoutCodexAuth() {
+    settingsState.codexAuthLoading = true;
+    settingsState.codexAuthError = "";
+    settingsState.codexAuthNotice = "";
+    try {
+      await requestSettingsJson("/api/settings/auth/openai-codex/logout", { method: "POST" });
+      settingsState.codexAuth = {
+        ...settingsState.codexAuth,
+        configured: false,
+        expired: false,
+        expires_at: null,
+        account_id: "",
+        command: "",
+      };
+      setSettingsSuccess("codexAuthNotice", copy.value.notices.codexAuthLoggedOut);
+      await loadCodexAuthStatus();
+    } catch (error) {
+      settingsState.codexAuthError = error?.message || copy.value.notices.codexAuthLogoutFailed;
+    } finally {
+      settingsState.codexAuthLoading = false;
     }
   }
 
@@ -4551,6 +4624,7 @@ export function useChatClient() {
     closeSettings,
     saveConnectionSettings,
     loadProviderSettings,
+    loadCodexAuthStatus,
     loadUpdateStatus,
     loadModelSettings,
     loadChannelSettings,
@@ -4565,6 +4639,8 @@ export function useChatClient() {
     cancelProviderConnect,
     saveProviderConnection,
     disconnectProvider,
+    startCodexAuthLogin,
+    logoutCodexAuth,
     runUpdate,
     selectModel,
     applyOpenRouterRecommendedOptions,

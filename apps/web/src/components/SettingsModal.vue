@@ -338,6 +338,58 @@
             {{ settingsState.providersError }}
           </p>
 
+          <h3>{{ copy.settings.providers.codexAuth.title }}</h3>
+          <p v-if="settingsState.codexAuthNotice" class="settings-inline-status">{{ settingsState.codexAuthNotice }}</p>
+          <p v-if="settingsState.codexAuthError" class="settings-inline-status settings-inline-status--error">
+            {{ settingsState.codexAuthError }}
+          </p>
+          <div class="settings-card provider-card">
+            <div class="provider-row provider-row--stacked codex-auth-row">
+              <div class="provider-row__content">
+                <div class="provider-row__main">
+                  <span class="provider-row__mark" aria-hidden="true">Cx</span>
+                  <div>
+                    <div class="provider-row__title">
+                      <strong>{{ copy.settings.providers.codexAuth.name }}</strong>
+                      <span class="provider-row__badge">{{ codexAuthStatusLabel }}</span>
+                    </div>
+                    <span>{{ codexAuthDescription }}</span>
+                  </div>
+                </div>
+                <div class="provider-row__actions">
+                  <button
+                    class="provider-row__action"
+                    type="button"
+                    :disabled="settingsState.codexAuthLoading"
+                    @click="$emit('refresh-codex-auth')"
+                  >
+                    {{ copy.settings.providers.codexAuth.refresh }}
+                  </button>
+                  <button
+                    class="provider-row__action"
+                    type="button"
+                    :disabled="settingsState.codexAuthLoading"
+                    @click="$emit('start-codex-auth-login')"
+                  >
+                    {{ copy.settings.providers.codexAuth.login }}
+                  </button>
+                  <button
+                    class="provider-row__action"
+                    type="button"
+                    :disabled="settingsState.codexAuthLoading || !settingsState.codexAuth.configured"
+                    @click="$emit('logout-codex-auth')"
+                  >
+                    {{ copy.settings.providers.codexAuth.logout }}
+                  </button>
+                </div>
+              </div>
+              <div v-if="settingsState.codexAuth.command" class="codex-auth-command">
+                <span>{{ copy.settings.providers.codexAuth.commandLabel }}</span>
+                <code>{{ settingsState.codexAuth.command }}</code>
+              </div>
+            </div>
+          </div>
+
           <h3>{{ copy.settings.providers.connectedTitle }}</h3>
           <div class="settings-card provider-card">
             <div v-if="settingsState.providers.connected.length === 0" class="provider-row provider-row--empty">
@@ -1450,6 +1502,34 @@ const showOpenRouterOptions = computed(() => (
   props.settingsState.openRouterOptions[selectedTextProvider.value.id]
 ));
 
+const codexAuthStatusLabel = computed(() => {
+  if (props.settingsState.codexAuthLoading) {
+    return props.copy.settings.providers.codexAuth.loading;
+  }
+  if (!props.settingsState.codexAuth.configured) {
+    return props.copy.settings.providers.codexAuth.notConfigured;
+  }
+  if (props.settingsState.codexAuth.expired) {
+    return props.copy.settings.providers.codexAuth.expired;
+  }
+  return props.copy.settings.providers.codexAuth.configured;
+});
+
+const codexAuthDescription = computed(() => {
+  const auth = props.settingsState.codexAuth || {};
+  if (!auth.configured) {
+    return props.copy.settings.providers.codexAuth.description;
+  }
+  const parts = [];
+  if (auth.account_id) {
+    parts.push(props.copy.settings.providers.codexAuth.account(auth.account_id));
+  }
+  if (auth.expires_at) {
+    parts.push(props.copy.settings.providers.codexAuth.expires(auth.expires_at));
+  }
+  return parts.join(" · ") || props.copy.settings.providers.codexAuth.configuredDescription;
+});
+
 function mediaProviderModels(category) {
   const providerId = props.settingsState.mediaSelections[category]?.providerId;
   return mediaModelsForProvider(category, providerId, props.settingsState.mediaSelections[category]?.model);
@@ -1558,6 +1638,9 @@ defineEmits([
   "cancel-provider-connect",
   "save-provider-connection",
   "disconnect-provider",
+  "refresh-codex-auth",
+  "start-codex-auth-login",
+  "logout-codex-auth",
   "select-model",
   "apply-openrouter-recommended-options",
   "save-openrouter-options",
