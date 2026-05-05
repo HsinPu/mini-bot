@@ -60,6 +60,7 @@ assertIncludes(settingsModal, "connectedCount", "multiple provider connection co
 assertIncludes(settingsModal, "save-media-model", "media model settings action");
 assertIncludes(settingsModal, "textProviderModelGroups", "OpenRouter model grouping");
 assertIncludes(settingsModal, "<optgroup", "grouped model select rendering");
+assertIncludes(settingsModal, "settingsState.selectedTextProviderId, settingsState.modelSelections[settingsState.selectedTextProviderId]", "text provider selection applies model");
 assertIncludes(settingsModal, "settingsState.copilotAuth.userCode", "Copilot auth code rendering");
 assertOrder(settingsModal, "section === 'providers'", "copy.settings.providers.copilotAuth.title", "Copilot auth provider placement");
 assertIncludes(chatClient, "/api/commands", "command catalog fetch");

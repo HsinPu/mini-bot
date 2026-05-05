@@ -67,8 +67,8 @@ def test_create_llm_uses_responses_provider_for_responses_mode():
 
 def test_resolve_copilot_runtime_exchanges_github_token(monkeypatch):
     monkeypatch.setattr(
-        "opensprite.llms.runtime_provider.exchange_copilot_token",
-        lambda api_key: ("copilot-api-token", 1_000),
+        "opensprite.llms.runtime_provider.get_copilot_api_token",
+        lambda api_key: "copilot-api-token",
     )
 
     runtime = resolve_provider_runtime(
@@ -87,8 +87,8 @@ def test_resolve_copilot_oauth_runtime_reads_auth_store(tmp_path, monkeypatch):
     token_path.parent.mkdir()
     token_path.write_text(json.dumps({"access_token": "gho_raw"}), encoding="utf-8")
     monkeypatch.setattr(
-        "opensprite.llms.runtime_provider.exchange_copilot_token",
-        lambda api_key: ("copilot-api-token", 1_000),
+        "opensprite.llms.runtime_provider.get_copilot_api_token",
+        lambda api_key: "copilot-api-token",
     )
 
     runtime = resolve_provider_runtime(
@@ -99,6 +99,23 @@ def test_resolve_copilot_oauth_runtime_reads_auth_store(tmp_path, monkeypatch):
 
     assert runtime.api_key == "copilot-api-token"
     assert runtime.auth_type == "github_copilot_oauth"
+
+
+def test_resolve_copilot_runtime_falls_back_to_raw_token_on_exchange_error(monkeypatch):
+    from opensprite.auth.copilot import CopilotAuthError
+
+    def fail_exchange(api_key, *, timeout_seconds=10.0):
+        raise CopilotAuthError("GitHub Copilot token exchange failed: HTTP Error 404: Not Found")
+
+    monkeypatch.setattr("opensprite.auth.copilot.exchange_copilot_token", fail_exchange)
+
+    runtime = resolve_provider_runtime(
+        ProviderConfig(provider="copilot", api_key="gho_raw", model="gpt-5.4", enabled=True),
+        provider_name="copilot",
+    )
+
+    assert runtime.provider_name == "copilot"
+    assert runtime.api_key == "gho_raw"
 
 
 def test_create_llm_uses_copilot_headers():

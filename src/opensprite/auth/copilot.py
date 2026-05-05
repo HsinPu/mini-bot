@@ -239,6 +239,17 @@ def exchange_copilot_token(raw_token: str, *, timeout_seconds: float = 10.0) -> 
     return api_token, expires_at
 
 
+def get_copilot_api_token(raw_token: str, *, timeout_seconds: float = 10.0) -> str:
+    """Return the short-lived Copilot API token, falling back to the raw GitHub token."""
+    if not str(raw_token or "").strip():
+        return raw_token
+    try:
+        api_token, _expires_at = exchange_copilot_token(raw_token, timeout_seconds=timeout_seconds)
+        return api_token
+    except CopilotAuthError:
+        return raw_token
+
+
 def copilot_request_headers(*, is_vision: bool = False) -> dict[str, str]:
     headers = {
         "Editor-Version": COPILOT_EDITOR_VERSION,
