@@ -4,8 +4,8 @@ from opensprite.config.llm_presets import load_llm_presets
 def test_load_llm_presets_has_expected_providers():
     presets = load_llm_presets()
     assert presets.version == 1
-    assert presets.provider_order == ("openrouter", "openai", "minimax")
-    assert set(presets.providers.keys()) == {"openrouter", "openai", "minimax"}
+    assert presets.provider_order == ("openrouter", "openai", "minimax", "minimax-cn")
+    assert set(presets.providers.keys()) == {"openrouter", "openai", "minimax", "minimax-cn"}
     assert presets.providers["openrouter"].model_choices[:30] == (
         "moonshotai/kimi-k2.6",
         "anthropic/claude-sonnet-4.6",
@@ -57,3 +57,5 @@ def test_load_llm_presets_has_expected_providers():
         "o4-mini",
     )
     assert presets.providers["minimax"].model_choices[:3] == ("MiniMax-M2.7", "MiniMax-M2.5", "MiniMax-M2.1")
+    assert presets.providers["minimax"].media_model_choices == {"vision": ("MiniMax-VL-01",)}
+    assert presets.providers["minimax-cn"].default_base_url == "https://api.minimaxi.com/v1"

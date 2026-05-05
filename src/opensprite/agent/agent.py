@@ -42,9 +42,9 @@ from ..context.paths import (
 from ..documents.recent_summary import RecentSummaryConsolidator, RecentSummaryStore
 from ..media import (
     MediaRouter,
-    OpenAICompatibleImageProvider,
     OpenAICompatibleSpeechProvider,
     OpenAICompatibleVideoProvider,
+    create_image_analysis_provider,
 )
 from ..documents.user_profile import UserProfileConsolidator, create_user_profile_store
 from ..documents.user_overlay import UserOverlayIndexStore, UserOverlayPromotionService, UserOverlayStore
@@ -1308,7 +1308,8 @@ class AgentLoop:
         if self.media_router is None:
             self.media_router = MediaRouter()
 
-        self.media_router.image_provider = OpenAICompatibleImageProvider(
+        self.media_router.image_provider = create_image_analysis_provider(
+            provider=vision.provider,
             api_key=vision.api_key,
             default_model=vision.model,
             base_url=vision.base_url,

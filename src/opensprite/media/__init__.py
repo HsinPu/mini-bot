@@ -2,7 +2,7 @@
 
 from .audio import OpenAICompatibleSpeechProvider
 from .base import ImageAnalysisProvider, SpeechToTextProvider, VideoAnalysisProvider
-from .image import OpenAICompatibleImageProvider
+from .image import MiniMaxImageProvider, OpenAICompatibleImageProvider, create_image_analysis_provider
 from .video import OpenAICompatibleVideoProvider
 from .router import MediaRouter
 
@@ -11,7 +11,9 @@ __all__ = [
     "SpeechToTextProvider",
     "VideoAnalysisProvider",
     "MediaRouter",
+    "MiniMaxImageProvider",
     "OpenAICompatibleImageProvider",
     "OpenAICompatibleSpeechProvider",
     "OpenAICompatibleVideoProvider",
+    "create_image_analysis_provider",
 ]

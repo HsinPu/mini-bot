@@ -80,6 +80,10 @@ class MediaSettingsService:
                 str(provider.get("model") or "") or None,
                 model_choices=preset.model_choices if preset else (),
             )
+            media_models = {
+                category: list(models)
+                for category, models in (preset.media_model_choices or {}).items()
+            } if preset else {}
             provider_choices.append(
                 {
                     "id": provider_id,
@@ -87,6 +91,7 @@ class MediaSettingsService:
                     "name": str(provider.get("name") or "").strip() or (preset.display_name if preset else provider_id),
                     "model": selected or "",
                     "models": choices,
+                    "media_models": media_models,
                 }
             )
 

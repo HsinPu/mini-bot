@@ -1237,7 +1237,8 @@ const textProviderModels = computed(() => {
 function mediaProviderModels(category) {
   const providerId = props.settingsState.mediaSelections[category]?.providerId;
   const provider = props.settingsState.media.providers.find((entry) => entry.id === providerId);
-  const models = Array.isArray(provider?.models) ? [...provider.models] : [];
+  const mediaModels = provider?.media_models?.[category];
+  const models = Array.isArray(mediaModels) ? [...mediaModels] : Array.isArray(provider?.models) ? [...provider.models] : [];
   const selected = String(props.settingsState.mediaSelections[category]?.model || "").trim();
   if (selected && !models.includes(selected)) {
     models.unshift(selected);

@@ -41,3 +41,27 @@ def test_media_settings_updates_media_file_from_provider_connection(tmp_path):
     assert section["enabled"] is True
     assert section["provider_id"] == "openai"
     assert section["api_key_configured"] is True
+
+
+def test_media_settings_lists_minimax_vision_models_separately(tmp_path):
+    config_path = _copy_config(tmp_path)
+    ProviderSettingsService(config_path).connect_provider("minimax", api_key="secret-key", name="MiniMax Global")
+
+    payload = MediaSettingsService(config_path).list_media()
+    provider = next(entry for entry in payload["providers"] if entry["id"] == "minimax")
+
+    assert provider["models"][:3] == ["MiniMax-M2.7", "MiniMax-M2.5", "MiniMax-M2.1"]
+    assert provider["media_models"] == {"vision": ["MiniMax-VL-01"]}
+
+
+def test_media_settings_can_save_minimax_cn_vision_model(tmp_path):
+    config_path = _copy_config(tmp_path)
+    ProviderSettingsService(config_path).connect_provider("minimax-cn", api_key="secret-key")
+    service = MediaSettingsService(config_path)
+
+    result = service.update_media("vision", enabled=True, provider_id="minimax-cn", model="MiniMax-VL-01")
+
+    media = json.loads((tmp_path / "media.json").read_text(encoding="utf-8"))
+    assert media["vision"]["provider"] == "minimax-cn"
+    assert media["vision"]["base_url"] == "https://api.minimaxi.com/v1"
+    assert result["media"]["sections"]["vision"]["provider_id"] == "minimax-cn"

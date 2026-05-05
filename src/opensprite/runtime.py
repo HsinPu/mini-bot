@@ -11,9 +11,9 @@ from .cron import CronManager, CronJob
 from .llms import create_llm
 from .media import (
     MediaRouter,
-    OpenAICompatibleImageProvider,
     OpenAICompatibleSpeechProvider,
     OpenAICompatibleVideoProvider,
+    create_image_analysis_provider,
 )
 from .search.base import SearchStore
 from .storage import MemoryStorage, StorageProvider
@@ -133,7 +133,8 @@ def create_media_router(config: Config) -> MediaRouter:
 
     image_provider = None
     if vision and vision.enabled:
-        image_provider = OpenAICompatibleImageProvider(
+        image_provider = create_image_analysis_provider(
+            provider=vision.provider,
             api_key=vision.api_key,
             default_model=vision.model,
             base_url=vision.base_url,

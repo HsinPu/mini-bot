@@ -105,6 +105,6 @@ def test_provider_settings_disconnects_active_provider_and_clears_default(tmp_pa
     assert main_config["llm"]["default"] is None
     assert providers == {}
     assert listing["connected"] == []
-    assert {provider["id"] for provider in listing["available"]} >= {"openai", "openrouter", "minimax"}
+    assert {provider["id"] for provider in listing["available"]} >= {"openai", "openrouter", "minimax", "minimax-cn"}
     assert models["default_provider"] is None
     assert models["active_model"] == ""
