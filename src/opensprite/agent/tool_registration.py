@@ -281,6 +281,7 @@ def register_media_tools(
     get_current_images: Callable[[], list[str] | None],
     get_current_audios: Callable[[], list[str] | None],
     get_current_videos: Callable[[], list[str] | None],
+    workspace_resolver: Callable[[], Path] | None = None,
     queue_outbound_media: Callable[[str, str], str | None] | None = None,
 ) -> None:
     """Register media-analysis tools."""
@@ -288,12 +289,14 @@ def register_media_tools(
         AnalyzeImageTool(
             media_router or MediaRouter(),
             get_current_images=get_current_images,
+            workspace_resolver=workspace_resolver,
         )
     )
     registry.register(
         OCRImageTool(
             media_router or MediaRouter(),
             get_current_images=get_current_images,
+            workspace_resolver=workspace_resolver,
         )
     )
     registry.register(
@@ -497,6 +500,7 @@ def register_default_tools(
         get_current_images=get_current_images or (lambda: None),
         get_current_audios=get_current_audios or (lambda: None),
         get_current_videos=get_current_videos or (lambda: None),
+        workspace_resolver=workspace_resolver,
         queue_outbound_media=queue_outbound_media,
     )
     register_delegate_tools(
