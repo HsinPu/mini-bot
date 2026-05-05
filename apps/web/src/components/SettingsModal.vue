@@ -383,9 +383,12 @@
                   </button>
                 </div>
               </div>
-              <div v-if="settingsState.codexAuth.command" class="codex-auth-command">
-                <span>{{ copy.settings.providers.codexAuth.commandLabel }}</span>
-                <code>{{ settingsState.codexAuth.command }}</code>
+              <div v-if="settingsState.codexAuth.userCode" class="codex-auth-command">
+                <span>{{ copy.settings.providers.codexAuth.userCodeLabel }}</span>
+                <code>{{ settingsState.codexAuth.userCode }}</code>
+                <a v-if="settingsState.codexAuth.verificationUri" :href="settingsState.codexAuth.verificationUri" target="_blank" rel="noreferrer">
+                  {{ copy.settings.providers.codexAuth.openVerification }}
+                </a>
               </div>
             </div>
           </div>
@@ -407,8 +410,11 @@
                     <strong>{{ provider.name }}</strong>
                     <span v-if="provider.is_default" class="provider-row__badge">{{ copy.settings.providers.currentBadge }}</span>
                     <span v-if="provider.preset_name && provider.preset_name !== provider.name" class="provider-row__badge">{{ provider.preset_name }}</span>
+                    <span v-if="provider.provider === 'openai-codex' && !settingsState.codexAuth.configured" class="provider-row__badge">
+                      {{ copy.settings.providers.codexAuth.notConfigured }}
+                    </span>
                   </div>
-                  <span>{{ provider.base_url }}</span>
+                  <span>{{ providerDescription(provider) }}</span>
                 </div>
               </div>
               <button
@@ -1546,6 +1552,13 @@ function mediaModelsForProvider(category, providerId, selectedModel = "") {
     models.unshift(selected);
   }
   return models;
+}
+
+function providerDescription(provider) {
+  if (provider?.provider === "openai-codex" && !props.settingsState.codexAuth.configured) {
+    return props.copy.settings.providers.codexAuth.providerNeedsLogin;
+  }
+  return provider?.base_url || "";
 }
 
 function syncMediaSelection(category) {

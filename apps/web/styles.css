@@ -3615,6 +3615,17 @@ button:disabled {
   font-size: 0.9rem;
 }
 
+.codex-auth-command a {
+  justify-self: start;
+  color: var(--accent-dark);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.codex-auth-command a:hover {
+  text-decoration: underline;
+}
+
 .provider-connect-dialog {
   position: absolute;
   inset: 0;

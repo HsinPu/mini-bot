@@ -1030,16 +1030,49 @@ class WebAdapter(MessageAdapter):
         )
 
     async def _handle_settings_codex_auth_login(self, request: web.Request) -> web.Response:
-        command = f'opensprite auth login openai-codex --config "{self._get_config_path()}"'
+        from ..auth.codex import CodexAuthError, codex_start_device_auth
+
+        try:
+            device_auth = codex_start_device_auth()
+        except CodexAuthError as exc:
+            return web.json_response({"ok": False, "provider": "openai-codex", "error": str(exc)}, status=502)
         return web.json_response(
             {
                 "ok": True,
                 "provider": "openai-codex",
-                "mode": "cli_device_code",
-                "command": command,
-                "message": "Run this command in a terminal to complete OpenAI Codex device-code login.",
+                "mode": "web_device_code",
+                "verification_uri": device_auth.verification_uri,
+                "user_code": device_auth.user_code,
+                "device_auth_id": device_auth.device_auth_id,
+                "interval": device_auth.poll_interval,
+                "expires_in": device_auth.expires_in,
+                "message": "Open the verification URL and enter the code to complete OpenAI Codex login.",
             }
         )
+
+    async def _handle_settings_codex_auth_poll(self, request: web.Request) -> web.Response:
+        from ..auth.codex import CodexAuthError, codex_poll_device_auth, get_codex_status
+
+        body = await self._read_json_body(request)
+        try:
+            result = codex_poll_device_auth(
+                self._coerce_optional_text(body.get("device_auth_id")),
+                self._coerce_optional_text(body.get("user_code")),
+                app_home=self._get_app_home(),
+            )
+            status = get_codex_status(self._get_app_home()) if result.status == "authorized" else None
+        except CodexAuthError as exc:
+            return web.json_response({"ok": False, "provider": "openai-codex", "error": str(exc)}, status=400)
+        payload: dict[str, Any] = {"ok": True, "provider": "openai-codex", "status": result.status}
+        if status is not None:
+            payload["auth"] = {
+                "configured": status.configured,
+                "path": str(status.path),
+                "expires_at": status.expires_at,
+                "expired": status.expired,
+                "account_id": status.account_id,
+            }
+        return web.json_response(payload)
 
     async def _handle_settings_codex_auth_logout(self, request: web.Request) -> web.Response:
         from ..auth.codex import codex_auth_path, delete_codex_token
@@ -1611,6 +1644,7 @@ class WebAdapter(MessageAdapter):
         self.app.router.add_get("/api/settings/providers", self._handle_settings_providers)
         self.app.router.add_get("/api/settings/auth/openai-codex", self._handle_settings_codex_auth_status)
         self.app.router.add_post("/api/settings/auth/openai-codex/login", self._handle_settings_codex_auth_login)
+        self.app.router.add_post("/api/settings/auth/openai-codex/poll", self._handle_settings_codex_auth_poll)
         self.app.router.add_post("/api/settings/auth/openai-codex/logout", self._handle_settings_codex_auth_logout)
         self.app.router.add_put("/api/settings/providers/{provider_id}/connect", self._handle_settings_provider_connect)
         self.app.router.add_post("/api/settings/providers/{provider_id}/disconnect", self._handle_settings_provider_disconnect)

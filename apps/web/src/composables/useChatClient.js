@@ -1416,6 +1416,10 @@ export function useChatClient() {
       account_id: "",
       path: "",
       command: "",
+      verificationUri: "",
+      userCode: "",
+      deviceAuthId: "",
+      pollIntervalSeconds: 5,
     },
     connectForm: {
       providerId: "",
@@ -1546,6 +1550,7 @@ export function useChatClient() {
   const runSummaryTimers = new Map();
   const runBackfillTimes = new Map();
   let curatorPollTimer = null;
+  let codexAuthPollTimer = null;
   let curatorPollSessionId = "";
   let toastId = 0;
   const toastTimers = new Map();
@@ -3739,6 +3744,7 @@ export function useChatClient() {
   }
 
   async function startCodexAuthLogin() {
+    clearCodexAuthPollTimer();
     settingsState.codexAuthLoading = true;
     settingsState.codexAuthError = "";
     settingsState.codexAuthNotice = "";
@@ -3746,9 +3752,17 @@ export function useChatClient() {
       const payload = await requestSettingsJson("/api/settings/auth/openai-codex/login", { method: "POST" });
       settingsState.codexAuth = {
         ...settingsState.codexAuth,
-        command: payload.command || "opensprite auth login openai-codex",
+        command: "",
+        verificationUri: payload.verification_uri || "",
+        userCode: payload.user_code || "",
+        deviceAuthId: payload.device_auth_id || "",
+        pollIntervalSeconds: coerceNonNegativeInteger(payload.interval) || 5,
       };
+      if (settingsState.codexAuth.verificationUri) {
+        window.open(settingsState.codexAuth.verificationUri, "_blank", "noopener,noreferrer");
+      }
       setSettingsSuccess("codexAuthNotice", copy.value.notices.codexAuthLoginReady);
+      scheduleCodexAuthPoll();
     } catch (error) {
       settingsState.codexAuthError = error?.message || copy.value.notices.codexAuthLoginFailed;
     } finally {
@@ -3756,7 +3770,58 @@ export function useChatClient() {
     }
   }
 
+  function clearCodexAuthPollTimer() {
+    if (codexAuthPollTimer) {
+      clearTimeout(codexAuthPollTimer);
+      codexAuthPollTimer = null;
+    }
+  }
+
+  function scheduleCodexAuthPoll() {
+    clearCodexAuthPollTimer();
+    const delayMs = Math.max(3, settingsState.codexAuth.pollIntervalSeconds || 5) * 1000;
+    codexAuthPollTimer = window.setTimeout(() => {
+      void pollCodexAuthLogin();
+    }, delayMs);
+  }
+
+  async function pollCodexAuthLogin() {
+    const deviceAuthId = settingsState.codexAuth.deviceAuthId;
+    const userCode = settingsState.codexAuth.userCode;
+    if (!deviceAuthId || !userCode) {
+      return;
+    }
+    try {
+      const payload = await requestSettingsJson("/api/settings/auth/openai-codex/poll", {
+        method: "POST",
+        body: JSON.stringify({ device_auth_id: deviceAuthId, user_code: userCode }),
+      });
+      if (payload.status === "authorized") {
+        const auth = payload.auth || {};
+        settingsState.codexAuth = {
+          ...settingsState.codexAuth,
+          configured: Boolean(auth.configured),
+          expired: Boolean(auth.expired),
+          expires_at: auth.expires_at || null,
+          account_id: auth.account_id || "",
+          path: auth.path || settingsState.codexAuth.path,
+          verificationUri: "",
+          userCode: "",
+          deviceAuthId: "",
+        };
+        setSettingsSuccess("codexAuthNotice", copy.value.notices.codexAuthLoginComplete);
+        await loadModelSettings();
+        return;
+      }
+      scheduleCodexAuthPoll();
+    } catch (error) {
+      settingsState.codexAuthError = error?.message || copy.value.notices.codexAuthLoginFailed;
+      clearCodexAuthPollTimer();
+    }
+  }
+
   async function logoutCodexAuth() {
+    clearCodexAuthPollTimer();
     settingsState.codexAuthLoading = true;
     settingsState.codexAuthError = "";
     settingsState.codexAuthNotice = "";
@@ -3769,6 +3834,9 @@ export function useChatClient() {
         expires_at: null,
         account_id: "",
         command: "",
+        verificationUri: "",
+        userCode: "",
+        deviceAuthId: "",
       };
       setSettingsSuccess("codexAuthNotice", copy.value.notices.codexAuthLoggedOut);
       await loadCodexAuthStatus();
@@ -4584,6 +4652,7 @@ export function useChatClient() {
     runSummaryTimers.clear();
     runBackfillTimes.clear();
     clearCuratorPollTimer();
+    clearCodexAuthPollTimer();
     for (const timer of toastTimers.values()) {
       clearTimeout(timer);
     }

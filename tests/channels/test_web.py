@@ -10,7 +10,8 @@ from opensprite.bus.events import RunEvent, SessionStatusEvent
 from opensprite.bus.message import AssistantMessage
 from opensprite.channels.web import WebAdapter
 from opensprite.config import Config
-from opensprite.auth.codex import CodexToken, save_codex_token
+from opensprite.auth.codex import CodexToken, delete_codex_token, save_codex_token
+import opensprite.auth.codex as codex_module
 from opensprite.context.paths import get_session_workspace
 from opensprite.cron import CronManager, CronSchedule, CronService
 from opensprite.storage import MemoryStorage, StoredDelegatedTask, StoredMessage, StoredWorkState
@@ -1548,7 +1549,7 @@ def test_web_adapter_exposes_worktree_cleanup_api(tmp_path):
     asyncio.run(_run_web_worktree_cleanup_api(tmp_path))
 
 
-async def _run_web_settings_provider_api(tmp_path: Path):
+async def _run_web_settings_provider_api(tmp_path: Path, monkeypatch):
     config_path = tmp_path / "opensprite.json"
     Config.copy_template(config_path)
 
@@ -1704,13 +1705,47 @@ async def _run_web_settings_provider_api(tmp_path: Path):
             assert codex_configured_status["configured"] is True
             assert codex_configured_status["account_id"] == "acct-1"
 
+            monkeypatch.setattr(
+                codex_module,
+                "codex_start_device_auth",
+                lambda: SimpleNamespace(
+                    verification_uri="https://auth.openai.com/codex/device",
+                    user_code="ABCD",
+                    device_auth_id="device-1",
+                    poll_interval=3,
+                    expires_in=600,
+                ),
+            )
+
             async with session.post(f"http://127.0.0.1:{port}/api/settings/auth/openai-codex/login") as resp:
                 assert resp.status == 200
                 codex_login_payload = await resp.json()
 
-            assert codex_login_payload["mode"] == "cli_device_code"
-            assert "opensprite auth login openai-codex" in codex_login_payload["command"]
-            assert str(config_path) in codex_login_payload["command"]
+            assert codex_login_payload["mode"] == "web_device_code"
+            assert codex_login_payload["verification_uri"] == "https://auth.openai.com/codex/device"
+            assert codex_login_payload["user_code"] == "ABCD"
+            assert codex_login_payload["device_auth_id"] == "device-1"
+
+            delete_codex_token(tmp_path)
+
+            def fake_poll_device_auth(device_auth_id, user_code, *, app_home=None, timeout_seconds=15.0):
+                assert device_auth_id == "device-1"
+                assert user_code == "ABCD"
+                save_codex_token(CodexToken(access_token="codex-token-2", account_id="acct-2"), app_home)
+                return SimpleNamespace(status="authorized", token=CodexToken(access_token="codex-token-2"))
+
+            monkeypatch.setattr(codex_module, "codex_poll_device_auth", fake_poll_device_auth)
+
+            async with session.post(
+                f"http://127.0.0.1:{port}/api/settings/auth/openai-codex/poll",
+                json={"device_auth_id": "device-1", "user_code": "ABCD"},
+            ) as resp:
+                assert resp.status == 200
+                codex_poll_payload = await resp.json()
+
+            assert codex_poll_payload["status"] == "authorized"
+            assert codex_poll_payload["auth"]["configured"] is True
+            assert codex_poll_payload["auth"]["account_id"] == "acct-2"
 
             async with session.post(f"http://127.0.0.1:{port}/api/settings/auth/openai-codex/logout") as resp:
                 assert resp.status == 200
@@ -1801,8 +1836,8 @@ async def _run_web_settings_provider_api(tmp_path: Path):
             pass
 
 
-def test_web_adapter_exposes_settings_provider_api(tmp_path):
-    asyncio.run(_run_web_settings_provider_api(tmp_path))
+def test_web_adapter_exposes_settings_provider_api(tmp_path, monkeypatch):
+    asyncio.run(_run_web_settings_provider_api(tmp_path, monkeypatch))
 
 
 async def _run_web_mcp_settings_api(tmp_path: Path):

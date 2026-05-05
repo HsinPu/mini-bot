@@ -10,6 +10,8 @@ from opensprite.auth.codex import (
     CodexToken,
     access_token_is_expiring,
     codex_device_login,
+    codex_poll_device_auth,
+    codex_start_device_auth,
     delete_codex_token,
     get_codex_status,
     load_codex_token,
@@ -150,3 +152,27 @@ def test_codex_device_login_saves_exchanged_tokens(tmp_path, monkeypatch):
     assert load_codex_token(tmp_path).refresh_token == "refresh-token"
     assert any("ABCD" in message for message in messages)
     assert _FakeClient.calls[2][1]["data"]["grant_type"] == "authorization_code"
+
+
+def test_codex_web_device_flow_starts_and_polls(tmp_path, monkeypatch):
+    access_token = _jwt_with_exp(int(time.time()) + 3600)
+    _FakeClient.responses = [
+        _Response(200, {"user_code": "WXYZ", "device_auth_id": "device-2", "interval": 4, "expires_in": 600}),
+        _Response(404, {}),
+        _Response(200, {"authorization_code": "auth-code", "code_verifier": "verifier"}),
+        _Response(200, {"access_token": access_token, "refresh_token": "refresh-token"}),
+    ]
+    _FakeClient.calls = []
+    monkeypatch.setattr(codex_module.httpx, "Client", _FakeClient)
+
+    device_auth = codex_start_device_auth()
+    pending = codex_poll_device_auth(device_auth.device_auth_id, device_auth.user_code, app_home=tmp_path)
+    authorized = codex_poll_device_auth(device_auth.device_auth_id, device_auth.user_code, app_home=tmp_path)
+
+    assert device_auth.user_code == "WXYZ"
+    assert device_auth.verification_uri == "https://auth.openai.com/codex/device"
+    assert device_auth.poll_interval == 4
+    assert pending.status == "pending"
+    assert authorized.status == "authorized"
+    assert authorized.token is not None
+    assert load_codex_token(tmp_path).refresh_token == "refresh-token"

@@ -75,6 +75,21 @@ class CodexToken:
         return payload
 
 
+@dataclass(frozen=True)
+class CodexDeviceAuth:
+    user_code: str
+    device_auth_id: str
+    verification_uri: str
+    poll_interval: int
+    expires_in: int | None = None
+
+
+@dataclass(frozen=True)
+class CodexDevicePollResult:
+    status: str
+    token: CodexToken | None = None
+
+
 def default_app_home() -> Path:
     return Path.home() / ".opensprite"
 
@@ -195,17 +210,8 @@ def load_or_refresh_codex_token(
     return token
 
 
-def codex_device_login(
-    app_home: str | Path | None = None,
-    *,
-    timeout_seconds: float = 900.0,
-    announce: Any | None = None,
-) -> CodexToken:
-    def emit(message: str) -> None:
-        if announce is not None:
-            announce(message)
-
-    with httpx.Client(timeout=httpx.Timeout(15.0)) as client:
+def codex_start_device_auth(timeout_seconds: float = 15.0) -> CodexDeviceAuth:
+    with httpx.Client(timeout=httpx.Timeout(max(5.0, float(timeout_seconds)))) as client:
         response = client.post(
             f"{CODEX_OAUTH_ISSUER}/api/accounts/deviceauth/usercode",
             json={"client_id": CODEX_OAUTH_CLIENT_ID},
@@ -219,37 +225,50 @@ def codex_device_login(
     poll_interval = max(3, int(device_data.get("interval") or 5))
     if not user_code or not device_auth_id:
         raise CodexAuthError("OpenAI Codex device code response missing required fields.")
+    expires_in = device_data.get("expires_in")
+    try:
+        expires_in = int(expires_in) if expires_in is not None else None
+    except (TypeError, ValueError):
+        expires_in = None
+    return CodexDeviceAuth(
+        user_code=user_code,
+        device_auth_id=device_auth_id,
+        verification_uri=f"{CODEX_OAUTH_ISSUER}/codex/device",
+        poll_interval=poll_interval,
+        expires_in=expires_in,
+    )
 
-    emit("To continue, open this URL in your browser:")
-    emit(f"  {CODEX_OAUTH_ISSUER}/codex/device")
-    emit("Enter this code:")
-    emit(f"  {user_code}")
 
-    deadline = time.monotonic() + max(1.0, float(timeout_seconds))
-    code_payload: dict[str, Any] | None = None
-    with httpx.Client(timeout=httpx.Timeout(15.0)) as client:
-        while time.monotonic() < deadline:
-            time.sleep(poll_interval)
-            poll_response = client.post(
-                f"{CODEX_OAUTH_ISSUER}/api/accounts/deviceauth/token",
-                json={"device_auth_id": device_auth_id, "user_code": user_code},
-                headers={"Content-Type": "application/json"},
-            )
-            if poll_response.status_code == 200:
-                code_payload = poll_response.json()
-                break
-            if poll_response.status_code in (403, 404):
-                continue
-            raise CodexAuthError(f"OpenAI Codex device auth polling failed with status {poll_response.status_code}.")
-    if code_payload is None:
-        raise CodexAuthError("OpenAI Codex login timed out waiting for browser authorization.")
+def codex_poll_device_auth(
+    device_auth_id: str,
+    user_code: str,
+    *,
+    app_home: str | Path | None = None,
+    timeout_seconds: float = 15.0,
+) -> CodexDevicePollResult:
+    normalized_device_auth_id = str(device_auth_id or "").strip()
+    normalized_user_code = str(user_code or "").strip()
+    if not normalized_device_auth_id or not normalized_user_code:
+        raise CodexAuthError("OpenAI Codex device auth polling requires device_auth_id and user_code.")
 
+    with httpx.Client(timeout=httpx.Timeout(max(5.0, float(timeout_seconds)))) as client:
+        poll_response = client.post(
+            f"{CODEX_OAUTH_ISSUER}/api/accounts/deviceauth/token",
+            json={"device_auth_id": normalized_device_auth_id, "user_code": normalized_user_code},
+            headers={"Content-Type": "application/json"},
+        )
+    if poll_response.status_code in (403, 404):
+        return CodexDevicePollResult(status="pending")
+    if poll_response.status_code != 200:
+        raise CodexAuthError(f"OpenAI Codex device auth polling failed with status {poll_response.status_code}.")
+
+    code_payload = poll_response.json()
     authorization_code = str(code_payload.get("authorization_code") or "").strip()
     code_verifier = str(code_payload.get("code_verifier") or "").strip()
     if not authorization_code or not code_verifier:
         raise CodexAuthError("OpenAI Codex device auth response missing authorization_code or code_verifier.")
 
-    with httpx.Client(timeout=httpx.Timeout(15.0)) as client:
+    with httpx.Client(timeout=httpx.Timeout(max(5.0, float(timeout_seconds)))) as client:
         token_response = client.post(
             CODEX_OAUTH_TOKEN_URL,
             data={
@@ -273,7 +292,33 @@ def codex_device_login(
         expires_at=infer_access_token_expiry(access_token),
     )
     save_codex_token(token, app_home)
-    return token
+    return CodexDevicePollResult(status="authorized", token=token)
+
+
+def codex_device_login(
+    app_home: str | Path | None = None,
+    *,
+    timeout_seconds: float = 900.0,
+    announce: Any | None = None,
+) -> CodexToken:
+    def emit(message: str) -> None:
+        if announce is not None:
+            announce(message)
+
+    device_auth = codex_start_device_auth()
+
+    emit("To continue, open this URL in your browser:")
+    emit(f"  {device_auth.verification_uri}")
+    emit("Enter this code:")
+    emit(f"  {device_auth.user_code}")
+
+    deadline = time.monotonic() + max(1.0, float(timeout_seconds))
+    while time.monotonic() < deadline:
+        time.sleep(device_auth.poll_interval)
+        result = codex_poll_device_auth(device_auth.device_auth_id, device_auth.user_code, app_home=app_home)
+        if result.status == "authorized" and result.token is not None:
+            return result.token
+    raise CodexAuthError("OpenAI Codex login timed out waiting for browser authorization.")
 
 
 def save_codex_token(token: CodexToken, app_home: str | Path | None = None) -> Path:
