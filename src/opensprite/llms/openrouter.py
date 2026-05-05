@@ -57,8 +57,8 @@ class OpenRouterLLM(LLMProvider):
         api_key: str, 
         default_model: str = "openai/gpt-4o-mini",
         base_url: str = "",
-        reasoning_enabled: bool = False,
-        reasoning_effort: str | None = None,
+        reasoning_enabled: bool = True,
+        reasoning_effort: str | None = "medium",
         reasoning_max_tokens: int | None = None,
         reasoning_exclude: bool = False,
         provider_sort: str | None = None,
@@ -100,6 +100,25 @@ class OpenRouterLLM(LLMProvider):
         from openai import AsyncOpenAI
 
         return AsyncOpenAI(**self._client_kwargs)
+
+    async def _create_completion(self, params: dict[str, Any]):
+        try:
+            return await self.client.chat.completions.create(**params)
+        except Exception as exc:
+            if "reasoning" not in params:
+                raise
+            logger.warning(
+                "OpenRouter reasoning request failed; retrying without reasoning: model={}, error={}",
+                params.get("model"),
+                exc,
+            )
+            self.reasoning_enabled = False
+            self.reasoning_effort = None
+            self.reasoning_max_tokens = None
+            self.reasoning_exclude = False
+            retry_params = dict(params)
+            retry_params.pop("reasoning", None)
+            return await self.client.chat.completions.create(**retry_params)
     
     async def chat(
         self, 
@@ -182,7 +201,7 @@ class OpenRouterLLM(LLMProvider):
 
         if response_delta_callback is not None:
             params["stream"] = True
-            stream = await self.client.chat.completions.create(**params)
+            stream = await self._create_completion(params)
             return await collect_openai_compatible_stream(
                 stream,
                 provider_name="OpenRouter",
@@ -193,7 +212,7 @@ class OpenRouterLLM(LLMProvider):
             )
 
         # 呼叫 API
-        response = await self.client.chat.completions.create(**params)
+        response = await self._create_completion(params)
         choices = getattr(response, "choices", None)
         logger.info(
             "OpenRouter response summary: model={}, choices_type={}, choices_len={}",

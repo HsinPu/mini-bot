@@ -17,8 +17,8 @@ class ProviderConfig(BaseModel):
     base_url: str | None = None
     enabled: bool = False
     context_window_tokens: int | None = Field(default=None, ge=1)
-    reasoning_enabled: bool = False
-    reasoning_effort: Literal["minimal", "low", "medium", "high", "xhigh"] | None = None
+    reasoning_enabled: bool = True
+    reasoning_effort: Literal["minimal", "low", "medium", "high", "xhigh"] | None = "medium"
     reasoning_max_tokens: int | None = Field(default=None, ge=1)
     reasoning_exclude: bool = False
     provider_sort: Literal["price", "throughput", "latency"] | None = None

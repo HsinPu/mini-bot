@@ -1408,8 +1408,7 @@ function syncMediaSelection(category) {
   if (!selection.providerId) {
     selection.providerId = props.settingsState.media.providers?.[0]?.id || "";
   }
-  const models = mediaModelsForProvider(category, selection.providerId);
-  selection.model = models[0] || "";
+  selection.model = "";
 }
 
 const mcpRuntimeStatus = computed(() => {

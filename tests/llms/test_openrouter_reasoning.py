@@ -47,7 +47,7 @@ def test_openrouter_chat_preserves_reasoning_details_in_non_streaming_calls():
     assert response.content == "final answer"
     assert response.reasoning_details == [{"type": "reasoning.text", "text": "thinking"}]
     assert "provider" not in calls[0]
-    assert "reasoning" not in calls[0]
+    assert calls[0]["reasoning"] == {"effort": "medium"}
     assert calls[0]["messages"][0]["reasoning_details"] == [
         {"type": "reasoning.text", "text": "previous thinking"}
     ]
@@ -88,6 +88,38 @@ def test_openrouter_chat_sends_optional_request_settings_when_configured():
     assert response.content == "final answer"
     assert calls[0]["reasoning"] == {"effort": "high", "exclude": True}
     assert calls[0]["provider"] == {"sort": "throughput", "require_parameters": True}
+
+
+def test_openrouter_chat_retries_without_reasoning_when_reasoning_fails():
+    calls = []
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            calls.append(kwargs)
+            if "reasoning" in kwargs:
+                raise RuntimeError("unsupported reasoning parameter")
+            return SimpleNamespace(
+                id="response-id",
+                model="vendor/no-reasoning-model",
+                object="chat.completion",
+                usage=None,
+                choices=[
+                    SimpleNamespace(
+                        finish_reason="stop",
+                        message=SimpleNamespace(content="fallback answer", tool_calls=None, reasoning_details=None),
+                    )
+                ],
+            )
+
+    provider = OpenRouterLLM(api_key="secret-key", default_model="vendor/no-reasoning-model")
+    provider.client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+
+    response = asyncio.run(provider.chat([ChatMessage(role="user", content="hello")]))
+
+    assert response.content == "fallback answer"
+    assert calls[0]["reasoning"] == {"effort": "medium"}
+    assert "reasoning" not in calls[1]
+    assert provider.reasoning_enabled is False
 
 
 def test_openrouter_stream_collects_reasoning_details_and_emits_reasoning_delta():

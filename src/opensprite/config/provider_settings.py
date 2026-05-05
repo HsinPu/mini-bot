@@ -170,6 +170,9 @@ def connect_provider_in_config(
     preset = presets.providers[preset_id]
     provider = ensure_provider_entry(providers, provider_id, preset)
     provider["provider"] = preset_id
+    if preset_id == "openrouter":
+        provider.setdefault("reasoning_enabled", True)
+        provider.setdefault("reasoning_effort", "medium")
     normalized_name = str(display_name or "").strip()
     if normalized_name:
         provider["name"] = normalized_name
@@ -229,8 +232,8 @@ def select_model_in_config(
 def public_openrouter_options(provider: dict[str, Any]) -> dict[str, Any]:
     """Return OpenRouter request options safe for settings APIs."""
     return {
-        "reasoning_enabled": bool(provider.get("reasoning_enabled", False)),
-        "reasoning_effort": provider.get("reasoning_effort"),
+        "reasoning_enabled": bool(provider.get("reasoning_enabled", True)),
+        "reasoning_effort": provider.get("reasoning_effort", "medium"),
         "reasoning_max_tokens": provider.get("reasoning_max_tokens"),
         "reasoning_exclude": bool(provider.get("reasoning_exclude", False)),
         "provider_sort": provider.get("provider_sort"),

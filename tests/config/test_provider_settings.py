@@ -89,8 +89,8 @@ def test_provider_settings_select_model_updates_default_and_enabled_flags(tmp_pa
         "reasoning_effort": "medium",
     }
     assert models["providers"][0]["options"] == {
-        "reasoning_enabled": False,
-        "reasoning_effort": None,
+        "reasoning_enabled": True,
+        "reasoning_effort": "medium",
         "reasoning_max_tokens": None,
         "reasoning_exclude": False,
         "provider_sort": None,
