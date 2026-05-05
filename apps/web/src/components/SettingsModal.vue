@@ -494,17 +494,17 @@
             </label>
 
             <div class="model-select-row">
-              <label>
+              <label v-if="settingsState.mediaSelections[category.key].enabled">
                 <span>{{ copy.settings.models.providerChoice }}</span>
-                <select v-model="settingsState.mediaSelections[category.key].providerId" :disabled="settingsState.mediaLoading || !settingsState.mediaSelections[category.key].enabled">
+                <select v-model="settingsState.mediaSelections[category.key].providerId" :disabled="settingsState.mediaLoading">
                   <option v-for="provider in settingsState.media.providers" :key="`${category.key}:${provider.id}`" :value="provider.id">
                     {{ provider.name }}
                   </option>
                 </select>
               </label>
-              <label>
+              <label v-if="settingsState.mediaSelections[category.key].enabled">
                 <span>{{ copy.settings.models.modelChoice }}</span>
-                <select v-model="settingsState.mediaSelections[category.key].model" :disabled="settingsState.mediaLoading || !settingsState.mediaSelections[category.key].enabled">
+                <select v-model="settingsState.mediaSelections[category.key].model" :disabled="settingsState.mediaLoading">
                   <option v-for="model in mediaProviderModels(category.key)" :key="`${category.key}:${model}`" :value="model">
                     {{ model }}
                   </option>
@@ -520,21 +520,21 @@
               </button>
             </div>
 
-            <div class="custom-model-row">
+            <div v-if="settingsState.mediaSelections[category.key].enabled" class="custom-model-row">
               <label>
                 <span>{{ copy.settings.models.customModel }}</span>
                 <input
                   v-model="settingsState.mediaCustomModels[category.key]"
                   type="text"
                   :placeholder="copy.settings.models.customPlaceholder"
-                  :disabled="settingsState.mediaLoading || !settingsState.mediaSelections[category.key].enabled"
+                  :disabled="settingsState.mediaLoading"
                   spellcheck="false"
                 />
               </label>
               <button
                 class="secondary-button"
                 type="button"
-                :disabled="settingsState.mediaLoading || !settingsState.mediaSelections[category.key].enabled"
+                :disabled="settingsState.mediaLoading"
                 @click="$emit('save-media-model', category.key, settingsState.mediaCustomModels[category.key])"
               >
                 {{ copy.settings.models.useCustom }}
