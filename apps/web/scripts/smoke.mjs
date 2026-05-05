@@ -64,6 +64,9 @@ assertIncludes(settingsModal, "openRouterModelGroups", "shared OpenRouter model 
 assertIncludes(settingsModal, "<optgroup", "grouped model select rendering");
 assertIncludes(settingsModal, "settingsState.selectedTextProviderId, settingsState.modelSelections[settingsState.selectedTextProviderId]", "text provider selection applies model");
 assertIncludes(settingsModal, "settingsState.copilotAuth.userCode", "Copilot auth code rendering");
+assertIncludes(settingsModal, "showCodexAuthCard", "conditional Codex auth card");
+assertIncludes(settingsModal, "showCopilotAuthCard", "conditional Copilot auth card");
+assertIncludes(settingsModal, "hasConnectedProvider", "OAuth auth card connected-provider visibility");
 assertOrder(settingsModal, "section === 'providers'", "copy.settings.providers.copilotAuth.title", "Copilot auth provider placement");
 assertIncludes(chatClient, "/api/commands", "command catalog fetch");
 assertIncludes(chatClient, "/api/settings/media", "media model settings fetch");

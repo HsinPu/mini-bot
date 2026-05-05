@@ -338,12 +338,13 @@
             {{ settingsState.providersError }}
           </p>
 
-          <h3>{{ copy.settings.providers.codexAuth.title }}</h3>
-          <p v-if="settingsState.codexAuthNotice" class="settings-inline-status">{{ settingsState.codexAuthNotice }}</p>
-          <p v-if="settingsState.codexAuthError" class="settings-inline-status settings-inline-status--error">
-            {{ settingsState.codexAuthError }}
-          </p>
-          <div class="settings-card provider-card">
+          <template v-if="showCodexAuthCard">
+            <h3>{{ copy.settings.providers.codexAuth.title }}</h3>
+            <p v-if="settingsState.codexAuthNotice" class="settings-inline-status">{{ settingsState.codexAuthNotice }}</p>
+            <p v-if="settingsState.codexAuthError" class="settings-inline-status settings-inline-status--error">
+              {{ settingsState.codexAuthError }}
+            </p>
+            <div class="settings-card provider-card">
             <div class="provider-row provider-row--stacked codex-auth-row">
               <div class="provider-row__content">
                 <div class="provider-row__main">
@@ -391,14 +392,16 @@
                 </a>
               </div>
             </div>
-          </div>
+            </div>
+          </template>
 
-          <h3>{{ copy.settings.providers.copilotAuth.title }}</h3>
-          <p v-if="settingsState.copilotAuthNotice" class="settings-inline-status">{{ settingsState.copilotAuthNotice }}</p>
-          <p v-if="settingsState.copilotAuthError" class="settings-inline-status settings-inline-status--error">
-            {{ settingsState.copilotAuthError }}
-          </p>
-          <div class="settings-card provider-card">
+          <template v-if="showCopilotAuthCard">
+            <h3>{{ copy.settings.providers.copilotAuth.title }}</h3>
+            <p v-if="settingsState.copilotAuthNotice" class="settings-inline-status">{{ settingsState.copilotAuthNotice }}</p>
+            <p v-if="settingsState.copilotAuthError" class="settings-inline-status settings-inline-status--error">
+              {{ settingsState.copilotAuthError }}
+            </p>
+            <div class="settings-card provider-card">
             <div class="provider-row provider-row--stacked codex-auth-row">
               <div class="provider-row__content">
                 <div class="provider-row__main">
@@ -431,7 +434,8 @@
                 </a>
               </div>
             </div>
-          </div>
+            </div>
+          </template>
 
           <h3>{{ copy.settings.providers.connectedTitle }}</h3>
           <div class="settings-card provider-card">
@@ -1641,6 +1645,24 @@ const selectedTextCapabilityBadges = computed(() => {
 const showOpenRouterOptions = computed(() => (
   selectedTextProvider.value?.provider === "openrouter" &&
   props.settingsState.openRouterOptions[selectedTextProvider.value.id]
+));
+
+function hasConnectedProvider(presetId) {
+  return props.settingsState.providers.connected.some((provider) => provider.provider === presetId || provider.id === presetId);
+}
+
+const showCodexAuthCard = computed(() => (
+  hasConnectedProvider("openai-codex") ||
+  props.settingsState.codexAuthLoading ||
+  props.settingsState.codexAuth.configured ||
+  Boolean(props.settingsState.codexAuth.userCode || props.settingsState.codexAuthNotice || props.settingsState.codexAuthError)
+));
+
+const showCopilotAuthCard = computed(() => (
+  hasConnectedProvider("copilot") ||
+  props.settingsState.copilotAuthLoading ||
+  props.settingsState.copilotAuth.configured ||
+  Boolean(props.settingsState.copilotAuth.userCode || props.settingsState.copilotAuthNotice || props.settingsState.copilotAuthError)
 ));
 
 const codexAuthStatusLabel = computed(() => {
