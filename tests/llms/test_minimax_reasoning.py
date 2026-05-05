@@ -54,6 +54,17 @@ def test_minimax_chat_enables_reasoning_split_and_preserves_history_details():
     ]
 
 
+def test_minimax_uses_configured_base_url():
+    provider = MiniMaxLLM(
+        api_key="secret-key",
+        default_model="MiniMax-M2.7",
+        base_url="https://api.minimaxi.com/v1/",
+    )
+
+    assert provider.base_url == "https://api.minimaxi.com/v1"
+    assert provider._client_kwargs["base_url"] == "https://api.minimaxi.com/v1"
+
+
 def test_message_history_restores_reasoning_details_from_metadata():
     storage = MemoryStorage()
     asyncio.run(

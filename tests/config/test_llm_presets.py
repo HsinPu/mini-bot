@@ -95,6 +95,8 @@ def test_load_llm_presets_has_expected_providers():
         "reasoning_effort": "high",
     }
     assert presets.providers["minimax"].model_choices[:3] == ("MiniMax-M2.7", "MiniMax-M2.5", "MiniMax-M2.1")
+    assert presets.providers["minimax"].default_base_url == "https://api.minimax.io/anthropic"
+    assert presets.providers["minimax"].api_mode == "anthropic_messages"
     assert presets.providers["minimax"].media_model_choices == {
         "vision": ("MiniMax-VL-01",),
         "ocr": ("MiniMax-VL-01",),

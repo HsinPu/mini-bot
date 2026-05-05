@@ -240,7 +240,9 @@ def discover_provider_models(
         live = fetch_copilot_provider_models(api_key) if api_key else []
     elif preset_id == "openrouter":
         live = fetch_openrouter_models()
-    elif preset_id in {"openai", "minimax"} or str(provider.get("base_url") or "").strip():
+    elif provider.get("api_mode") != "anthropic_messages" and (
+        preset_id in {"openai", "minimax"} or str(provider.get("base_url") or "").strip()
+    ):
         live = fetch_openai_compatible_models(
             str(provider.get("api_key") or "").strip(),
             str(provider.get("base_url") or (preset.default_base_url if preset else "")).strip(),

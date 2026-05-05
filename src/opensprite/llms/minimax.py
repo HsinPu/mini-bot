@@ -93,7 +93,8 @@ class MiniMaxLLM(LLMProvider):
     def __init__(
         self, 
         api_key: str, 
-        default_model: str = "MiniMax-M2.5"
+        default_model: str = "MiniMax-M2.5",
+        base_url: str | None = None,
     ):
         """
         初始化 MiniMax LLM
@@ -104,9 +105,10 @@ class MiniMaxLLM(LLMProvider):
         """
         self.api_key = api_key
         self.default_model = default_model
+        self.base_url = (base_url or "https://api.minimax.io/v1").rstrip("/")
         self._client_kwargs = {
             "api_key": api_key,
-            "base_url": "https://api.minimax.io/v1",
+            "base_url": self.base_url,
         }
         self.client = self._build_client()
 

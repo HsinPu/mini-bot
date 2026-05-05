@@ -3,6 +3,8 @@ import json
 import pytest
 
 from opensprite.config import ProviderConfig
+from opensprite.llms.anthropic_messages import AnthropicMessagesLLM
+from opensprite.llms.minimax import MiniMaxLLM
 from opensprite.llms.openai_responses import OpenAIResponsesLLM
 from opensprite.llms.registry import create_llm
 from opensprite.llms.runtime_provider import ProviderRuntimeError, resolve_provider_runtime
@@ -63,6 +65,34 @@ def test_create_llm_uses_responses_provider_for_responses_mode():
 
     assert isinstance(provider, OpenAIResponsesLLM)
     assert provider.default_model == "gpt-5.1-codex"
+
+
+def test_create_llm_passes_minimax_base_url():
+    provider = create_llm(
+        api_key="minimax-key",
+        model="MiniMax-M2.7",
+        base_url="https://api.minimaxi.com/v1",
+        provider_name="minimax",
+    )
+
+    assert isinstance(provider, MiniMaxLLM)
+    assert provider.base_url == "https://api.minimaxi.com/v1"
+
+
+def test_create_llm_uses_anthropic_messages_provider_for_minimax_mode():
+    provider = create_llm(
+        api_key="minimax-key",
+        model="MiniMax-M2.7",
+        base_url="https://api.minimax.io/anthropic",
+        provider_name="minimax",
+        api_mode="anthropic_messages",
+        reasoning_enabled=True,
+        reasoning_effort="high",
+    )
+
+    assert isinstance(provider, AnthropicMessagesLLM)
+    assert provider.base_url == "https://api.minimax.io/anthropic"
+    assert provider.reasoning_effort == "high"
 
 
 def test_resolve_copilot_runtime_exchanges_github_token(monkeypatch):

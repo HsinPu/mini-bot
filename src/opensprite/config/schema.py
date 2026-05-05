@@ -13,7 +13,7 @@ class ProviderConfig(BaseModel):
     provider: str | None = None
     name: str | None = None
     auth_type: Literal["api_key", "openai_codex_oauth", "github_copilot_oauth"] = "api_key"
-    api_mode: Literal["chat_completions", "responses"] | None = None
+    api_mode: Literal["chat_completions", "responses", "anthropic_messages"] | None = None
     api_key: str = ""
     model: str = ""
     base_url: str | None = None

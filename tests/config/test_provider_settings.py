@@ -147,6 +147,23 @@ def test_provider_settings_uses_discovered_provider_models(tmp_path, monkeypatch
     assert provider["models"][:3] == ["custom-selected-model", "live-model", "gpt-4.1-mini"]
 
 
+def test_provider_settings_does_not_probe_anthropic_messages_minimax_models(tmp_path, monkeypatch):
+    config_path = _copy_config(tmp_path)
+    service = ProviderSettingsService(config_path)
+
+    def fail_fetch(api_key, base_url):
+        raise AssertionError(f"unexpected model probe: {api_key} {base_url}")
+
+    monkeypatch.setattr(provider_settings, "fetch_openai_compatible_models", fail_fetch)
+
+    service.connect_provider("minimax", api_key="minimax-key")
+    models = service.list_models()
+
+    provider = models["providers"][0]
+    assert provider["model_source"] == "preset"
+    assert provider["models"][:3] == ["MiniMax-M2.7", "MiniMax-M2.5", "MiniMax-M2.1"]
+
+
 def test_provider_settings_falls_back_to_preset_models(tmp_path, monkeypatch):
     config_path = _copy_config(tmp_path)
     service = ProviderSettingsService(config_path)

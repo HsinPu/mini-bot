@@ -5,6 +5,7 @@
 
 from dataclasses import dataclass
 from .base import LLMProvider
+from .anthropic_messages import AnthropicMessagesLLM
 from .openai import OpenAILLM
 from .openai_responses import OpenAIResponsesLLM
 from .openrouter import OpenRouterLLM
@@ -76,6 +77,14 @@ def create_llm(
 
     if api_mode == "responses" or auth_type == "openai_codex_oauth":
         return OpenAIResponsesLLM(api_key=api_key, base_url=base_url, default_model=model)
+    if api_mode == "anthropic_messages":
+        return AnthropicMessagesLLM(
+            api_key=api_key,
+            base_url=base_url,
+            default_model=model,
+            reasoning_enabled=reasoning_enabled,
+            reasoning_effort=reasoning_effort,
+        )
     
     spec = find_provider(api_key, base_url, model, provider_name)
     
@@ -93,7 +102,7 @@ def create_llm(
         )
     
     if spec.name == "minimax":
-        return MiniMaxLLM(api_key=api_key, default_model=model)
+        return MiniMaxLLM(api_key=api_key, default_model=model, base_url=base_url or spec.default_base_url)
 
     if spec.name == "copilot":
         return OpenAILLM(
