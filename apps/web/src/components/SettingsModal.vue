@@ -197,6 +197,38 @@
             </div>
           </div>
 
+          <h3>{{ copy.settings.general.update.title }}</h3>
+          <p v-if="settingsState.updateNotice" class="settings-inline-status">{{ settingsState.updateNotice }}</p>
+          <p v-if="settingsState.updateError" class="settings-inline-status settings-inline-status--error">
+            {{ settingsState.updateError }}
+          </p>
+          <div class="settings-card">
+            <div class="settings-row settings-row--update">
+              <div>
+                <strong>{{ updateStatusLabel }}</strong>
+                <span>{{ updateStatusDescription }}</span>
+              </div>
+              <div class="settings-row__actions">
+                <button
+                  class="secondary-button"
+                  type="button"
+                  :disabled="settingsState.updateLoading"
+                  @click="$emit('check-update')"
+                >
+                  {{ copy.settings.general.update.check }}
+                </button>
+                <button
+                  class="secondary-button"
+                  type="button"
+                  :disabled="settingsState.updateLoading || !settingsState.updateStatus.supported || settingsState.updateStatus.dirty"
+                  @click="$emit('run-update')"
+                >
+                  {{ copy.settings.general.update.apply }}
+                </button>
+              </div>
+            </div>
+          </div>
+
         </section>
 
         <section v-show="section === 'curator'" class="settings-page">
@@ -1291,6 +1323,41 @@ const connectionSwitchLabel = computed(() => {
   return props.copy.settings.general.gateway.disconnected;
 });
 
+const updateStatusLabel = computed(() => {
+  const status = props.settingsState.updateStatus || {};
+  if (props.settingsState.updateLoading) {
+    return props.copy.settings.general.update.checking;
+  }
+  if (!status.supported) {
+    return props.copy.settings.general.update.unsupported;
+  }
+  if (status.dirty) {
+    return props.copy.settings.general.update.dirty;
+  }
+  if (status.update_available) {
+    return props.copy.settings.general.update.available(status.commits_behind || 0);
+  }
+  return props.copy.settings.general.update.current;
+});
+
+const updateStatusDescription = computed(() => {
+  const status = props.settingsState.updateStatus || {};
+  if (!status.supported && status.error) {
+    return status.error;
+  }
+  const parts = [];
+  if (status.branch) {
+    parts.push(`${props.copy.settings.general.update.branch}: ${status.branch}`);
+  }
+  if (status.current_rev_short) {
+    parts.push(`${props.copy.settings.general.update.commit}: ${status.current_rev_short}`);
+  }
+  if (status.project_root) {
+    parts.push(status.project_root);
+  }
+  return parts.join(" · ") || props.copy.settings.general.update.description;
+});
+
 const scheduleTimezoneOptions = computed(() => {
   const configured = Array.isArray(props.settingsState.schedule.common_timezones)
     ? props.settingsState.schedule.common_timezones
@@ -1479,6 +1546,8 @@ defineEmits([
   "select-section",
   "save-connection-settings",
   "toggle-connection",
+  "check-update",
+  "run-update",
   "begin-channel-connect",
   "cancel-channel-connect",
   "save-channel-connection",

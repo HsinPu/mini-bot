@@ -1407,6 +1407,18 @@ export function useChatClient() {
       baseUrl: "",
       showAdvanced: false,
     },
+    updateLoading: false,
+    updateError: "",
+    updateNotice: "",
+    updateStatus: {
+      supported: false,
+      update_available: false,
+      commits_behind: 0,
+      dirty: false,
+      branch: "",
+      current_rev_short: "",
+      project_root: "",
+    },
     modelsLoading: false,
     modelsError: "",
     modelsNotice: "",
@@ -3470,6 +3482,10 @@ export function useChatClient() {
   }
 
   function loadSettingsSection(sectionName) {
+    if (sectionName === "general") {
+      loadUpdateStatus();
+      return;
+    }
     if (sectionName === "channels") {
       loadChannelSettings();
       return;
@@ -3651,6 +3667,43 @@ export function useChatClient() {
       settingsState.modelsError = error?.message || copy.value.notices.modelSelectFailed;
     } finally {
       settingsState.modelsLoading = false;
+    }
+  }
+
+  async function loadUpdateStatus() {
+    settingsState.updateLoading = true;
+    settingsState.updateError = "";
+    try {
+      settingsState.updateStatus = await requestSettingsJson("/api/settings/update");
+    } catch (error) {
+      settingsState.updateError = error?.message || copy.value.notices.updateStatusFailed;
+    } finally {
+      settingsState.updateLoading = false;
+    }
+  }
+
+  async function runUpdate() {
+    settingsState.updateLoading = true;
+    settingsState.updateError = "";
+    settingsState.updateNotice = "";
+    try {
+      const payload = await requestSettingsJson("/api/settings/update", {
+        method: "POST",
+        body: JSON.stringify({ restart: true }),
+      });
+      settingsState.updateStatus = {
+        ...settingsState.updateStatus,
+        update_available: false,
+        commits_behind: 0,
+        current_rev_short: payload.after_rev_short || settingsState.updateStatus.current_rev_short,
+      };
+      settingsState.updateNotice = payload.restart_scheduled
+        ? copy.value.notices.updateRestarting
+        : copy.value.notices.updateApplied;
+    } catch (error) {
+      settingsState.updateError = error?.message || copy.value.notices.updateFailed;
+    } finally {
+      settingsState.updateLoading = false;
     }
   }
 
@@ -4474,6 +4527,7 @@ export function useChatClient() {
     closeSettings,
     saveConnectionSettings,
     loadProviderSettings,
+    loadUpdateStatus,
     loadModelSettings,
     loadChannelSettings,
     loadScheduleSettings,
@@ -4487,6 +4541,7 @@ export function useChatClient() {
     cancelProviderConnect,
     saveProviderConnection,
     disconnectProvider,
+    runUpdate,
     selectModel,
     applyOpenRouterRecommendedOptions,
     saveOpenRouterOptions,

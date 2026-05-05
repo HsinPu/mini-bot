@@ -12,6 +12,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,8 @@ from aiohttp import WSMsgType, web
 from .identity import build_session_id, normalize_identifier
 from ..bus.events import RunEvent, SessionStatusEvent
 from ..bus.message import AssistantMessage, MessageAdapter, UserMessage
+from ..cli import update as update_cli
+from ..cli import service_background, service_linux
 from ..config import Config, MessagesConfig
 from ..config.channel_settings import (
     ChannelSettingsError,
@@ -1148,6 +1151,94 @@ class WebAdapter(MessageAdapter):
         payload = self._reload_agent_llm_from_config(payload)
         return web.json_response(payload)
 
+    @staticmethod
+    def _git_output(args: list[str], *, cwd: Path) -> str:
+        result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=False)
+        if result.returncode != 0:
+            raise RuntimeError((result.stderr or result.stdout or "git command failed").strip())
+        return result.stdout.strip()
+
+    def _build_update_status_payload(self) -> dict[str, Any]:
+        try:
+            root = update_cli.find_project_root()
+            current_rev = self._git_output(["rev-parse", "HEAD"], cwd=root)
+            branch = self._git_output(["rev-parse", "--abbrev-ref", "HEAD"], cwd=root)
+            dirty = bool(self._git_output(["status", "--porcelain"], cwd=root))
+            commits_behind = update_cli.check_update_available(project_root=root, branch=branch)
+            return {
+                "ok": True,
+                "supported": True,
+                "project_root": str(root),
+                "branch": branch,
+                "current_rev": current_rev,
+                "current_rev_short": current_rev[:7],
+                "dirty": dirty,
+                "commits_behind": commits_behind,
+                "update_available": commits_behind > 0,
+            }
+        except Exception as exc:
+            return {
+                "ok": False,
+                "supported": False,
+                "error": str(exc),
+                "dirty": False,
+                "commits_behind": 0,
+                "update_available": False,
+            }
+
+    async def _handle_settings_update_status(self, request: web.Request) -> web.Response:
+        payload = await asyncio.to_thread(self._build_update_status_payload)
+        return web.json_response(payload)
+
+    async def _restart_gateway_after_response(self, config_path: Path | None = None) -> None:
+        await asyncio.sleep(1.0)
+        try:
+            try:
+                linux_status = service_linux.get_service_status()
+            except RuntimeError:
+                linux_status = None
+            if linux_status is not None and getattr(linux_status, "installed", False):
+                service_linux.restart_service()
+                return
+
+            pid_file = service_background.get_pid_file()
+            try:
+                pid_file.unlink()
+            except FileNotFoundError:
+                pass
+            service_background.start_service(config_path=config_path, python_executable=Path(sys.executable))
+        except Exception:
+            logger.exception("Failed to restart OpenSprite gateway after update")
+            return
+        os._exit(0)
+
+    async def _handle_settings_update_apply(self, request: web.Request) -> web.Response:
+        body = await self._read_json_body(request)
+        restart = bool(body.get("restart", True))
+        try:
+            result = await asyncio.to_thread(update_cli.update_checkout, branch="main", install_dev=False)
+        except update_cli.UpdateError as exc:
+            raise web.HTTPConflict(text=str(exc)) from exc
+        except Exception as exc:
+            raise web.HTTPServiceUnavailable(text=str(exc)) from exc
+
+        payload = {
+            "ok": True,
+            "updated": result.updated,
+            "before_rev": result.before_rev,
+            "before_rev_short": result.before_rev[:7],
+            "after_rev": result.after_rev,
+            "after_rev_short": result.after_rev[:7],
+            "branch": result.branch,
+            "project_root": str(result.project_root),
+            "python": str(result.python_executable),
+            "restart_scheduled": restart,
+        }
+        if restart:
+            config_path = Path(self.config["config_path"]).expanduser() if self.config.get("config_path") else None
+            asyncio.create_task(self._restart_gateway_after_response(config_path=config_path))
+        return web.json_response(payload)
+
     async def _handle_settings_schedule(self, request: web.Request) -> web.Response:
         try:
             payload = self._get_schedule_settings().get_schedule()
@@ -1468,6 +1559,8 @@ class WebAdapter(MessageAdapter):
         self.app.router.add_put("/api/settings/providers/{provider_id}/options", self._handle_settings_provider_options_update)
         self.app.router.add_get("/api/settings/models", self._handle_settings_models)
         self.app.router.add_post("/api/settings/models/select", self._handle_settings_model_select)
+        self.app.router.add_get("/api/settings/update", self._handle_settings_update_status)
+        self.app.router.add_post("/api/settings/update", self._handle_settings_update_apply)
         self.app.router.add_get("/api/settings/media", self._handle_settings_media)
         self.app.router.add_put("/api/settings/media", self._handle_settings_media_update)
         self.app.router.add_get("/api/settings/schedule", self._handle_settings_schedule)

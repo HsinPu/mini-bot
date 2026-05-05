@@ -4160,6 +4160,13 @@ button:disabled {
   border-color: #d7d7d7;
 }
 
+.settings-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .switch {
   width: 28px;
   height: 16px;
@@ -4315,6 +4322,7 @@ textarea:focus-visible {
 
   .settings-row,
   .settings-row--field,
+  .settings-row--update,
   .provider-row,
   .provider-row__content,
   .channel-card__header,
@@ -4331,6 +4339,10 @@ textarea:focus-visible {
   .openrouter-options__header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .settings-row__actions {
+    justify-content: flex-start;
   }
 
   .schedule-editor__header,

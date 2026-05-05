@@ -87,6 +87,8 @@
     @select-section="selectSettingsSection"
     @save-connection-settings="saveConnectionSettings"
     @toggle-connection="toggleSettingsConnection"
+    @check-update="loadUpdateStatus"
+    @run-update="runUpdate"
     @begin-channel-connect="beginChannelConnect"
     @cancel-channel-connect="cancelChannelConnect"
     @save-channel-connection="saveChannelConnection"
@@ -177,6 +179,8 @@ const {
   openSettings,
   closeSettings,
   saveConnectionSettings,
+  loadUpdateStatus,
+  runUpdate,
   beginChannelConnect,
   cancelChannelConnect,
   saveChannelConnection,
