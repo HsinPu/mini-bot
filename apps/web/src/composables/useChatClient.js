@@ -1400,6 +1400,7 @@ export function useChatClient() {
     media: {
       sections: {
         vision: { category: "vision", enabled: false, provider_id: "", model: "" },
+        ocr: { category: "ocr", enabled: false, provider_id: "", model: "" },
         speech: { category: "speech", enabled: false, provider_id: "", model: "" },
         video: { category: "video", enabled: false, provider_id: "", model: "" },
       },
@@ -1407,6 +1408,7 @@ export function useChatClient() {
     },
     mediaSelections: {
       vision: { enabled: false, providerId: "", model: "" },
+      ocr: { enabled: false, providerId: "", model: "" },
       speech: { enabled: false, providerId: "", model: "" },
       video: { enabled: false, providerId: "", model: "" },
     },
@@ -3389,6 +3391,7 @@ export function useChatClient() {
       ...payload,
       sections: {
         vision: sections.vision || { category: "vision", enabled: false, provider_id: "", model: "" },
+        ocr: sections.ocr || { category: "ocr", enabled: false, provider_id: "", model: "" },
         speech: sections.speech || { category: "speech", enabled: false, provider_id: "", model: "" },
         video: sections.video || { category: "video", enabled: false, provider_id: "", model: "" },
       },

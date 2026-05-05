@@ -1302,6 +1302,7 @@ class AgentLoop:
     def reload_media_from_config(self, config: Config) -> dict[str, Any]:
         """Reload media analysis providers from an already persisted Config."""
         vision = getattr(config, "vision", None)
+        ocr = getattr(config, "ocr", None)
         speech = getattr(config, "speech", None)
         video = getattr(config, "video", None)
 
@@ -1314,6 +1315,12 @@ class AgentLoop:
             default_model=vision.model,
             base_url=vision.base_url,
         ) if vision and vision.enabled else None
+        self.media_router.ocr_provider = create_image_analysis_provider(
+            provider=ocr.provider,
+            api_key=ocr.api_key,
+            default_model=ocr.model,
+            base_url=ocr.base_url,
+        ) if ocr and ocr.enabled else None
         self.media_router.speech_provider = OpenAICompatibleSpeechProvider(
             api_key=speech.api_key,
             default_model=speech.model,
@@ -1326,13 +1333,15 @@ class AgentLoop:
         ) if video and video.enabled else None
 
         logger.info(
-            "Media runtime reloaded | vision={} speech={} video={}",
+            "Media runtime reloaded | vision={} ocr={} speech={} video={}",
             bool(self.media_router.image_provider),
+            bool(self.media_router.ocr_provider),
             bool(self.media_router.speech_provider),
             bool(self.media_router.video_provider),
         )
         return {
             "vision_enabled": bool(self.media_router.image_provider),
+            "ocr_enabled": bool(self.media_router.ocr_provider),
             "speech_enabled": bool(self.media_router.speech_provider),
             "video_enabled": bool(self.media_router.video_provider),
         }

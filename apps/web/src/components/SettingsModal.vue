@@ -1204,6 +1204,12 @@ const mediaModelCategories = computed(() => [
     description: props.copy.settings.models.mediaCategories.vision.description,
   },
   {
+    key: "ocr",
+    mark: "字",
+    title: props.copy.settings.models.mediaCategories.ocr.title,
+    description: props.copy.settings.models.mediaCategories.ocr.description,
+  },
+  {
     key: "speech",
     mark: "音",
     title: props.copy.settings.models.mediaCategories.speech.title,

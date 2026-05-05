@@ -11,6 +11,7 @@ from opensprite.config.schema import (
     LLMsConfig,
     MCPServerConfig,
     MessagesConfig,
+    OcrConfig,
     ProviderConfig,
     SearchConfig,
     SearchEmbeddingConfig,
@@ -219,6 +220,14 @@ def test_vision_config_defaults_to_disabled_provider():
     assert config.api_key == ""
 
 
+def test_ocr_config_defaults_to_disabled_provider():
+    config = OcrConfig()
+
+    assert config.enabled is False
+    assert config.provider == "minimax"
+    assert config.api_key == ""
+
+
 def test_speech_config_defaults_to_disabled_provider():
     config = SpeechConfig()
 
@@ -240,6 +249,11 @@ def test_vision_config_requires_api_key_and_model_when_enabled():
         VisionConfig(enabled=True)
 
 
+def test_ocr_config_requires_api_key_and_model_when_enabled():
+    with pytest.raises(ValidationError):
+        OcrConfig(enabled=True)
+
+
 def test_speech_config_requires_api_key_and_model_when_enabled():
     with pytest.raises(ValidationError):
         SpeechConfig(enabled=True)
@@ -257,6 +271,7 @@ def test_config_load_reads_media_from_external_file(tmp_path):
         json.dumps(
             {
                 "vision": {"enabled": True, "model": "vision-model", "api_key": "vision-key"},
+                "ocr": {"enabled": True, "model": "ocr-model", "api_key": "ocr-key"},
                 "speech": {"enabled": True, "model": "speech-model", "api_key": "speech-key"},
                 "video": {"enabled": True, "model": "video-model", "api_key": "video-key"},
             }
@@ -279,6 +294,8 @@ def test_config_load_reads_media_from_external_file(tmp_path):
 
     assert config.vision.enabled is True
     assert config.vision.model == "vision-model"
+    assert config.ocr.enabled is True
+    assert config.ocr.model == "ocr-model"
     assert config.speech.enabled is True
     assert config.speech.model == "speech-model"
     assert config.video.enabled is True
@@ -520,6 +537,9 @@ def test_config_save_writes_media_to_external_file(tmp_path):
     config.vision.enabled = True
     config.vision.model = "vision-model"
     config.vision.api_key = "vision-key"
+    config.ocr.enabled = True
+    config.ocr.model = "ocr-model"
+    config.ocr.api_key = "ocr-key"
     config.speech.enabled = True
     config.speech.model = "speech-model"
     config.speech.api_key = "speech-key"
@@ -533,9 +553,11 @@ def test_config_save_writes_media_to_external_file(tmp_path):
 
     assert saved_main["media_file"] == "media.json"
     assert "vision" not in saved_main
+    assert "ocr" not in saved_main
     assert "speech" not in saved_main
     assert "video" not in saved_main
     assert saved_media["vision"]["model"] == "vision-model"
+    assert saved_media["ocr"]["model"] == "ocr-model"
     assert saved_media["speech"]["model"] == "speech-model"
     assert saved_media["video"]["model"] == "video-model"
 

@@ -128,6 +128,7 @@ async def stop_background_task(task: asyncio.Task | None, *, name: str) -> None:
 def create_media_router(config: Config) -> MediaRouter:
     """Create the media router with optional image analysis support."""
     vision = getattr(config, "vision", None)
+    ocr = getattr(config, "ocr", None)
     speech = getattr(config, "speech", None)
     video = getattr(config, "video", None)
 
@@ -138,6 +139,15 @@ def create_media_router(config: Config) -> MediaRouter:
             api_key=vision.api_key,
             default_model=vision.model,
             base_url=vision.base_url,
+        )
+
+    ocr_provider = None
+    if ocr and ocr.enabled:
+        ocr_provider = create_image_analysis_provider(
+            provider=ocr.provider,
+            api_key=ocr.api_key,
+            default_model=ocr.model,
+            base_url=ocr.base_url,
         )
 
     speech_provider = None
@@ -158,6 +168,7 @@ def create_media_router(config: Config) -> MediaRouter:
 
     return MediaRouter(
         image_provider=image_provider,
+        ocr_provider=ocr_provider,
         speech_provider=speech_provider,
         video_provider=video_provider,
     )

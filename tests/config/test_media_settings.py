@@ -17,7 +17,7 @@ def test_media_settings_lists_categories_without_secrets(tmp_path):
 
     payload = MediaSettingsService(config_path).list_media()
 
-    assert set(payload["sections"]) == {"vision", "speech", "video"}
+    assert set(payload["sections"]) == {"vision", "ocr", "speech", "video"}
     assert payload["providers"][0]["id"] == "openai"
     assert "api_key" not in payload["providers"][0]
     assert "api_key" not in payload["sections"]["vision"]
@@ -51,7 +51,7 @@ def test_media_settings_lists_minimax_vision_models_separately(tmp_path):
     provider = next(entry for entry in payload["providers"] if entry["id"] == "minimax")
 
     assert provider["models"][:3] == ["MiniMax-M2.7", "MiniMax-M2.5", "MiniMax-M2.1"]
-    assert provider["media_models"] == {"vision": ["MiniMax-VL-01"]}
+    assert provider["media_models"] == {"vision": ["MiniMax-VL-01"], "ocr": ["MiniMax-VL-01"]}
 
 
 def test_media_settings_can_save_minimax_cn_vision_model(tmp_path):
@@ -65,3 +65,20 @@ def test_media_settings_can_save_minimax_cn_vision_model(tmp_path):
     assert media["vision"]["provider"] == "minimax-cn"
     assert media["vision"]["base_url"] == "https://api.minimaxi.com/v1"
     assert result["media"]["sections"]["vision"]["provider_id"] == "minimax-cn"
+
+
+def test_media_settings_can_save_ocr_model_separately_from_vision(tmp_path):
+    config_path = _copy_config(tmp_path)
+    ProviderSettingsService(config_path).connect_provider("openai", api_key="openai-key")
+    ProviderSettingsService(config_path).connect_provider("minimax", api_key="minimax-key")
+    service = MediaSettingsService(config_path)
+
+    service.update_media("vision", enabled=True, provider_id="openai", model="gpt-4o-mini")
+    result = service.update_media("ocr", enabled=True, provider_id="minimax", model="MiniMax-VL-01")
+
+    media = json.loads((tmp_path / "media.json").read_text(encoding="utf-8"))
+    assert media["vision"]["provider"] == "openai"
+    assert media["vision"]["model"] == "gpt-4o-mini"
+    assert media["ocr"]["provider"] == "minimax"
+    assert media["ocr"]["model"] == "MiniMax-VL-01"
+    assert result["media"]["sections"]["ocr"]["provider_id"] == "minimax"

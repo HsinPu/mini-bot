@@ -6,6 +6,13 @@
     "model": "",
     "base_url": null
   },
+  "ocr": {
+    "enabled": false,
+    "provider": "minimax",
+    "api_key": "",
+    "model": "",
+    "base_url": null
+  },
   "speech": {
     "enabled": false,
     "provider": "minimax",

@@ -15,11 +15,12 @@ from .provider_settings import (
     get_provider_preset_id,
     load_json_dict,
 )
-from .schema import Config, SpeechConfig, VideoConfig, VisionConfig
+from .schema import Config, OcrConfig, SpeechConfig, VideoConfig, VisionConfig
 
 
 MEDIA_SECTIONS = {
     "vision": VisionConfig,
+    "ocr": OcrConfig,
     "speech": SpeechConfig,
     "video": VideoConfig,
 }
@@ -98,6 +99,7 @@ class MediaSettingsService:
         return {
             "sections": {
                 "vision": self._section_payload("vision", loaded.vision or VisionConfig(), providers),
+                "ocr": self._section_payload("ocr", loaded.ocr or OcrConfig(), providers),
                 "speech": self._section_payload("speech", loaded.speech or SpeechConfig(), providers),
                 "video": self._section_payload("video", loaded.video or VideoConfig(), providers),
             },

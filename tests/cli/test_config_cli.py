@@ -83,6 +83,7 @@ def _write_split_config(root):
         json.dumps(
             {
                 "vision": {"enabled": False, "provider": "minimax", "api_key": "", "model": "", "base_url": None},
+                "ocr": {"enabled": False, "provider": "minimax", "api_key": "", "model": "", "base_url": None},
                 "speech": {"enabled": False, "provider": "minimax", "api_key": "", "model": "", "base_url": None},
                 "video": {"enabled": False, "provider": "minimax", "api_key": "", "model": "", "base_url": None},
             },

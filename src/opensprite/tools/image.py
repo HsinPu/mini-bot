@@ -193,7 +193,7 @@ class OCRImageTool(Tool):
         final_instruction = self.DEFAULT_INSTRUCTION
         if instruction.strip():
             final_instruction = f"{self.DEFAULT_INSTRUCTION}\n\nAdditional instruction: {instruction.strip()}"
-        return await self._media_router.analyze_image(
+        return await self._media_router.ocr_image(
             instruction=final_instruction,
             images=images,
             image_index=effective_index,

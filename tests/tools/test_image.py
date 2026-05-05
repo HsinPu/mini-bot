@@ -71,7 +71,7 @@ def test_analyze_image_tool_reports_when_no_images_are_available():
 
 def test_ocr_image_tool_uses_default_ocr_instruction():
     provider = FakeImageProvider()
-    tool = OCRImageTool(MediaRouter(image_provider=provider), get_current_images=lambda: ["img-a"])
+    tool = OCRImageTool(MediaRouter(ocr_provider=provider), get_current_images=lambda: ["img-a"])
 
     result = asyncio.run(tool.execute())
 
@@ -84,7 +84,7 @@ def test_ocr_image_tool_uses_default_ocr_instruction():
 
 def test_ocr_image_tool_appends_extra_instruction():
     provider = FakeImageProvider()
-    tool = OCRImageTool(MediaRouter(image_provider=provider), get_current_images=lambda: ["img-a"])
+    tool = OCRImageTool(MediaRouter(ocr_provider=provider), get_current_images=lambda: ["img-a"])
 
     asyncio.run(tool.execute(instruction="Focus on the error message only"))
 
@@ -97,7 +97,7 @@ def test_ocr_image_tool_reads_saved_session_image(tmp_path):
     image_dir.mkdir()
     (image_dir / "receipt.png").write_bytes(b"png-bytes")
     tool = OCRImageTool(
-        MediaRouter(image_provider=provider),
+        MediaRouter(ocr_provider=provider),
         get_current_images=lambda: None,
         workspace_resolver=lambda: tmp_path,
     )
@@ -107,3 +107,11 @@ def test_ocr_image_tool_reads_saved_session_image(tmp_path):
     assert result == "image result"
     expected = "data:image/png;base64," + base64.b64encode(b"png-bytes").decode("utf-8")
     assert provider.calls[0][1] == [expected]
+
+
+def test_ocr_image_tool_reports_when_no_ocr_provider_is_available():
+    tool = OCRImageTool(MediaRouter(image_provider=FakeImageProvider()), get_current_images=lambda: ["img-a"])
+
+    result = asyncio.run(tool.execute())
+
+    assert result == MediaRouter.OCR_PROVIDER_UNAVAILABLE

@@ -57,5 +57,8 @@ def test_load_llm_presets_has_expected_providers():
         "o4-mini",
     )
     assert presets.providers["minimax"].model_choices[:3] == ("MiniMax-M2.7", "MiniMax-M2.5", "MiniMax-M2.1")
-    assert presets.providers["minimax"].media_model_choices == {"vision": ("MiniMax-VL-01",)}
+    assert presets.providers["minimax"].media_model_choices == {
+        "vision": ("MiniMax-VL-01",),
+        "ocr": ("MiniMax-VL-01",),
+    }
     assert presets.providers["minimax-cn"].default_base_url == "https://api.minimaxi.com/v1"

@@ -31,6 +31,7 @@ from .schema import (
     RecentSummaryConfig,
     TelegramMessagesConfig,
     VisionConfig,
+    OcrConfig,
     SpeechConfig,
     VideoConfig,
 )
@@ -66,6 +67,7 @@ __all__ = [
     "RecentSummaryConfig",
     "TelegramMessagesConfig",
     "VisionConfig",
+    "OcrConfig",
     "SpeechConfig",
     "VideoConfig",
 ]

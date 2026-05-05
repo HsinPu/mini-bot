@@ -626,6 +626,10 @@ export const DISPLAY_COPY = {
             title: "圖片分析",
             description: "處理圖片輸入與圖片理解工具。",
           },
+          ocr: {
+            title: "圖片文字辨識",
+            description: "處理截圖、收據與文件照片的文字擷取。",
+          },
           speech: {
             title: "聲音轉文字",
             description: "處理語音與音訊轉錄。",
@@ -1447,6 +1451,10 @@ export const DISPLAY_COPY = {
           vision: {
             title: "Image analysis",
             description: "Handles image input and visual understanding tools.",
+          },
+          ocr: {
+            title: "Image OCR",
+            description: "Extracts text from screenshots, receipts, and document photos.",
           },
           speech: {
             title: "Speech to text",

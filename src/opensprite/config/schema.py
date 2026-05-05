@@ -316,6 +316,24 @@ class VisionConfig(BaseModel):
         return self
 
 
+class OcrConfig(BaseModel):
+    """OCR provider configuration."""
+
+    enabled: bool = False
+    provider: str = "minimax"
+    api_key: str = ""
+    model: str = ""
+    base_url: str | None = None
+
+    @model_validator(mode="after")
+    def validate_enabled_fields(self) -> "OcrConfig":
+        if self.enabled:
+            missing = [name for name, value in {"api_key": self.api_key, "model": self.model}.items() if not value]
+            if missing:
+                raise ValueError(f"ocr config requires {', '.join(missing)} when enabled=true")
+        return self
+
+
 class SpeechConfig(BaseModel):
     """Speech-to-text provider configuration."""
 
@@ -503,7 +521,7 @@ class Config:
                  channels: ChannelsConfig, log: LogConfig | None = None, tools: ToolsConfig | None = None,
                  memory: MemoryConfig | None = None, search: SearchConfig | None = None,
                  user_profile: UserProfileConfig | None = None, vision: VisionConfig | None = None,
-                 speech: SpeechConfig | None = None, video: VideoConfig | None = None,
+                 ocr: OcrConfig | None = None, speech: SpeechConfig | None = None, video: VideoConfig | None = None,
                  active_task: ActiveTaskConfig | None = None,
                  recent_summary: RecentSummaryConfig | None = None, source_path: str | Path | None = None,
                  channels_file: str = "channels.json", search_file: str = "search.json", media_file: str = "media.json",
@@ -528,6 +546,7 @@ class Config:
             **Config._merge_document_section({}, Config.load_template_data().get("recent_summary", {}))
         )
         self.vision = vision or VisionConfig()
+        self.ocr = ocr or OcrConfig()
         self.speech = speech or SpeechConfig()
         self.video = video or VideoConfig()
         self.messages = messages or MessagesConfig()
@@ -961,17 +980,19 @@ class Config:
     @classmethod
     def ensure_media_file(cls, config_path: str | Path, config_data: dict[str, Any] | None = None) -> Path:
         vision_data = config_data.get("vision") if isinstance(config_data, dict) else None
+        ocr_data = config_data.get("ocr") if isinstance(config_data, dict) else None
         speech_data = config_data.get("speech") if isinstance(config_data, dict) else None
         video_data = config_data.get("video") if isinstance(config_data, dict) else None
         target_path = cls.get_media_file_path(config_path, config_data)
 
         if not target_path.exists():
             cls._copy_external_template(target_path, "media")
-            if any(isinstance(section, dict) for section in (vision_data, speech_data, video_data)):
+            if any(isinstance(section, dict) for section in (vision_data, ocr_data, speech_data, video_data)):
                 cls._write_json_file(
                     target_path,
                     {
                         "vision": vision_data if isinstance(vision_data, dict) else VisionConfig().model_dump(),
+                        "ocr": ocr_data if isinstance(ocr_data, dict) else OcrConfig().model_dump(),
                         "speech": speech_data if isinstance(speech_data, dict) else SpeechConfig().model_dump(),
                         "video": video_data if isinstance(video_data, dict) else VideoConfig().model_dump(),
                     },
@@ -1075,10 +1096,13 @@ class Config:
         media_path = cls._resolve_media_file(path, data.get("media_file"))
         external_media = cls._load_media_data(media_path) if media_path is not None else {}
         merged_vision = dict(data.get("vision", {})) if isinstance(data.get("vision", {}), dict) else {}
+        merged_ocr = dict(data.get("ocr", {})) if isinstance(data.get("ocr", {}), dict) else {}
         merged_speech = dict(data.get("speech", {})) if isinstance(data.get("speech", {}), dict) else {}
         merged_video = dict(data.get("video", {})) if isinstance(data.get("video", {}), dict) else {}
         if isinstance(external_media.get("vision"), dict):
             merged_vision.update(external_media["vision"])
+        if isinstance(external_media.get("ocr"), dict):
+            merged_ocr.update(external_media["ocr"])
         if isinstance(external_media.get("speech"), dict):
             merged_speech.update(external_media["speech"])
         if isinstance(external_media.get("video"), dict):
@@ -1126,6 +1150,7 @@ class Config:
             ),
             messages=MessagesConfig(**merged_messages) if (merged_messages or "messages" in data or messages_path is not None) else None,
             vision=VisionConfig(**merged_vision) if (merged_vision or "vision" in data or media_path is not None) else None,
+            ocr=OcrConfig(**merged_ocr) if (merged_ocr or "ocr" in data or media_path is not None) else None,
             speech=SpeechConfig(**merged_speech) if (merged_speech or "speech" in data or media_path is not None) else None,
             video=VideoConfig(**merged_video) if (merged_video or "video" in data or media_path is not None) else None,
             source_path=path,
@@ -1285,6 +1310,7 @@ class Config:
             path,
             {
                 "vision": self.vision.model_dump(),
+                "ocr": self.ocr.model_dump(),
                 "speech": self.speech.model_dump(),
                 "video": self.video.model_dump(),
             },

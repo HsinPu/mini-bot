@@ -48,12 +48,34 @@ def test_media_router_uses_image_provider_for_selected_image():
     assert provider.calls == [("describe it", ["img-b"], None, 2048)]
 
 
+def test_media_router_uses_separate_ocr_provider_for_selected_image():
+    image_provider = FakeImageProvider()
+    ocr_provider = FakeImageProvider()
+    router = MediaRouter(image_provider=image_provider, ocr_provider=ocr_provider)
+
+    result = asyncio.run(
+        router.ocr_image("extract text", ["img-a", "img-b"], image_index=1)
+    )
+
+    assert result == "analysis"
+    assert image_provider.calls == []
+    assert ocr_provider.calls == [("extract text", ["img-b"], None, 2048)]
+
+
 def test_media_router_reports_when_provider_is_unavailable():
     router = MediaRouter()
 
     result = asyncio.run(router.analyze_image("describe it", ["img-a"]))
 
     assert result == MediaRouter.IMAGE_PROVIDER_UNAVAILABLE
+
+
+def test_media_router_reports_when_ocr_provider_is_unavailable():
+    router = MediaRouter(image_provider=FakeImageProvider())
+
+    result = asyncio.run(router.ocr_image("extract text", ["img-a"]))
+
+    assert result == MediaRouter.OCR_PROVIDER_UNAVAILABLE
 
 
 def test_media_router_uses_video_provider_for_selected_video():
@@ -74,6 +96,14 @@ def test_media_router_reports_empty_image_provider_result():
     result = asyncio.run(router.analyze_image("describe it", ["img-a"]))
 
     assert result == MediaRouter.EMPTY_IMAGE_RESULT
+
+
+def test_media_router_reports_empty_ocr_provider_result():
+    router = MediaRouter(ocr_provider=EmptyImageProvider())
+
+    result = asyncio.run(router.ocr_image("extract text", ["img-a"]))
+
+    assert result == MediaRouter.EMPTY_OCR_RESULT
 
 
 def test_media_router_reports_empty_speech_provider_result():
