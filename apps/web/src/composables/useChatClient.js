@@ -3705,6 +3705,9 @@ export function useChatClient() {
       settingsState.updateNotice = payload.restart_scheduled
         ? copy.value.notices.updateRestarting
         : copy.value.notices.updateApplied;
+      if (payload.restart_scheduled) {
+        window.setTimeout(() => window.location.reload(), 5000);
+      }
     } catch (error) {
       settingsState.updateError = error?.message || copy.value.notices.updateFailed;
     } finally {
@@ -3721,13 +3724,37 @@ export function useChatClient() {
     });
   }
 
+  async function persistOpenRouterOptions(providerId, { silent = false } = {}) {
+    const options = settingsState.openRouterOptions[providerId];
+    if (!options) {
+      return null;
+    }
+    const payload = await requestSettingsJson(`/api/settings/providers/${encodeURIComponent(providerId)}/options`, {
+      method: "PUT",
+      body: JSON.stringify(serializeOpenRouterOptions(options)),
+    });
+    if (!silent) {
+      setSettingsSuccess(
+        "modelsNotice",
+        payload.restart_required ? copy.value.notices.modelRestartRequired : copy.value.notices.modelApplied,
+      );
+      await loadModelSettings();
+      await loadProviderSettings();
+    }
+    return payload;
+  }
+
   async function resetOpenRouterOptions(providerId) {
     const provider = (settingsState.models.providers || []).find((entry) => entry.id === providerId);
     if (provider?.provider !== "openrouter") {
       return;
     }
     settingsState.openRouterOptions[providerId] = normalizeOpenRouterOptions(DEFAULT_OPENROUTER_RECOMMENDED_OPTIONS);
-    await saveOpenRouterOptions(providerId);
+    try {
+      await persistOpenRouterOptions(providerId, { silent: true });
+    } catch (error) {
+      settingsState.modelsError = error?.message || copy.value.notices.providerOptionsSaveFailed;
+    }
   }
 
   async function saveOpenRouterOptions(providerId) {
@@ -3740,16 +3767,7 @@ export function useChatClient() {
     settingsState.modelsError = "";
     settingsState.modelsNotice = "";
     try {
-      const payload = await requestSettingsJson(`/api/settings/providers/${encodeURIComponent(providerId)}/options`, {
-        method: "PUT",
-        body: JSON.stringify(serializeOpenRouterOptions(options)),
-      });
-      setSettingsSuccess(
-        "modelsNotice",
-        payload.restart_required ? copy.value.notices.modelRestartRequired : copy.value.notices.modelApplied,
-      );
-      await loadModelSettings();
-      await loadProviderSettings();
+      await persistOpenRouterOptions(providerId);
     } catch (error) {
       settingsState.modelsError = error?.message || copy.value.notices.providerOptionsSaveFailed;
     } finally {
