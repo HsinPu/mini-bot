@@ -591,13 +591,22 @@
                 <strong>{{ copy.settings.models.enableMediaModel }}</strong>
                 <span>{{ category.description }}</span>
               </div>
-              <input v-model="settingsState.mediaSelections[category.key].enabled" class="switch" type="checkbox" />
+              <input
+                v-model="settingsState.mediaSelections[category.key].enabled"
+                class="switch"
+                type="checkbox"
+                @change="syncMediaSelection(category.key)"
+              />
             </label>
 
             <div class="model-select-row">
               <label v-if="settingsState.mediaSelections[category.key].enabled">
                 <span>{{ copy.settings.models.providerChoice }}</span>
-                <select v-model="settingsState.mediaSelections[category.key].providerId" :disabled="settingsState.mediaLoading">
+                <select
+                  v-model="settingsState.mediaSelections[category.key].providerId"
+                  :disabled="settingsState.mediaLoading"
+                  @change="syncMediaSelection(category.key)"
+                >
                   <option v-for="provider in settingsState.media.providers" :key="`${category.key}:${provider.id}`" :value="provider.id">
                     {{ provider.name }}
                   </option>
@@ -1374,14 +1383,33 @@ const showOpenRouterOptions = computed(() => (
 
 function mediaProviderModels(category) {
   const providerId = props.settingsState.mediaSelections[category]?.providerId;
+  return mediaModelsForProvider(category, providerId, props.settingsState.mediaSelections[category]?.model);
+}
+
+function mediaModelsForProvider(category, providerId, selectedModel = "") {
   const provider = props.settingsState.media.providers.find((entry) => entry.id === providerId);
   const mediaModels = provider?.media_models?.[category];
   const models = Array.isArray(mediaModels) ? [...mediaModels] : Array.isArray(provider?.models) ? [...provider.models] : [];
-  const selected = String(props.settingsState.mediaSelections[category]?.model || "").trim();
+  const selected = String(selectedModel || "").trim();
   if (selected && !models.includes(selected)) {
     models.unshift(selected);
   }
   return models;
+}
+
+function syncMediaSelection(category) {
+  const selection = props.settingsState.mediaSelections[category];
+  if (!selection) {
+    return;
+  }
+  if (!selection.enabled) {
+    return;
+  }
+  if (!selection.providerId) {
+    selection.providerId = props.settingsState.media.providers?.[0]?.id || "";
+  }
+  const models = mediaModelsForProvider(category, selection.providerId);
+  selection.model = models[0] || "";
 }
 
 const mcpRuntimeStatus = computed(() => {
