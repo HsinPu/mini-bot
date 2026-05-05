@@ -44,7 +44,7 @@ class Tool(ABC):
             logger.warning(
                 "tool.validation-failed | name={} params={} error={}",
                 self.name,
-                format_param_preview(params),
+                format_param_preview(self.sanitize_params_for_display(params)),
                 validation_error,
             )
             return validation_error
@@ -58,6 +58,10 @@ class Tool(ABC):
     def validate_params(self, params: Any) -> str | None:
         """Validate params against the tool schema before execution."""
         return validate_tool_params(self.name, self.parameters, params)
+
+    def sanitize_params_for_display(self, params: Any) -> Any:
+        """Return params safe for logs, approvals, and run trace displays."""
+        return params
 
     @abstractmethod
     async def _execute(self, **kwargs: Any) -> str:

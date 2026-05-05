@@ -82,21 +82,22 @@ class ToolRegistry:
         tool = self._tools.get(name)
         if not tool:
             return f"Error: Tool '{name}' not found. Available: {', '.join(self.tool_names)}"
+        display_params = tool.sanitize_params_for_display(params)
 
-        decision = self._permission_policy.check(name, params)
+        decision = self._permission_policy.check(name, display_params)
         if not decision.allowed:
             if decision.requires_approval and self._permission_request_handler is not None:
-                approval = await self._permission_request_handler(name, params, decision)
+                approval = await self._permission_request_handler(name, display_params, decision)
                 if approval.approved:
                     if on_before_execute is not None:
-                        await on_before_execute(name, params if isinstance(params, dict) else {})
+                        await on_before_execute(name, display_params if isinstance(display_params, dict) else {})
                     return await tool.execute_validated(params)
                 reason = approval.reason or decision.reason or "user denied approval"
                 return f"Error: Tool '{name}' blocked by permission policy: {reason}."
             return f"Error: Tool '{name}' blocked by permission policy: {decision.reason}."
 
         if on_before_execute is not None:
-            await on_before_execute(name, params if isinstance(params, dict) else {})
+            await on_before_execute(name, display_params if isinstance(display_params, dict) else {})
         return await tool.execute_validated(params)
 
     @property

@@ -27,6 +27,7 @@ from .web_fetch import WebFetchTool
 from .mcp import MCPToolWrapper, connect_mcp_servers
 from .mcp_config import ConfigureMCPTool
 from .subagent_config import ConfigureSubagentTool
+from .credential_store import CredentialStoreTool
 from .cron import CronTool
 from .image import AnalyzeImageTool, OCRImageTool
 from .outbound_media import SendMediaTool
@@ -64,6 +65,7 @@ __all__ = [
     "connect_mcp_servers",
     "ConfigureMCPTool",
     "ConfigureSubagentTool",
+    "CredentialStoreTool",
     "CronTool",
     "AnalyzeImageTool",
     "OCRImageTool",

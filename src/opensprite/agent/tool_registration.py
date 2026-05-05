@@ -40,6 +40,7 @@ from ..tools import (
     ConfigureSkillTool,
     ConfigureMCPTool,
     ConfigureSubagentTool,
+    CredentialStoreTool,
     ListRunFileChangesTool,
     PreviewRunFileChangeRevertTool,
     CodeNavigationTool,
@@ -250,6 +251,7 @@ def register_config_tools(
             workspace_resolver=workspace_resolver,
         )
     )
+    registry.register(CredentialStoreTool(app_home=app_home))
 
 
 def register_web_tools(

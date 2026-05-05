@@ -44,6 +44,7 @@ DEFAULT_TOOL_RISKS: dict[str, frozenset[str]] = {
     "apply_patch": frozenset({"write"}),
     "configure_skill": frozenset({"write", "configuration"}),
     "configure_subagent": frozenset({"write", "configuration"}),
+    "credential_store": frozenset({"write", "configuration"}),
     "save_memory": frozenset({"write", "memory"}),
     "task_update": frozenset({"write", "memory"}),
     "exec": frozenset({"execute"}),

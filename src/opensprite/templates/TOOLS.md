@@ -176,6 +176,15 @@ Keep high-level workflow in `AGENTS.md`; keep concrete tool usage rules here.
   - Reload MCP in the current session after config changes when the tool supports it.
   - Ask the user to edit config files directly only if the tool cannot express the required change.
 
+## Credential Tool
+
+- `credential_store`
+  - Use when the user explicitly asks to save, list, remove, or set a default API-key credential.
+  - For `action="add"`, call the tool only after the user has clearly asked to store the key or has confirmed a prior save prompt.
+  - Do not silently save a key just because one appears in chat.
+  - If the provider is unclear, ask which provider to use before saving.
+  - Never repeat the full secret in your response; use the returned credential id, label, and redacted preview only.
+
 ## Memory And Retrieval Tools
 
 - `save_memory`

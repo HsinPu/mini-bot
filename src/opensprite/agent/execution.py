@@ -358,6 +358,14 @@ Output exactly these sections when applicable:
             f"--- END TAIL ---\n{tail}"
         )
 
+    @staticmethod
+    def _sanitize_tool_args_for_display(active_tools: ToolRegistry, tool_name: str, tool_args: dict[str, Any]) -> dict[str, Any]:
+        tool = active_tools.get(tool_name)
+        if tool is None:
+            return dict(tool_args)
+        safe_args = tool.sanitize_params_for_display(tool_args)
+        return dict(safe_args) if isinstance(safe_args, dict) else {}
+
     @classmethod
     def _summarize_exec_result_for_context(cls, text: str) -> str:
         """Prefer error markers and the latest lines for shell command output."""
@@ -1314,7 +1322,8 @@ Output exactly these sections when applicable:
                     self._raise_if_cancel_requested(should_cancel)
                     tool_name = tc.name
                     tool_args = tc.arguments if isinstance(tc.arguments, dict) else {}
-                    args_preview = self.format_log_preview(json.dumps(tool_args, ensure_ascii=False), max_chars=200)
+                    display_tool_args = self._sanitize_tool_args_for_display(active_tools, tool_name, tool_args)
+                    args_preview = self.format_log_preview(json.dumps(display_tool_args, ensure_ascii=False), max_chars=200)
                     logger.info(f"[{log_id}] tool.run | id={tc.id} name={tool_name} args={args_preview}")
                     tool_started = False
 
@@ -1340,7 +1349,7 @@ Output exactly these sections when applicable:
                             try:
                                 await on_tool_after_execute(
                                     tool_name,
-                                    tool_args,
+                                    display_tool_args,
                                     "Error: Tool execution aborted",
                                     tc.id,
                                     iteration + 1,
@@ -1352,7 +1361,7 @@ Output exactly these sections when applicable:
                             except TypeError:
                                 await on_tool_after_execute(
                                     tool_name,
-                                    tool_args,
+                                    display_tool_args,
                                     "Error: Tool execution aborted",
                                     tc.id,
                                     iteration + 1,
@@ -1405,7 +1414,7 @@ Output exactly these sections when applicable:
                             try:
                                 await on_tool_after_execute(
                                     tool_name,
-                                    tool_args,
+                                    display_tool_args,
                                     result,
                                     tc.id,
                                     iteration + 1,
@@ -1413,7 +1422,7 @@ Output exactly these sections when applicable:
                                     active_delegate_prompt_type if tool_name == "delegate" else None,
                                 )
                             except TypeError:
-                                await on_tool_after_execute(tool_name, tool_args, result)
+                                await on_tool_after_execute(tool_name, display_tool_args, result)
                         except Exception:
                             logger.exception(
                                 f"[{log_id}] tool.result-hook.error | name={tool_name}"
@@ -1488,7 +1497,7 @@ Output exactly these sections when applicable:
                     await self.tool_result_persistence.persist(
                         session_id=tool_result_session_id,
                         tool_name=tool_name,
-                        tool_args=tool_args,
+                        tool_args=display_tool_args,
                         result=result,
                     )
 
