@@ -85,6 +85,7 @@ class ExecutionResult:
     context_compactions: int = 0
     context_compaction_events: list[ContextCompactionEvent] = field(default_factory=list)
     llm_step_events: list[LlmStepEvent] = field(default_factory=list)
+    reasoning_details: list[dict[str, Any]] | None = None
 
 
 @dataclass
@@ -581,6 +582,9 @@ Output exactly these sections when applicable:
         tool_calls = getattr(message, "tool_calls", None)
         if tool_calls:
             clone.tool_calls = [dict(item) if isinstance(item, dict) else item for item in tool_calls]
+        reasoning_details = getattr(message, "reasoning_details", None)
+        if reasoning_details:
+            clone.reasoning_details = [dict(item) if isinstance(item, dict) else item for item in reasoning_details]
         return clone
 
     @classmethod
@@ -1280,6 +1284,7 @@ Output exactly these sections when applicable:
                         context_compactions=context_compactions,
                         context_compaction_events=context_compaction_events,
                         llm_step_events=llm_step_events,
+                        reasoning_details=response.reasoning_details,
                     )
 
                 logger.info(
@@ -1302,6 +1307,7 @@ Output exactly these sections when applicable:
                     role="assistant",
                     content=response.content or "",
                     tool_calls=tool_calls_api,
+                    reasoning_details=response.reasoning_details,
                 ))
 
                 for tc in response.tool_calls:
@@ -1553,6 +1559,7 @@ Output exactly these sections when applicable:
                 context_compactions=context_compactions,
                 context_compaction_events=context_compaction_events,
                 llm_step_events=llm_step_events,
+                reasoning_details=response.reasoning_details,
             )
 
         logger.warning(f"[{log_id}] llm.max-iterations | limit={iteration_limit}")

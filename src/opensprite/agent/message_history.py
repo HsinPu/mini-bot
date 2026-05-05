@@ -11,6 +11,11 @@ from ..storage import StorageProvider, StoredMessage
 from ..utils.log import logger
 
 
+def _reasoning_details_from_metadata(metadata: dict[str, Any]) -> list[dict[str, Any]] | None:
+    details = metadata.get("llm_reasoning_details")
+    return details if isinstance(details, list) else None
+
+
 class MessageHistoryService:
     """Loads session history and persists messages with optional search indexing."""
 
@@ -35,9 +40,19 @@ class MessageHistoryService:
         chat_messages = []
         for message in stored_messages:
             if isinstance(message, dict):
-                chat_messages.append(ChatMessage(role=message.get("role", "?"), content=message.get("content", "")))
+                metadata = message.get("metadata", {}) if isinstance(message.get("metadata", {}), dict) else {}
+                chat_messages.append(ChatMessage(
+                    role=message.get("role", "?"),
+                    content=message.get("content", ""),
+                    reasoning_details=_reasoning_details_from_metadata(metadata),
+                ))
             else:
-                chat_messages.append(ChatMessage(role=message.role, content=message.content))
+                metadata = message.metadata if isinstance(message.metadata, dict) else {}
+                chat_messages.append(ChatMessage(
+                    role=message.role,
+                    content=message.content,
+                    reasoning_details=_reasoning_details_from_metadata(metadata),
+                ))
 
         return chat_messages
 

@@ -31,6 +31,7 @@ class LLMResponse:
     tool_calls: list[ToolCall] = field(default_factory=list)  # Tool calls (if any)
     usage: dict[str, Any] = field(default_factory=dict)  # Provider token/cost usage if available
     finish_reason: str | None = None
+    reasoning_details: list[dict[str, Any]] | None = None
 
 
 @dataclass
@@ -45,6 +46,7 @@ class ChatMessage:
     content: str | list[dict] = ""  # 字串或混合內容（文字+圖片）
     tool_call_id: str | None = None  # For tool results
     tool_calls: list[dict] | None = None  # For assistant messages with tool calls
+    reasoning_details: list[dict[str, Any]] | None = None  # For providers that require reasoning passback
     
     @staticmethod
     def create_user_message(text: str, images: list[str] | None = None) -> "ChatMessage":

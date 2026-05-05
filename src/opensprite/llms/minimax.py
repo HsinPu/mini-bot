@@ -43,6 +43,29 @@ def _count_system_reminders(value: Any) -> int:
     return _coerce_content(value).count("<system-reminder>")
 
 
+def _json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, tuple):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        return _json_safe(model_dump())
+    return str(value)
+
+
+def _coerce_reasoning_details(value: Any) -> list[dict[str, Any]] | None:
+    safe = _json_safe(value)
+    if not isinstance(safe, list):
+        return None
+    details = [item for item in safe if isinstance(item, dict)]
+    return details or None
+
+
 def _is_minimax_overloaded_error(exc: BaseException) -> bool:
     """MiniMax 在流量過載時回傳 HTTP 529（OpenAI SDK 為 InternalServerError）。"""
     code = getattr(exc, "status_code", None)
@@ -168,12 +191,16 @@ class MiniMaxLLM(LLMProvider):
                     msg["tool_call_id"] = m["tool_call_id"]
                 if m.get("tool_calls"):
                     msg["tool_calls"] = m["tool_calls"]
+                if m.get("reasoning_details"):
+                    msg["reasoning_details"] = m["reasoning_details"]
             else:
                 msg = {"role": m.role, "content": m.content}
                 if m.tool_call_id:
                     msg["tool_call_id"] = m.tool_call_id
                 if m.tool_calls:
                     msg["tool_calls"] = m.tool_calls
+                if m.reasoning_details:
+                    msg["reasoning_details"] = m.reasoning_details
             api_messages.append(msg)
 
         request_reminder_hits: list[str] = []
@@ -202,6 +229,7 @@ class MiniMaxLLM(LLMProvider):
         params: dict[str, Any] = {
             "model": model or self.default_model,
             "messages": api_messages,
+            "extra_body": {"reasoning_split": True},
         }
         if temperature is not None:
             params["temperature"] = temperature
@@ -271,9 +299,11 @@ class MiniMaxLLM(LLMProvider):
 
         # Log raw message content for debugging hidden blocks
         raw_message_content = getattr(message, "content", "")
+        reasoning_details = _coerce_reasoning_details(getattr(message, "reasoning_details", None))
         logger.info(
-            "MiniMax raw message content: len={} preview={}",
+            "MiniMax raw message content: len={} reasoning_details={} preview={}",
             len(raw_message_content) if raw_message_content else 0,
+            len(reasoning_details or []),
             (raw_message_content[:500] if raw_message_content else "")[:200],
         )
         if _contains_system_reminder(raw_message_content):
@@ -344,7 +374,8 @@ class MiniMaxLLM(LLMProvider):
         return LLMResponse(
             content=_coerce_content(getattr(message, "content", "")),
             model=getattr(response, "model", model or self.default_model),
-            tool_calls=tool_calls
+            tool_calls=tool_calls,
+            reasoning_details=reasoning_details,
         )
     
     def get_default_model(self) -> str:

@@ -119,10 +119,14 @@ class LlmCallService:
                 msg = {"role": m.get("role", "?"), "content": m.get("content", "")}
                 if m.get("tool_call_id"):
                     msg["tool_call_id"] = m["tool_call_id"]
+                if m.get("reasoning_details"):
+                    msg["reasoning_details"] = m["reasoning_details"]
             else:
                 msg = {"role": m.role, "content": m.content}
                 if getattr(m, "tool_call_id", None):
                     msg["tool_call_id"] = m.tool_call_id
+                if getattr(m, "reasoning_details", None):
+                    msg["reasoning_details"] = m.reasoning_details
             history_dicts.append(msg)
 
         logger.info(
@@ -196,6 +200,8 @@ class LlmCallService:
                 msg.tool_call_id = m["tool_call_id"]
             if m.get("tool_calls"):
                 msg.tool_calls = m["tool_calls"]
+            if m.get("reasoning_details"):
+                msg.reasoning_details = m["reasoning_details"]
             chat_messages.append(msg)
 
         self._log_prepared_messages(session_id, full_messages)

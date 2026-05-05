@@ -45,6 +45,7 @@ class AgentResponseFinalizer:
         assistant_metadata: dict[str, Any],
         run_part_metadata: dict[str, Any],
         run_event_payload: dict[str, Any],
+        persisted_assistant_metadata: dict[str, Any] | None = None,
         status_metadata: dict[str, Any] | None = None,
         images: list[str] | None = None,
         voices: list[str] | None = None,
@@ -68,7 +69,12 @@ class AgentResponseFinalizer:
         if not log_before_record:
             self._log_outbound(session_id, response, prefix=log_prefix)
 
-        await self._save_message(session_id, "assistant", response, metadata=assistant_metadata)
+        await self._save_message(
+            session_id,
+            "assistant",
+            response,
+            metadata=persisted_assistant_metadata if persisted_assistant_metadata is not None else assistant_metadata,
+        )
         if after_save is not None:
             await after_save()
 

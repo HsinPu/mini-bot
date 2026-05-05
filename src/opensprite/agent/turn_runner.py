@@ -592,6 +592,9 @@ class AgentTurnRunner:
         response_metadata["delegated_tasks"] = [task.to_payload() for task in aggregate_result.delegated_tasks]
         response_metadata["active_delegate_task_id"] = aggregate_result.active_delegate_task_id
         response_metadata["active_delegate_prompt_type"] = aggregate_result.active_delegate_prompt_type
+        persisted_assistant_metadata = dict(turn.assistant_metadata)
+        if aggregate_result.reasoning_details:
+            persisted_assistant_metadata["llm_reasoning_details"] = aggregate_result.reasoning_details
 
         updated_work_state = self.work_progress.update_state(
             session_id=turn.session_id,
@@ -639,6 +642,7 @@ class AgentTurnRunner:
             channel=turn.channel,
             external_chat_id=turn.external_chat_id,
             assistant_metadata=turn.assistant_metadata,
+            persisted_assistant_metadata=persisted_assistant_metadata,
             run_part_metadata=response_metadata,
             run_event_payload={"status": "completed", **response_metadata},
             status_metadata=status_metadata,
@@ -873,6 +877,14 @@ class AgentTurnRunner:
                 for result in results
                 for event in result.llm_step_events
             ],
+            reasoning_details=next(
+                (
+                    result.reasoning_details
+                    for result in reversed(results)
+                    if result.reasoning_details
+                ),
+                None,
+            ),
         )
 
     @staticmethod
