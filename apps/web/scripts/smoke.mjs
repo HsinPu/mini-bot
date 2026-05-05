@@ -59,6 +59,8 @@ assertIncludes(settingsModal, "section === 'curator'", "curator settings section
 assertIncludes(settingsModal, "connectedCount", "multiple provider connection count");
 assertIncludes(settingsModal, "save-media-model", "media model settings action");
 assertIncludes(settingsModal, "textProviderModelGroups", "OpenRouter model grouping");
+assertIncludes(settingsModal, "mediaProviderModelGroups", "OpenRouter media model grouping");
+assertIncludes(settingsModal, "openRouterModelGroups", "shared OpenRouter model grouping");
 assertIncludes(settingsModal, "<optgroup", "grouped model select rendering");
 assertIncludes(settingsModal, "settingsState.selectedTextProviderId, settingsState.modelSelections[settingsState.selectedTextProviderId]", "text provider selection applies model");
 assertIncludes(settingsModal, "settingsState.copilotAuth.userCode", "Copilot auth code rendering");

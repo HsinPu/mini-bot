@@ -764,9 +764,22 @@
               <label v-if="settingsState.mediaSelections[category.key].enabled">
                 <span>{{ copy.settings.models.modelChoice }}</span>
                 <select v-model="settingsState.mediaSelections[category.key].model" :disabled="settingsState.mediaLoading">
-                  <option v-for="model in mediaProviderModels(category.key)" :key="`${category.key}:${model}`" :value="model">
-                    {{ model }}
-                  </option>
+                  <template v-if="mediaProviderModelGroups(category.key).length">
+                    <optgroup
+                      v-for="group in mediaProviderModelGroups(category.key)"
+                      :key="`${category.key}:${group.key}`"
+                      :label="group.label"
+                    >
+                      <option v-for="model in group.models" :key="`${category.key}:${model}`" :value="model">
+                        {{ model }}
+                      </option>
+                    </optgroup>
+                  </template>
+                  <template v-else>
+                    <option v-for="model in mediaProviderModels(category.key)" :key="`${category.key}:${model}`" :value="model">
+                      {{ model }}
+                    </option>
+                  </template>
                 </select>
               </label>
               <button
@@ -1580,12 +1593,9 @@ function openRouterModelFamily(model) {
   };
 }
 
-const textProviderModelGroups = computed(() => {
-  if (selectedTextProvider.value?.provider !== "openrouter") {
-    return [];
-  }
+function openRouterModelGroups(models) {
   const groups = new Map();
-  for (const model of textProviderModels.value) {
+  for (const model of models) {
     const family = openRouterModelFamily(model);
     if (!groups.has(family.key)) {
       groups.set(family.key, { key: family.key, label: family.label, models: [] });
@@ -1593,6 +1603,13 @@ const textProviderModelGroups = computed(() => {
     groups.get(family.key).models.push(model);
   }
   return Array.from(groups.values());
+}
+
+const textProviderModelGroups = computed(() => {
+  if (selectedTextProvider.value?.provider !== "openrouter") {
+    return [];
+  }
+  return openRouterModelGroups(textProviderModels.value);
 });
 
 const selectedTextModel = computed(() => {
@@ -1675,6 +1692,15 @@ const copilotAuthDescription = computed(() => {
 function mediaProviderModels(category) {
   const providerId = props.settingsState.mediaSelections[category]?.providerId;
   return mediaModelsForProvider(category, providerId, props.settingsState.mediaSelections[category]?.model);
+}
+
+function mediaProviderModelGroups(category) {
+  const providerId = props.settingsState.mediaSelections[category]?.providerId;
+  const provider = props.settingsState.media.providers.find((entry) => entry.id === providerId);
+  if (provider?.provider !== "openrouter") {
+    return [];
+  }
+  return openRouterModelGroups(mediaProviderModels(category));
 }
 
 function mediaModelsForProvider(category, providerId, selectedModel = "") {
