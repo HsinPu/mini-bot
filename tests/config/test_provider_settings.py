@@ -14,6 +14,7 @@ from opensprite.config.provider_settings import (
 _ORIGINAL_FETCH_OPENAI_COMPATIBLE_MODELS = provider_settings.fetch_openai_compatible_models
 _ORIGINAL_FETCH_CODEX_MODELS = provider_settings.fetch_codex_models
 _ORIGINAL_FETCH_OPENROUTER_IMAGE_MODELS = provider_settings.fetch_openrouter_image_models
+_ORIGINAL_FETCH_COPILOT_PROVIDER_MODELS = provider_settings.fetch_copilot_provider_models
 
 
 @pytest.fixture(autouse=True)
@@ -21,6 +22,7 @@ def _disable_live_model_discovery(monkeypatch):
     monkeypatch.setattr(provider_settings, "fetch_openai_compatible_models", lambda _api_key, _base_url: [])
     monkeypatch.setattr(provider_settings, "fetch_openrouter_models", lambda: [])
     monkeypatch.setattr(provider_settings, "fetch_codex_models", lambda _app_home=None: [])
+    monkeypatch.setattr(provider_settings, "fetch_copilot_provider_models", lambda _api_key: [])
 
 
 def _copy_config(tmp_path):
@@ -94,6 +96,35 @@ def test_provider_settings_connects_codex_without_api_key(tmp_path):
     assert connected["requires_api_key"] is False
     assert models["default_provider"] == "openai-codex"
     assert models["providers"][0]["provider"] == "openai-codex"
+
+
+def test_provider_settings_connects_copilot_provider(tmp_path):
+    config_path = _copy_config(tmp_path)
+    service = ProviderSettingsService(config_path)
+
+    result = service.connect_provider("copilot", api_key="github-token")
+
+    providers = json.loads((tmp_path / "llm.providers.json").read_text(encoding="utf-8"))
+    listing = service.list_providers()
+
+    assert result["provider"]["id"] == "copilot"
+    assert result["provider"]["provider"] == "copilot"
+    assert result["provider"]["base_url"] == "https://api.githubcopilot.com"
+    assert providers["copilot"]["api_key"] == "github-token"
+    assert listing["connected"][0]["name"] == "GitHub Copilot"
+
+
+def test_provider_settings_uses_discovered_copilot_models(tmp_path, monkeypatch):
+    config_path = _copy_config(tmp_path)
+    service = ProviderSettingsService(config_path)
+    monkeypatch.setattr(provider_settings, "fetch_copilot_provider_models", lambda api_key: ["copilot-live", "gpt-5.4"])
+
+    service.connect_provider("copilot", api_key="github-token")
+    models = service.list_models()
+
+    provider = next(entry for entry in models["providers"] if entry["id"] == "copilot")
+    assert provider["model_source"] == "live"
+    assert provider["models"][:2] == ["copilot-live", "gpt-5.4"]
 
 
 def test_provider_settings_uses_discovered_provider_models(tmp_path, monkeypatch):

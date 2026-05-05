@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "provider_order": ["openrouter", "openai", "openai-codex", "minimax"],
+  "provider_order": ["openrouter", "openai", "openai-codex", "copilot", "minimax"],
   "providers": {
     "openrouter": {
       "display_name": "OpenRouter",
@@ -200,6 +200,27 @@
       "model_choices": [
         "gpt-5.1-codex",
         "gpt-5.3-codex"
+      ]
+    },
+    "copilot": {
+      "display_name": "GitHub Copilot",
+      "default_base_url": "https://api.githubcopilot.com",
+      "model_choices": [
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5-mini",
+        "gpt-5.3-codex",
+        "gpt-5.2-codex",
+        "gpt-4.1",
+        "gpt-4o",
+        "gpt-4o-mini",
+        "claude-sonnet-4.6",
+        "claude-sonnet-4.5",
+        "claude-haiku-4.5",
+        "gemini-3.1-pro-preview",
+        "gemini-3-flash-preview",
+        "gemini-2.5-pro",
+        "grok-code-fast-1"
       ]
     },
     "minimax": {

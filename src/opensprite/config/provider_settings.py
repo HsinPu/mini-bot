@@ -176,6 +176,15 @@ def fetch_openrouter_image_models() -> list[str]:
     return _dedupe_models(out)
 
 
+def fetch_copilot_provider_models(api_key: str) -> list[str]:
+    try:
+        from ..auth.copilot import fetch_copilot_models
+
+        return fetch_copilot_models(api_key)
+    except Exception:
+        return []
+
+
 def fetch_codex_models(app_home: str | Path | None = None) -> list[str]:
     try:
         from ..auth.codex import load_or_refresh_codex_token
@@ -219,6 +228,8 @@ def discover_provider_models(
     live: list[str] = []
     if preset_id == "openai-codex":
         live = fetch_codex_models(app_home)
+    elif preset_id == "copilot":
+        live = fetch_copilot_provider_models(str(provider.get("api_key") or "").strip())
     elif preset_id == "openrouter":
         live = fetch_openrouter_models()
     elif preset_id in {"openai", "minimax"} or str(provider.get("base_url") or "").strip():

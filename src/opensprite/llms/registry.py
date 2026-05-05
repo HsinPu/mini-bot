@@ -9,6 +9,7 @@ from .openai import OpenAILLM
 from .openai_responses import OpenAIResponsesLLM
 from .openrouter import OpenRouterLLM
 from .minimax import MiniMaxLLM
+from ..auth.copilot import COPILOT_BASE_URL, copilot_request_headers
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,7 @@ PROVIDERS = (
     ProviderSpec("openrouter", ("openrouter",), "sk-or-", "openrouter", "https://openrouter.ai/api/v1"),
     ProviderSpec("openai", ("gpt", "openai"), "", "", "https://api.openai.com/v1"),
     ProviderSpec("minimax", ("minimax",), "", "minimax", "https://api.minimax.io/v1"),
+    ProviderSpec("copilot", ("copilot",), "", "githubcopilot", COPILOT_BASE_URL),
 )
 
 
@@ -42,6 +44,8 @@ def find_provider(api_key: str = "", base_url: str = "", model: str = "", provid
         return PROVIDERS[0]
     if "minimax" in base_url:
         return PROVIDERS[2]  # minimax
+    if "githubcopilot" in base_url:
+        return PROVIDERS[3]  # copilot
     # 4. model 關鍵字
     if "gpt" in model.lower():
         return PROVIDERS[1]  # openai
@@ -90,5 +94,13 @@ def create_llm(
     
     if spec.name == "minimax":
         return MiniMaxLLM(api_key=api_key, default_model=model)
-    
+
+    if spec.name == "copilot":
+        return OpenAILLM(
+            api_key=api_key,
+            base_url=base_url or spec.default_base_url,
+            default_model=model,
+            default_headers=copilot_request_headers(),
+        )
+     
     return OpenAILLM(api_key=api_key, base_url=base_url or spec.default_base_url, default_model=model)

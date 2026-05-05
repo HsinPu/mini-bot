@@ -6,10 +6,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..auth.codex import CodexAuthError, load_or_refresh_codex_token
+from ..auth.copilot import COPILOT_BASE_URL, CopilotAuthError, exchange_copilot_token
 from ..config import ProviderConfig
 
 
 OPENAI_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
+GITHUB_COPILOT_BASE_URL = COPILOT_BASE_URL
 class ProviderRuntimeError(RuntimeError):
     """Raised when a configured provider cannot be resolved for runtime use."""
 
@@ -61,6 +63,13 @@ def resolve_provider_runtime(
                 ).access_token
             except CodexAuthError as exc:
                 raise ProviderRuntimeError(str(exc)) from exc
+    elif configured_provider == "copilot":
+        base_url = base_url or GITHUB_COPILOT_BASE_URL
+        api_mode = api_mode or "chat_completions"
+        try:
+            api_key, _expires_at = exchange_copilot_token(api_key)
+        except CopilotAuthError as exc:
+            raise ProviderRuntimeError(str(exc)) from exc
     elif api_mode is None:
         api_mode = "chat_completions"
 

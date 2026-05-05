@@ -4,8 +4,8 @@ from opensprite.config.llm_presets import load_llm_presets
 def test_load_llm_presets_has_expected_providers():
     presets = load_llm_presets()
     assert presets.version == 1
-    assert presets.provider_order == ("openrouter", "openai", "openai-codex", "minimax")
-    assert set(presets.providers.keys()) == {"openrouter", "openai", "openai-codex", "minimax"}
+    assert presets.provider_order == ("openrouter", "openai", "openai-codex", "copilot", "minimax")
+    assert set(presets.providers.keys()) == {"openrouter", "openai", "openai-codex", "copilot", "minimax"}
     assert presets.providers["openrouter"].model_choices[:30] == (
         "moonshotai/kimi-k2.6",
         "anthropic/claude-sonnet-4.6",
@@ -63,6 +63,9 @@ def test_load_llm_presets_has_expected_providers():
     assert presets.providers["openai-codex"].auth_type == "openai_codex_oauth"
     assert presets.providers["openai-codex"].api_mode == "responses"
     assert presets.providers["openai-codex"].default_base_url == "https://chatgpt.com/backend-api/codex"
+    assert presets.providers["copilot"].display_name == "GitHub Copilot"
+    assert presets.providers["copilot"].default_base_url == "https://api.githubcopilot.com"
+    assert presets.providers["copilot"].model_choices[:3] == ("gpt-5.4", "gpt-5.4-mini", "gpt-5-mini")
     assert presets.providers["openrouter"].media_model_choices == {
         "vision": (
             "google/gemini-3-flash-preview",

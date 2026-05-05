@@ -55,7 +55,8 @@ class OpenAILLM(LLMProvider):
         self, 
         api_key: str, 
         base_url: str | None = None,
-        default_model: str = "gpt-4o-mini"
+        default_model: str = "gpt-4o-mini",
+        default_headers: dict[str, str] | None = None,
     ):
         """
         初始化 OpenAI LLM
@@ -70,7 +71,10 @@ class OpenAILLM(LLMProvider):
         self.api_key = api_key
         self.base_url = base_url
         self.default_model = default_model
+        self.default_headers = dict(default_headers or {})
         self._client_kwargs = {"api_key": api_key, **({"base_url": base_url} if base_url else {})}
+        if self.default_headers:
+            self._client_kwargs["default_headers"] = self.default_headers
         self.client = self._build_client()
 
     def _build_client(self):
