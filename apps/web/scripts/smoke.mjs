@@ -50,6 +50,8 @@ assertIncludes(settingsModal, "CuratorSettingsPage", "curator settings placement
 assertIncludes(settingsModal, "section === 'curator'", "curator settings section");
 assertIncludes(settingsModal, "connectedCount", "multiple provider connection count");
 assertIncludes(settingsModal, "save-media-model", "media model settings action");
+assertIncludes(settingsModal, "textProviderModelGroups", "OpenRouter model grouping");
+assertIncludes(settingsModal, "<optgroup", "grouped model select rendering");
 assertIncludes(chatClient, "/api/commands", "command catalog fetch");
 assertIncludes(chatClient, "/api/settings/media", "media model settings fetch");
 assertIncludes(chatClient, "/api/curator/status", "curator status fetch");

@@ -513,9 +513,22 @@
               <label>
                 <span>{{ copy.settings.models.modelChoice }}</span>
                 <select v-model="settingsState.modelSelections[selectedTextProvider.id]" :disabled="settingsState.modelsLoading">
-                  <option v-for="model in textProviderModels" :key="`${selectedTextProvider.id}:${model}`" :value="model">
-                    {{ model }}{{ selectedTextProvider.is_default && selectedTextProvider.selected_model === model ? ` (${copy.settings.models.active})` : '' }}
-                  </option>
+                  <template v-if="textProviderModelGroups.length">
+                    <optgroup
+                      v-for="group in textProviderModelGroups"
+                      :key="`${selectedTextProvider.id}:${group.key}`"
+                      :label="group.label"
+                    >
+                      <option v-for="model in group.models" :key="`${selectedTextProvider.id}:${model}`" :value="model">
+                        {{ model }}{{ selectedTextProvider.is_default && selectedTextProvider.selected_model === model ? ` (${copy.settings.models.active})` : '' }}
+                      </option>
+                    </optgroup>
+                  </template>
+                  <template v-else>
+                    <option v-for="model in textProviderModels" :key="`${selectedTextProvider.id}:${model}`" :value="model">
+                      {{ model }}{{ selectedTextProvider.is_default && selectedTextProvider.selected_model === model ? ` (${copy.settings.models.active})` : '' }}
+                    </option>
+                  </template>
                 </select>
               </label>
               <button
@@ -1477,6 +1490,65 @@ const textProviderModels = computed(() => {
     models.unshift(selected);
   }
   return models;
+});
+
+const openRouterFamilyLabels = {
+  "01-ai": "01.AI",
+  ai21: "AI21",
+  amazon: "Amazon",
+  anthropic: "Anthropic",
+  cohere: "Cohere",
+  deepseek: "DeepSeek",
+  google: "Google",
+  meta: "Meta",
+  "meta-llama": "Meta",
+  microsoft: "Microsoft",
+  minimax: "MiniMax",
+  mistralai: "Mistral",
+  moonshotai: "Moonshot AI",
+  nousresearch: "Nous Research",
+  nvidia: "NVIDIA",
+  openai: "OpenAI",
+  perplexity: "Perplexity",
+  qwen: "Qwen",
+  xai: "xAI",
+  zai: "Z.AI",
+};
+
+function titleCaseModelFamily(value) {
+  return value
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}
+
+function openRouterModelFamily(model) {
+  const normalized = String(model || "").trim();
+  const separator = normalized.indexOf("/");
+  if (separator <= 0) {
+    return { key: "custom", label: props.copy.settings.models.openRouter.customGroup };
+  }
+  const family = normalized.slice(0, separator).trim().toLowerCase();
+  return {
+    key: family,
+    label: openRouterFamilyLabels[family] || titleCaseModelFamily(family) || props.copy.settings.models.openRouter.otherGroup,
+  };
+}
+
+const textProviderModelGroups = computed(() => {
+  if (selectedTextProvider.value?.provider !== "openrouter") {
+    return [];
+  }
+  const groups = new Map();
+  for (const model of textProviderModels.value) {
+    const family = openRouterModelFamily(model);
+    if (!groups.has(family.key)) {
+      groups.set(family.key, { key: family.key, label: family.label, models: [] });
+    }
+    groups.get(family.key).models.push(model);
+  }
+  return Array.from(groups.values());
 });
 
 const selectedTextModel = computed(() => {

@@ -668,6 +668,8 @@ export const DISPLAY_COPY = {
           providerSort: "Provider sort",
           requireParameters: "Require parameters",
           requireParametersDescription: "只路由到支援所送參數的模型供應商。",
+          customGroup: "自訂 / 其他",
+          otherGroup: "其他",
           noRecommendation: "預設建議：reasoning / effort: medium",
           capabilities: {
             reasoning: "Reasoning",
@@ -1567,6 +1569,8 @@ export const DISPLAY_COPY = {
           providerSort: "Provider sort",
           requireParameters: "Require parameters",
           requireParametersDescription: "Only route to providers that support the parameters being sent.",
+          customGroup: "Custom / Other",
+          otherGroup: "Other",
           noRecommendation: "Default recommendation: reasoning / effort: medium",
           capabilities: {
             reasoning: "Reasoning",
