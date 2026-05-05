@@ -1741,6 +1741,9 @@ export function useChatClient() {
 
   function setMessageStageRef(element) {
     messageStage.value = element;
+    if (element) {
+      scrollMessagesToBottom();
+    }
   }
 
   function setMessageText(value) {
@@ -1832,8 +1835,16 @@ export function useChatClient() {
       curatorState.historyError = "";
       void loadCurrentSessionRuns();
       void refreshCuratorState();
+      scrollMessagesToBottom();
     },
     { immediate: true },
+  );
+
+  watch(
+    () => [currentEntries.value.length, currentMessages.value.length],
+    () => {
+      scrollMessagesToBottom();
+    },
   );
 
   watch(
@@ -3329,6 +3340,7 @@ export function useChatClient() {
         ? payload.sessions.map(normalizeHistorySession)
         : [];
       mergeHistorySessions(historySessions);
+      scrollMessagesToBottom();
     } catch {
       setNotice(copy.value.notices.historyLoadFailed, "warning");
     }
@@ -4518,6 +4530,9 @@ export function useChatClient() {
       const stage = messageStage.value;
       if (stage) {
         stage.scrollTop = stage.scrollHeight;
+        window.requestAnimationFrame?.(() => {
+          stage.scrollTop = stage.scrollHeight;
+        });
       }
     });
   }

@@ -79,6 +79,8 @@ assertIncludes(chatClient, "scheduleCuratorPoll", "curator polling scheduler");
 assertIncludes(chatClient, "curator.completed", "curator event refresh");
 assertIncludes(chatClient, "setSettingsSuccess", "settings success toast routing");
 assertIncludes(chatClient, "connectForm.name", "provider connection naming");
+assertIncludes(chatClient, "window.requestAnimationFrame", "message stage deferred scroll");
+assertIncludes(chatClient, "currentEntries.value.length, currentMessages.value.length", "message list scroll watch");
 
 for (const key of [
   "artifactTypes",
