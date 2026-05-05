@@ -56,6 +56,10 @@ def test_load_llm_presets_has_expected_providers():
         "o3",
         "o4-mini",
     )
+    assert presets.providers["openai"].media_model_choices == {
+        "vision": ("gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-chat"),
+        "ocr": ("gpt-5.5", "gpt-5.4", "gpt-5.4-mini"),
+    }
     assert presets.providers["openrouter"].media_model_choices == {
         "vision": (
             "google/gemini-3-flash-preview",

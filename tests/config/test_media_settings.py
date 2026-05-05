@@ -71,6 +71,19 @@ def test_media_settings_lists_openrouter_image_models_separately(tmp_path):
     ]
 
 
+def test_media_settings_lists_openai_image_models_separately(tmp_path):
+    config_path = _copy_config(tmp_path)
+    ProviderSettingsService(config_path).connect_provider("openai", api_key="secret-key", name="OpenAI")
+
+    payload = MediaSettingsService(config_path).list_media()
+    provider = next(entry for entry in payload["providers"] if entry["id"] == "openai")
+
+    assert provider["media_models"] == {
+        "vision": ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-chat"],
+        "ocr": ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"],
+    }
+
+
 def test_media_settings_can_save_minimax_cn_vision_model(tmp_path):
     config_path = _copy_config(tmp_path)
     ProviderSettingsService(config_path).connect_provider("minimax-cn", api_key="secret-key")
