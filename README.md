@@ -108,6 +108,12 @@ curl -fsSL https://raw.githubusercontent.com/HsinPu/opensprite/main/scripts/unin
 curl -fsSL https://raw.githubusercontent.com/HsinPu/opensprite/main/scripts/uninstall.sh | bash -s -- --full
 ```
 
+非互動環境可加 `--yes` 跳過確認：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/HsinPu/opensprite/main/scripts/uninstall.sh | bash -s -- --full --yes
+```
+
 `--full` 會刪除 `~/.opensprite`，不可復原。
 
 ## Configuration

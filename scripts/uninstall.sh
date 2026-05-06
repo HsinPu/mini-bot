@@ -90,7 +90,12 @@ confirm_uninstall() {
   echo
 
   local answer
-  read -r -p "Type 'yes' to continue: " answer || answer=""
+  if [[ -r /dev/tty ]]; then
+    read -r -p "Type 'yes' to continue: " answer </dev/tty || answer=""
+  else
+    log_error "Cannot read confirmation because no interactive terminal is available. Re-run with --yes to uninstall non-interactively."
+    exit 1
+  fi
   if [[ "$answer" != "yes" ]]; then
     echo "Uninstall cancelled."
     exit 0
