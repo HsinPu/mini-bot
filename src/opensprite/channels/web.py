@@ -1387,6 +1387,23 @@ class WebAdapter(MessageAdapter):
             self._raise_provider_settings_error(exc)
         return web.json_response(payload)
 
+    async def _handle_settings_llm(self, request: web.Request) -> web.Response:
+        config = Config.load(self._get_config_path())
+        return web.json_response({"llm": {"pass_decoding_params": bool(config.llm.pass_decoding_params)}})
+
+    async def _handle_settings_llm_update(self, request: web.Request) -> web.Response:
+        body = await self._read_json_body(request)
+        config_path = self._get_config_path()
+        config = Config.load(config_path)
+        config.llm.pass_decoding_params = bool(body.get("pass_decoding_params"))
+        config.save(config_path)
+        payload = {
+            "llm": {"pass_decoding_params": bool(config.llm.pass_decoding_params)},
+            "restart_required": True,
+        }
+        payload = self._reload_agent_llm_from_config(payload, force=True)
+        return web.json_response(payload)
+
     async def _handle_settings_media(self, request: web.Request) -> web.Response:
         try:
             payload = self._get_media_settings().list_media()
@@ -1863,6 +1880,8 @@ class WebAdapter(MessageAdapter):
         self.app.router.add_put("/api/settings/providers/{provider_id}/options", self._handle_settings_provider_options_update)
         self.app.router.add_get("/api/settings/models", self._handle_settings_models)
         self.app.router.add_post("/api/settings/models/select", self._handle_settings_model_select)
+        self.app.router.add_get("/api/settings/llm", self._handle_settings_llm)
+        self.app.router.add_put("/api/settings/llm", self._handle_settings_llm_update)
         self.app.router.add_get("/api/settings/update", self._handle_settings_update_status)
         self.app.router.add_post("/api/settings/update", self._handle_settings_update_apply)
         self.app.router.add_get("/api/settings/media", self._handle_settings_media)

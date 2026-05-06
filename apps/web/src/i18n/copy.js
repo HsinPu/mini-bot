@@ -679,6 +679,11 @@ export const DISPLAY_COPY = {
         customModel: "自訂模型",
         customPlaceholder: "輸入模型名稱",
         useCustom: "使用自訂模型",
+        requestTitle: "請求參數",
+        passDecodingParams: {
+          title: "傳送解碼參數",
+          description: "開啟時會送出 temperature、max tokens、top_p 與 penalties；關閉時交給 provider 或模型預設值。",
+        },
         openRouter: {
           title: "OpenRouter 進階選項",
           description: "這些設定會隨文字模型請求送出，只影響這個 OpenRouter 連線。",
@@ -955,6 +960,9 @@ export const DISPLAY_COPY = {
       networkLoadFailed: "無法載入網路設定。",
       networkSaveFailed: "無法儲存網路設定。",
       networkSaved: "網路設定已儲存並套用到目前 gateway process。",
+      llmSettingsLoadFailed: "無法載入 LLM 設定。",
+      llmSettingsSaveFailed: "無法儲存 LLM 設定。",
+      llmSettingsSaved: "LLM 設定已儲存並套用。",
       scheduleLoadFailed: "無法載入排程設定。",
       scheduleSaveFailed: "無法儲存排程設定。",
       scheduleRestartRequired: "已儲存，重啟 opensprite gateway 後生效。",
@@ -1646,6 +1654,11 @@ export const DISPLAY_COPY = {
         customModel: "Custom model",
         customPlaceholder: "Enter a model name",
         useCustom: "Use custom model",
+        requestTitle: "Request parameters",
+        passDecodingParams: {
+          title: "Send decoding parameters",
+          description: "When enabled, requests include temperature, max tokens, top_p, and penalties. Turn it off to use provider or model defaults.",
+        },
         openRouter: {
           title: "OpenRouter advanced options",
           description: "These settings are sent with text model requests and only affect this OpenRouter connection.",
@@ -1922,6 +1935,9 @@ export const DISPLAY_COPY = {
       networkLoadFailed: "Could not load network settings.",
       networkSaveFailed: "Could not save network settings.",
       networkSaved: "Network settings saved and applied to the current gateway process.",
+      llmSettingsLoadFailed: "Could not load LLM settings.",
+      llmSettingsSaveFailed: "Could not save LLM settings.",
+      llmSettingsSaved: "LLM settings saved and applied.",
       scheduleLoadFailed: "Could not load schedule settings.",
       scheduleSaveFailed: "Could not save schedule settings.",
       scheduleRestartRequired: "Saved. Restart opensprite gateway for this to take effect.",

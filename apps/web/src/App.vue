@@ -109,6 +109,7 @@
     @select-model="selectModel"
     @apply-openrouter-recommended-options="applyOpenRouterRecommendedOptions"
     @save-openrouter-options="saveOpenRouterOptions"
+    @save-llm-settings="saveLlmSettings"
     @save-media-model="saveMediaModel"
     @begin-mcp-create="beginMcpCreate"
     @save-mcp-server="saveMcpServer"
@@ -211,6 +212,7 @@ const {
   selectModel,
   applyOpenRouterRecommendedOptions,
   saveOpenRouterOptions,
+  saveLlmSettings,
   saveMediaModel,
   beginMcpCreate,
   beginMcpEdit,

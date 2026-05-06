@@ -1474,6 +1474,12 @@ export function useChatClient() {
     modelsLoading: false,
     modelsError: "",
     modelsNotice: "",
+    llmLoading: false,
+    llmError: "",
+    llmNotice: "",
+    llm: {
+      pass_decoding_params: true,
+    },
     models: {
       default_provider: null,
       active_model: "",
@@ -3512,15 +3518,21 @@ export function useChatClient() {
   async function loadModelSettings() {
     settingsState.modelsLoading = true;
     settingsState.mediaLoading = true;
+    settingsState.llmLoading = true;
     settingsState.modelsError = "";
     settingsState.mediaError = "";
+    settingsState.llmError = "";
     try {
-      const [models, media] = await Promise.all([
+      const [models, media, llm] = await Promise.all([
         requestSettingsJson("/api/settings/models"),
         requestSettingsJson("/api/settings/media"),
+        requestSettingsJson("/api/settings/llm"),
       ]);
       settingsState.models = models;
       settingsState.media = normalizeMediaSettings(media);
+      settingsState.llm = {
+        pass_decoding_params: Boolean(llm?.llm?.pass_decoding_params),
+      };
       if (
         !settingsState.selectedTextProviderId ||
         !(settingsState.models.providers || []).some((provider) => provider.id === settingsState.selectedTextProviderId)
@@ -3552,9 +3564,11 @@ export function useChatClient() {
     } catch (error) {
       settingsState.modelsError = error?.message || copy.value.notices.modelLoadFailed;
       settingsState.mediaError = error?.message || copy.value.notices.mediaModelLoadFailed;
+      settingsState.llmError = error?.message || copy.value.notices.llmSettingsLoadFailed;
     } finally {
       settingsState.modelsLoading = false;
       settingsState.mediaLoading = false;
+      settingsState.llmLoading = false;
     }
   }
 
@@ -4212,6 +4226,31 @@ export function useChatClient() {
       settingsState.modelsError = error?.message || copy.value.notices.providerOptionsSaveFailed;
     } finally {
       settingsState.modelsLoading = false;
+    }
+  }
+
+  async function saveLlmSettings() {
+    settingsState.llmLoading = true;
+    settingsState.llmError = "";
+    settingsState.llmNotice = "";
+    try {
+      const payload = await requestSettingsJson("/api/settings/llm", {
+        method: "PUT",
+        body: JSON.stringify({
+          pass_decoding_params: Boolean(settingsState.llm.pass_decoding_params),
+        }),
+      });
+      settingsState.llm = {
+        pass_decoding_params: Boolean(payload?.llm?.pass_decoding_params),
+      };
+      setSettingsSuccess(
+        "llmNotice",
+        payload.restart_required ? copy.value.notices.modelRestartRequired : copy.value.notices.llmSettingsSaved,
+      );
+    } catch (error) {
+      settingsState.llmError = error?.message || copy.value.notices.llmSettingsSaveFailed;
+    } finally {
+      settingsState.llmLoading = false;
     }
   }
 
@@ -5061,6 +5100,7 @@ export function useChatClient() {
     selectModel,
     applyOpenRouterRecommendedOptions,
     saveOpenRouterOptions,
+    saveLlmSettings,
     saveMediaModel,
     beginMcpEdit,
     beginMcpCreate,

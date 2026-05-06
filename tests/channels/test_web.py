@@ -1647,7 +1647,7 @@ async def _run_web_settings_provider_api(tmp_path: Path, monkeypatch):
 
         def reload_llm_from_config(self, config):
             active = config.llm.get_active()
-            self.reloads.append((config.llm.default, active.model))
+            self.reloads.append((config.llm.default, active.model, config.llm.pass_decoding_params))
             return {"provider_id": config.llm.default, "model": active.model, "configured": config.is_llm_configured}
 
     agent = SettingsAgent()
@@ -1767,6 +1767,26 @@ async def _run_web_settings_provider_api(tmp_path: Path, monkeypatch):
             main_config = json.loads(config_path.read_text(encoding="utf-8"))
             assert main_config["tools"]["cron"]["default_timezone"] == "Asia/Taipei"
 
+            async with session.get(f"http://127.0.0.1:{port}/api/settings/llm") as resp:
+                assert resp.status == 200
+                llm_payload = await resp.json()
+
+            assert llm_payload["llm"]["pass_decoding_params"] is True
+
+            async with session.put(
+                f"http://127.0.0.1:{port}/api/settings/llm",
+                json={"pass_decoding_params": False},
+            ) as resp:
+                assert resp.status == 200
+                llm_update_payload = await resp.json()
+
+            assert llm_update_payload["llm"]["pass_decoding_params"] is False
+            assert llm_update_payload["restart_required"] is False
+            assert llm_update_payload["runtime_reloaded"] is True
+            assert agent.reloads[-1][2] is False
+            loaded_config = Config.from_json(config_path)
+            assert loaded_config.llm.pass_decoding_params is False
+
             async with session.get(f"http://127.0.0.1:{port}/api/settings/providers") as resp:
                 assert resp.status == 200
                 providers_payload = await resp.json()
@@ -1799,7 +1819,7 @@ async def _run_web_settings_provider_api(tmp_path: Path, monkeypatch):
                 "model": "qwen3:14b",
                 "configured": True,
             }
-            assert agent.reloads[-1] == ("ollama", "qwen3:14b")
+            assert agent.reloads[-1] == ("ollama", "qwen3:14b", False)
 
             async with session.get(f"http://127.0.0.1:{port}/api/settings/auth/openai-codex") as resp:
                 assert resp.status == 200
@@ -1908,7 +1928,7 @@ async def _run_web_settings_provider_api(tmp_path: Path, monkeypatch):
                 "model": selected_openai_model,
                 "configured": True,
             }
-            assert agent.reloads[-1] == ("openai", selected_openai_model)
+            assert agent.reloads[-1] == ("openai", selected_openai_model, False)
             providers = json.loads((tmp_path / "llm.providers.json").read_text(encoding="utf-8"))
             assert providers["openai"]["api_key"] == ""
             assert providers["openai"]["credential_id"] == connect_payload["provider"]["credential_id"]
@@ -1944,7 +1964,7 @@ async def _run_web_settings_provider_api(tmp_path: Path, monkeypatch):
                 "runtime_reloaded": True,
                 "runtime": {"provider_id": "openai", "model": selected_openai_model, "configured": True},
             }
-            assert agent.reloads[-1] == ("openai", selected_openai_model)
+            assert agent.reloads[-1] == ("openai", selected_openai_model, False)
             providers = json.loads((tmp_path / "llm.providers.json").read_text(encoding="utf-8"))
             assert set(providers) == {"openai", "ollama"}
 
@@ -1959,7 +1979,7 @@ async def _run_web_settings_provider_api(tmp_path: Path, monkeypatch):
                 "runtime_reloaded": True,
                 "runtime": {"provider_id": "openai", "model": selected_openai_model, "configured": True},
             }
-            assert agent.reloads[-1] == ("openai", selected_openai_model)
+            assert agent.reloads[-1] == ("openai", selected_openai_model, False)
 
             async with session.post(f"http://127.0.0.1:{port}/api/settings/providers/openai/disconnect") as resp:
                 assert resp.status == 200
@@ -1972,7 +1992,7 @@ async def _run_web_settings_provider_api(tmp_path: Path, monkeypatch):
                 "runtime_reloaded": True,
                 "runtime": {"provider_id": None, "model": "", "configured": False},
             }
-            assert agent.reloads[-1] == (None, "")
+            assert agent.reloads[-1] == (None, "", False)
             main_config = json.loads(config_path.read_text(encoding="utf-8"))
             providers = json.loads((tmp_path / "llm.providers.json").read_text(encoding="utf-8"))
             assert main_config["llm"]["default"] is None

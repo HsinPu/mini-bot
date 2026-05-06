@@ -558,6 +558,10 @@
           <p v-if="settingsState.modelsError" class="settings-inline-status settings-inline-status--error">
             {{ settingsState.modelsError }}
           </p>
+          <p v-if="settingsState.llmNotice" class="settings-inline-status">{{ settingsState.llmNotice }}</p>
+          <p v-if="settingsState.llmError" class="settings-inline-status settings-inline-status--error">
+            {{ settingsState.llmError }}
+          </p>
           <p v-if="settingsState.mediaError" class="settings-inline-status settings-inline-status--error">
             {{ settingsState.mediaError }}
           </p>
@@ -750,6 +754,23 @@
                 {{ copy.settings.models.openRouter.save }}
               </button>
             </div>
+          </div>
+
+          <h3>{{ copy.settings.models.requestTitle }}</h3>
+          <div class="settings-card">
+            <label class="settings-row">
+              <div>
+                <strong>{{ copy.settings.models.passDecodingParams.title }}</strong>
+                <span>{{ copy.settings.models.passDecodingParams.description }}</span>
+              </div>
+              <input
+                v-model="settingsState.llm.pass_decoding_params"
+                class="switch"
+                type="checkbox"
+                :disabled="settingsState.llmLoading"
+                @change="$emit('save-llm-settings')"
+              />
+            </label>
           </div>
 
           <h3>{{ copy.settings.models.mediaTitle }}</h3>
