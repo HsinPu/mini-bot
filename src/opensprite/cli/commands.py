@@ -110,6 +110,8 @@ def update_command(
         typer.echo(f"Already up to date on {result.branch}.")
     typer.echo(f"Project: {result.project_root}")
     typer.echo(f"Python: {result.python_executable}")
+    if result.frontend_build == "built":
+        typer.echo("Web frontend: built")
 
     if restart:
         try:

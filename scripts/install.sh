@@ -269,6 +269,29 @@ install_python_package() {
   fi
 }
 
+install_web_frontend() {
+  local web_dir="$INSTALL_DIR/apps/web"
+  if [[ ! -f "$web_dir/package.json" ]]; then
+    return 0
+  fi
+
+  if ! command -v npm >/dev/null 2>&1; then
+    log_error "npm is required to build the Web UI. Install Node.js 20.19+ or 22.12+ and re-run this installer."
+    exit 1
+  fi
+
+  log_info "Installing Web UI dependencies"
+  if [[ -f "$web_dir/package-lock.json" ]]; then
+    npm --prefix "$web_dir" ci
+  else
+    npm --prefix "$web_dir" install
+  fi
+
+  log_info "Building Web UI"
+  npm --prefix "$web_dir" run build
+  log_success "Built Web UI"
+}
+
 setup_command_link() {
   if [[ "$CREATE_LINK" -ne 1 ]]; then
     return 0
@@ -360,6 +383,7 @@ main() {
 
   clone_or_update_repo
   install_python_package "$python_bin"
+  install_web_frontend
   setup_command_link
   verify_install
   maybe_start_service

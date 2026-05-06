@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -18,6 +20,7 @@ class UpdateResult:
     after_rev: str
     updated: bool
     python_executable: Path
+    frontend_build: str | None = None
 
 
 class UpdateError(RuntimeError):
@@ -65,6 +68,32 @@ def _run(
 
 def _git_output(args: list[str], *, cwd: Path, runner=subprocess.run) -> str:
     return _run(["git", *args], cwd=cwd, runner=runner).stdout.strip()
+
+
+def _resolve_npm_executable() -> str | None:
+    preferred = "npm.cmd" if os.name == "nt" else "npm"
+    return shutil.which(preferred) or shutil.which("npm")
+
+
+def build_frontend(
+    project_root: Path,
+    *,
+    runner=subprocess.run,
+    npm_executable: str | None = None,
+) -> str | None:
+    """Install and build the bundled web frontend when its source is present."""
+    web_dir = project_root / "apps" / "web"
+    if not (web_dir / "package.json").exists():
+        return None
+
+    npm = npm_executable or _resolve_npm_executable()
+    if npm is None:
+        raise UpdateError("npm was not found. Install Node.js 20.19+ or 22.12+ and npm, then rerun `opensprite update`.")
+
+    install_args = [npm, "ci"] if (web_dir / "package-lock.json").exists() else [npm, "install"]
+    _run(install_args, cwd=web_dir, runner=runner)
+    _run([npm, "run", "build"], cwd=web_dir, runner=runner)
+    return "built"
 
 
 def check_update_available(
@@ -118,6 +147,7 @@ def update_checkout(
     install_target = ".[dev]" if install_dev else "."
     _run([str(python_executable), "-m", "pip", "install", "--upgrade", "pip"], cwd=root, runner=runner)
     _run([str(python_executable), "-m", "pip", "install", "-e", install_target], cwd=root, runner=runner)
+    frontend_build = build_frontend(root, runner=runner)
 
     after_rev = _git_output(["rev-parse", "HEAD"], cwd=root, runner=runner)
     return UpdateResult(
@@ -127,4 +157,5 @@ def update_checkout(
         after_rev=after_rev,
         updated=before_rev != after_rev,
         python_executable=python_executable,
+        frontend_build=frontend_build,
     )
