@@ -168,32 +168,38 @@ node_version_is_usable() {
   return 1
 }
 
+npm_is_available() {
+  command -v npm >/dev/null 2>&1
+}
+
 ensure_node() {
-  if node_version_is_usable; then
-    log_success "Node.js $(node --version) found"
+  if node_version_is_usable && npm_is_available; then
+    log_success "Node.js $(node --version) and npm $(npm --version) found"
     return 0
   fi
 
   if [[ "$INSTALL_SYSTEM_PACKAGES" -ne 1 ]]; then
-    log_warn "Node.js 20.19+ or 22.12+ is required for the Web UI build."
-    log_info "Install Node.js 22 manually, then run: opensprite update --restart"
+    log_warn "Node.js 20.19+ or 22.12+ with npm is required for the Web UI build."
+    log_info "Install Node.js 22 and npm manually, then run: opensprite update --restart"
     return 0
   fi
   if ! command -v apt-get >/dev/null 2>&1; then
-    log_warn "apt-get not found; install Node.js 20.19+ or 22.12+ manually for the Web UI build."
+    log_warn "apt-get not found; install Node.js 20.19+ or 22.12+ with npm manually for the Web UI build."
     return 0
   fi
 
   local sudo_cmd=()
   if [[ "$(id -u)" -ne 0 ]]; then
     if ! command -v sudo >/dev/null 2>&1; then
-      log_warn "sudo not found; install Node.js 20.19+ or 22.12+ manually for the Web UI build."
+      log_warn "sudo not found; install Node.js 20.19+ or 22.12+ with npm manually for the Web UI build."
       return 0
     fi
     sudo_cmd=(sudo)
   fi
 
-  if command -v node >/dev/null 2>&1; then
+  if node_version_is_usable; then
+    log_info "Node.js $(node --version) is installed but npm was not found; installing Node.js $NODE_MAJOR with npm"
+  elif command -v node >/dev/null 2>&1; then
     log_info "Node.js $(node --version) is too old for the Web UI; installing Node.js $NODE_MAJOR"
   else
     log_info "Node.js not found; installing Node.js $NODE_MAJOR"
@@ -205,7 +211,11 @@ ensure_node() {
     log_warn "Node.js is still too old or unavailable; Web UI build may fail."
     return 0
   fi
-  log_success "Node.js $(node --version) ready"
+  if ! npm_is_available; then
+    log_warn "npm is still unavailable after installing Node.js; Web UI build may fail."
+    return 0
+  fi
+  log_success "Node.js $(node --version) and npm $(npm --version) ready"
 }
 
 find_python() {
