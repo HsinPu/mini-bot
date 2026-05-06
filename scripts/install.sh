@@ -17,6 +17,8 @@ INSTALL_DIR="${OPENSPRITE_INSTALL_DIR:-$HOME/.local/share/opensprite/opensprite}
 APP_HOME="${OPENSPRITE_HOME:-$HOME/.opensprite}"
 PYTHON_VERSION_MIN="3.11"
 NODE_MAJOR=22
+NODE_VERSION="${OPENSPRITE_NODE_VERSION:-22.12.0}"
+NODE_INSTALL_DIR="${OPENSPRITE_NODE_INSTALL_DIR:-$HOME/.local/share/opensprite/node}"
 INSTALL_DEV=0
 CREATE_LINK=1
 START_SERVICE=1
@@ -172,19 +174,98 @@ npm_is_available() {
   command -v npm >/dev/null 2>&1
 }
 
+activate_local_node() {
+  if [[ -x "$NODE_INSTALL_DIR/bin/node" ]]; then
+    export PATH="$NODE_INSTALL_DIR/bin:$PATH"
+  fi
+}
+
+node_linux_arch() {
+  case "$(uname -m)" in
+    x86_64|amd64) printf 'x64' ;;
+    aarch64|arm64) printf 'arm64' ;;
+    *) return 1 ;;
+  esac
+}
+
+install_local_node() {
+  local arch
+  if ! arch="$(node_linux_arch)"; then
+    log_warn "Unsupported CPU architecture for local Node.js install: $(uname -m)"
+    return 1
+  fi
+  if ! command -v curl >/dev/null 2>&1 || ! command -v tar >/dev/null 2>&1; then
+    log_warn "curl and tar are required for local Node.js install."
+    return 1
+  fi
+
+  local archive="node-v${NODE_VERSION}-linux-${arch}.tar.xz"
+  local url="https://nodejs.org/dist/v${NODE_VERSION}/${archive}"
+  local temp_dir
+  temp_dir="$(mktemp -d)"
+
+  log_info "Installing local Node.js ${NODE_VERSION} with npm"
+  if ! curl -fsSL "$url" -o "$temp_dir/$archive"; then
+    rm -rf "$temp_dir"
+    log_warn "Could not download Node.js from $url"
+    return 1
+  fi
+
+  rm -rf "$NODE_INSTALL_DIR"
+  mkdir -p "$NODE_INSTALL_DIR"
+  if ! tar -xJf "$temp_dir/$archive" -C "$NODE_INSTALL_DIR" --strip-components=1; then
+    rm -rf "$temp_dir" "$NODE_INSTALL_DIR"
+    log_warn "Could not extract Node.js archive; install xz/tar support or install Node.js manually."
+    return 1
+  fi
+  rm -rf "$temp_dir"
+  activate_local_node
+  return 0
+}
+
+node_package_manager() {
+  if command -v apt-get >/dev/null 2>&1; then
+    printf 'apt'
+    return 0
+  fi
+  if command -v dnf >/dev/null 2>&1; then
+    printf 'dnf'
+    return 0
+  fi
+  if command -v yum >/dev/null 2>&1; then
+    printf 'yum'
+    return 0
+  fi
+  return 1
+}
+
 ensure_node() {
+  activate_local_node
+
   if node_version_is_usable && npm_is_available; then
     log_success "Node.js $(node --version) and npm $(npm --version) found"
     return 0
   fi
 
+  local package_manager=""
+  package_manager="$(node_package_manager || true)"
+
   if [[ "$INSTALL_SYSTEM_PACKAGES" -ne 1 ]]; then
     log_warn "Node.js 20.19+ or 22.12+ with npm is required for the Web UI build."
+    if install_local_node && node_version_is_usable && npm_is_available; then
+      log_success "Node.js $(node --version) and npm $(npm --version) ready"
+      return 0
+    fi
     log_info "Install Node.js 22 and npm manually, then run: opensprite update --restart"
     return 0
   fi
-  if ! command -v apt-get >/dev/null 2>&1; then
-    log_warn "apt-get not found; install Node.js 20.19+ or 22.12+ with npm manually for the Web UI build."
+  if [[ -z "$package_manager" ]]; then
+    log_warn "No supported package manager found for Node.js install."
+    if install_local_node && node_version_is_usable && npm_is_available; then
+      log_success "Node.js $(node --version) and npm $(npm --version) ready"
+      return 0
+    fi
+    log_warn "Install Node.js 20.19+ or 22.12+ with npm manually for the Web UI build."
     return 0
   fi
 
@@ -192,6 +273,10 @@ ensure_node() {
   if [[ "$(id -u)" -ne 0 ]]; then
     if ! command -v sudo >/dev/null 2>&1; then
       log_warn "sudo not found; install Node.js 20.19+ or 22.12+ with npm manually for the Web UI build."
+      if install_local_node && node_version_is_usable && npm_is_available; then
+        log_success "Node.js $(node --version) and npm $(npm --version) ready"
+        return 0
+      fi
       return 0
     fi
     sudo_cmd=(sudo)
@@ -204,15 +289,37 @@ ensure_node() {
   else
     log_info "Node.js not found; installing Node.js $NODE_MAJOR"
   fi
-  curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | "${sudo_cmd[@]}" -E bash -
-  "${sudo_cmd[@]}" apt-get install -y nodejs
+  local setup_cmd=(bash -)
+  if [[ "${#sudo_cmd[@]}" -gt 0 ]]; then
+    setup_cmd=("${sudo_cmd[@]}" -E bash -)
+  fi
+  if [[ "$package_manager" == "apt" ]]; then
+    if ! { curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | "${setup_cmd[@]}" && "${sudo_cmd[@]}" apt-get install -y nodejs; }; then
+      log_warn "System Node.js install failed; trying local Node.js install."
+      install_local_node || true
+    fi
+  elif [[ "$package_manager" == "dnf" ]]; then
+    if ! { curl -fsSL "https://rpm.nodesource.com/setup_${NODE_MAJOR}.x" | "${setup_cmd[@]}" && "${sudo_cmd[@]}" dnf install -y nodejs; }; then
+      log_warn "System Node.js install failed; trying local Node.js install."
+      install_local_node || true
+    fi
+  else
+    if ! { curl -fsSL "https://rpm.nodesource.com/setup_${NODE_MAJOR}.x" | "${setup_cmd[@]}" && "${sudo_cmd[@]}" yum install -y nodejs; }; then
+      log_warn "System Node.js install failed; trying local Node.js install."
+      install_local_node || true
+    fi
+  fi
 
   if ! node_version_is_usable; then
     log_warn "Node.js is still too old or unavailable; Web UI build may fail."
     return 0
   fi
   if ! npm_is_available; then
-    log_warn "npm is still unavailable after installing Node.js; Web UI build may fail."
+    log_warn "npm is still unavailable after installing Node.js; trying local Node.js install."
+    install_local_node || true
+  fi
+  if ! npm_is_available; then
+    log_warn "npm is still unavailable; Web UI build may fail."
     return 0
   fi
   log_success "Node.js $(node --version) and npm $(npm --version) ready"
@@ -286,7 +393,7 @@ install_web_frontend() {
   fi
 
   if ! command -v npm >/dev/null 2>&1; then
-    log_error "npm is required to build the Web UI. Install Node.js 20.19+ or 22.12+ and re-run this installer."
+    log_error "npm is required to build the Web UI. The installer could not install npm automatically; install Node.js 20.19+ or 22.12+ with npm and re-run this installer."
     exit 1
   fi
 
@@ -311,29 +418,41 @@ setup_command_link() {
   ln -sfn "$INSTALL_DIR/.venv/bin/opensprite" "$link_dir/opensprite"
   log_success "Linked opensprite -> $link_dir/opensprite"
 
+  local shell_config=""
+  case "$(basename "${SHELL:-bash}")" in
+    zsh) shell_config="$HOME/.zshrc" ;;
+    bash) shell_config="$HOME/.bashrc" ;;
+    *) shell_config="$HOME/.profile" ;;
+  esac
+  touch "$shell_config"
+
   case ":$PATH:" in
     *":$link_dir:"*) ;;
     *)
       log_warn "$link_dir is not on PATH for this shell."
-      local path_line='export PATH="$HOME/.local/bin:$PATH"'
-      local shell_config=""
-      case "$(basename "${SHELL:-bash}")" in
-        zsh) shell_config="$HOME/.zshrc" ;;
-        bash) shell_config="$HOME/.bashrc" ;;
-        *) shell_config="$HOME/.profile" ;;
-      esac
-      touch "$shell_config"
       if ! grep -v '^[[:space:]]*#' "$shell_config" | grep -qE 'PATH=.*\.local/bin'; then
         {
           printf '\n'
           printf '# OpenSprite command path\n'
-          printf '%s\n' "$path_line"
+          printf 'export PATH="$HOME/.local/bin:$PATH"\n'
         } >> "$shell_config"
         log_success "Added ~/.local/bin to PATH in $shell_config"
       fi
-      log_info "Reload your shell or run: source $shell_config"
       ;;
   esac
+
+  if [[ -x "$NODE_INSTALL_DIR/bin/node" ]] && ! grep -v '^[[:space:]]*#' "$shell_config" | grep -qF "$NODE_INSTALL_DIR/bin"; then
+    {
+      printf '\n'
+      printf '# OpenSprite local Node.js path\n'
+      printf 'export PATH="%s/bin:$PATH"\n' "$NODE_INSTALL_DIR"
+    } >> "$shell_config"
+    log_success "Added local Node.js to PATH in $shell_config"
+  fi
+
+  if [[ ":$PATH:" != *":$link_dir:"* || -x "$NODE_INSTALL_DIR/bin/node" ]]; then
+    log_info "Reload your shell or run: source $shell_config"
+  fi
 }
 
 verify_install() {
