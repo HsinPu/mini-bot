@@ -1,4 +1,5 @@
 from opensprite.agent.completion_gate import CompletionGateService
+from opensprite.agent.auto_continue import AutoContinueService
 from opensprite.agent.execution import ExecutionResult
 from opensprite.agent.task_intent import TaskIntentService
 from opensprite.storage.base import StoredDelegatedTask
@@ -94,6 +95,40 @@ def test_completion_gate_marks_waiting_when_response_asks_for_input():
     assert result.status == "waiting_user"
     assert result.active_task_status == "waiting_user"
     assert result.should_update_active_task is True
+
+
+def test_completion_gate_marks_progress_only_search_response_incomplete():
+    intent = TaskIntentService().classify("那幫我找找有沒有可以在reddit 搜尋的")
+
+    result = CompletionGateService().evaluate(
+        task_intent=intent,
+        response_text="正在幫你搜尋 Reddit 搜尋相關的開源專案...",
+        execution_result=ExecutionResult(content="正在幫你搜尋 Reddit 搜尋相關的開源專案..."),
+    )
+
+    assert result.status == "incomplete"
+    assert result.reason == "assistant only reported progress without performing requested work"
+
+
+def test_auto_continue_allows_first_retry_after_progress_only_response():
+    intent = TaskIntentService().classify("那幫我找找有沒有可以在reddit 搜尋的")
+    completion = CompletionGateService().evaluate(
+        task_intent=intent,
+        response_text="正在幫你搜尋 Reddit 搜尋相關的開源專案...",
+        execution_result=ExecutionResult(content="正在幫你搜尋 Reddit 搜尋相關的開源專案..."),
+    )
+
+    decision = AutoContinueService(max_auto_continues=1).decide(
+        task_intent=intent,
+        completion_result=completion,
+        execution_result=ExecutionResult(content="正在幫你搜尋 Reddit 搜尋相關的開源專案..."),
+        attempts_used=0,
+        previous_response="正在幫你搜尋 Reddit 搜尋相關的開源專案...",
+    )
+
+    assert decision.should_continue is True
+    assert decision.reason == "completion_gate_incomplete"
+    assert "Continue the current task" in (decision.prompt or "")
 
 
 def test_completion_gate_marks_explicit_task_completion_done():

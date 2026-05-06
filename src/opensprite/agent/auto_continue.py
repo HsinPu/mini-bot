@@ -154,6 +154,7 @@ class AutoContinueService:
             and execution_result.executed_tool_calls == 0
             and not task_intent.expects_code_change
             and not direct_action_available
+            and completion_result.reason != "assistant only reported progress without performing requested work"
         ):
             return self._skip(
                 "no_tool_progress_after_incomplete_response",

@@ -48,6 +48,18 @@ _INCOMPLETE_MARKERS = (
     "還需要",
 )
 _REVIEW_PROMPT_TYPES = frozenset({"code-reviewer", "security-reviewer", "async-concurrency-reviewer"})
+_PROGRESS_ONLY_MARKERS = (
+    "正在",
+    "請稍候",
+    "稍候",
+    "幫你搜尋",
+    "幫你找",
+    "我會搜尋",
+    "searching",
+    "looking up",
+    "let me search",
+    "let me look",
+)
 
 
 @dataclass(frozen=True)
@@ -286,6 +298,21 @@ class CompletionGateService:
                 review_finding_count=review["finding_count"],
             )
 
+        if execution_result.executed_tool_calls == 0 and _looks_like_progress_only(response_text):
+            return CompletionGateResult(
+                status="incomplete",
+                reason="assistant only reported progress without performing requested work",
+                verification_required=verification_required,
+                verification_attempted=verification_attempted,
+                verification_passed=verification_passed,
+                review_required=review_required,
+                review_attempted=review["attempted"],
+                review_passed=review["passed"],
+                review_summary=review["summary"],
+                review_prompt_types=review["prompt_types"],
+                review_finding_count=review["finding_count"],
+            )
+
         if task_intent.kind in {"conversation", "question", "command", "media_upload"}:
             return CompletionGateResult(
                 status="complete" if response_text.strip() else "incomplete",
@@ -383,6 +410,15 @@ def _looks_complete(response_text: str) -> bool:
 def _looks_incomplete(response_text: str) -> bool:
     lowered = re.sub(r"\s+", " ", (response_text or "").strip().lower())
     return any(marker in lowered for marker in _INCOMPLETE_MARKERS)
+
+
+def _looks_like_progress_only(response_text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", (response_text or "").strip().lower())
+    if not normalized:
+        return False
+    if len(normalized) > 220:
+        return False
+    return any(marker in normalized for marker in _PROGRESS_ONLY_MARKERS)
 
 
 def _review_evidence(delegated_tasks: tuple[StoredDelegatedTask, ...]) -> dict[str, Any]:
