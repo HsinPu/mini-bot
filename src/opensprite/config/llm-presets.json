@@ -228,14 +228,7 @@
       "display_name": "Ollama Local",
       "default_base_url": "http://localhost:11434/v1",
       "auth_type": "optional_api_key",
-      "model_choices": [
-        "qwen3:14b",
-        "qwen3:8b",
-        "llama3.2",
-        "llama3.1:8b",
-        "mistral",
-        "codellama"
-      ]
+      "model_choices": []
     },
     "ollama-cloud": {
       "display_name": "Ollama Cloud",

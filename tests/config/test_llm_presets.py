@@ -4,8 +4,16 @@ from opensprite.config.llm_presets import load_llm_presets
 def test_load_llm_presets_has_expected_providers():
     presets = load_llm_presets()
     assert presets.version == 1
-    assert presets.provider_order == ("openrouter", "openai", "openai-codex", "copilot", "minimax")
-    assert set(presets.providers.keys()) == {"openrouter", "openai", "openai-codex", "copilot", "minimax"}
+    assert presets.provider_order == ("openrouter", "openai", "openai-codex", "copilot", "ollama", "ollama-cloud", "minimax")
+    assert set(presets.providers.keys()) == {
+        "openrouter",
+        "openai",
+        "openai-codex",
+        "copilot",
+        "ollama",
+        "ollama-cloud",
+        "minimax",
+    }
     assert presets.providers["openrouter"].model_choices[:30] == (
         "moonshotai/kimi-k2.6",
         "anthropic/claude-sonnet-4.6",
@@ -67,6 +75,12 @@ def test_load_llm_presets_has_expected_providers():
     assert presets.providers["copilot"].auth_type == "github_copilot_oauth"
     assert presets.providers["copilot"].default_base_url == "https://api.githubcopilot.com"
     assert presets.providers["copilot"].model_choices[:3] == ("gpt-5.4", "gpt-5.4-mini", "gpt-5-mini")
+    assert presets.providers["ollama"].display_name == "Ollama Local"
+    assert presets.providers["ollama"].auth_type == "optional_api_key"
+    assert presets.providers["ollama"].default_base_url == "http://localhost:11434/v1"
+    assert presets.providers["ollama"].model_choices == ()
+    assert presets.providers["ollama-cloud"].display_name == "Ollama Cloud"
+    assert presets.providers["ollama-cloud"].default_base_url == "https://ollama.com/v1"
     assert presets.providers["openrouter"].media_model_choices == {
         "vision": (
             "google/gemini-3-flash-preview",
