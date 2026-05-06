@@ -20,6 +20,7 @@ from .storage import MemoryStorage, StorageProvider
 from .bus.dispatcher import MessageQueue
 from .config import Config
 from .llms.registry import find_provider
+from .llms import UnconfiguredLLM
 from .utils.log import logger
 
 
@@ -178,12 +179,15 @@ async def create_agent(config: Config):
     """建立 Agent 和 Queue"""
     # 用 Registry 建立 LLM Provider
     cfg = config.llm.get_active()
-    llm_runtime = resolve_provider_runtime(
-        cfg,
-        provider_name=cfg.provider or config.llm.default or "",
-        app_home=config.source_path.parent if config.source_path is not None else None,
-    )
-    llm = create_llm_from_runtime(llm_runtime)
+    if config.is_llm_configured:
+        llm_runtime = resolve_provider_runtime(
+            cfg,
+            provider_name=cfg.provider or config.llm.default or "",
+            app_home=config.source_path.parent if config.source_path is not None else None,
+        )
+        llm = create_llm_from_runtime(llm_runtime)
+    else:
+        llm = UnconfiguredLLM()
     
     # 建立 Agent 設定
     agent_config = config.agent

@@ -142,3 +142,27 @@ class LLMProvider(ABC):
         """Best-effort hook for transient provider recovery before one retry."""
         _ = error
         return False
+
+
+class UnconfiguredLLM(LLMProvider):
+    """Fallback provider used before the user configures an LLM."""
+
+    async def chat(
+        self,
+        messages: list[ChatMessage],
+        tools: list[dict[str, Any]] | None = None,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        top_p: float | None = None,
+        frequency_penalty: float | None = None,
+        presence_penalty: float | None = None,
+        status_callback: Callable[[str], Awaitable[None]] | None = None,
+        response_delta_callback: Callable[[str], Awaitable[None]] | None = None,
+        tool_input_delta_callback: Callable[[str, str, str, int], Awaitable[None]] | None = None,
+        reasoning_delta_callback: Callable[[str], Awaitable[None]] | None = None,
+    ) -> LLMResponse:
+        return LLMResponse(content="", model=self.get_default_model())
+
+    def get_default_model(self) -> str:
+        return "unconfigured"
