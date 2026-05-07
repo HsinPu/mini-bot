@@ -38,6 +38,7 @@ const [
   curatorSettingsPage,
   settingsModal,
   chatClient,
+  modelSettingsActions,
   providerSettingsActions,
   copy,
 ] = await Promise.all([
@@ -50,11 +51,12 @@ const [
   read("src/components/CuratorSettingsPage.vue"),
   read("src/components/SettingsModal.vue"),
   read("src/composables/useChatClient.js"),
+  read("src/composables/useModelSettingsActions.js"),
   read("src/composables/useProviderSettingsActions.js"),
   read("src/i18n/copy.js"),
 ]);
 
-const settingsLogic = `${chatClient}\n${providerSettingsActions}`;
+const settingsLogic = `${chatClient}\n${modelSettingsActions}\n${providerSettingsActions}`;
 
 assertIncludes(messageList, "artifactTypeLabel", "session entry artifact labels");
 assertIncludes(messageList, "message__artifact-status", "session entry artifact status");
@@ -88,7 +90,7 @@ assertIncludes(settingsModal, "credentialSourceLabel", "credential source status
 assertIncludes(settingsModal, "set-provider-credential", "provider credential selection event");
 assertOrder(settingsModal, "section === 'providers'", "copy.settings.providers.copilotAuth.title", "Copilot auth provider placement");
 assertIncludes(chatClient, "/api/commands", "command catalog fetch");
-assertIncludes(chatClient, "/api/settings/media", "media model settings fetch");
+assertIncludes(settingsLogic, "/api/settings/media", "media model settings fetch");
 assertIncludes(chatClient, "/api/curator/status", "curator status fetch");
 assertIncludes(chatClient, "/api/curator/history", "curator history fetch");
 assertIncludes(chatClient, "/api/curator/", "curator action fetch");
