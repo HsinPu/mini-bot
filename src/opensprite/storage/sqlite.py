@@ -22,6 +22,7 @@ from ..utils.json_safe import json_safe_value as json_safe
 from ..utils.log import logger
 from .base import (
     StorageProvider,
+    StoredBackgroundProcess,
     StoredMessage,
     StoredRun,
     StoredRunEvent,
@@ -33,7 +34,7 @@ from .base import (
     selected_delegated_task,
 )
 
-SQLITE_SCHEMA_VERSION = 11
+SQLITE_SCHEMA_VERSION = 12
 
 SCHEMA_SCRIPT = """
 CREATE TABLE IF NOT EXISTS chats (
@@ -166,6 +167,33 @@ CREATE TABLE IF NOT EXISTS work_states (
 
 CREATE INDEX IF NOT EXISTS idx_work_states_status
     ON work_states(status, updated_at);
+
+CREATE TABLE IF NOT EXISTS background_processes (
+    process_session_id TEXT PRIMARY KEY,
+    owner_session_id TEXT NOT NULL REFERENCES chats(session_id) ON DELETE CASCADE,
+    owner_run_id TEXT,
+    owner_channel TEXT,
+    owner_external_chat_id TEXT,
+    pid INTEGER,
+    command TEXT NOT NULL,
+    cwd TEXT,
+    state TEXT NOT NULL,
+    termination_reason TEXT,
+    exit_code INTEGER,
+    notify_mode TEXT NOT NULL DEFAULT 'agent_summary',
+    output_tail TEXT NOT NULL DEFAULT '',
+    output_path TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    started_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    finished_at REAL
+);
+
+CREATE INDEX IF NOT EXISTS idx_background_processes_owner_updated
+    ON background_processes(owner_session_id, updated_at);
+
+CREATE INDEX IF NOT EXISTS idx_background_processes_state_updated
+    ON background_processes(state, updated_at);
 
 CREATE TABLE IF NOT EXISTS knowledge_sources (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -344,6 +372,44 @@ def ensure_schema_upgrades(conn: sqlite3.Connection) -> None:
             if column_name in work_state_columns:
                 continue
             conn.execute(f"ALTER TABLE work_states ADD COLUMN {column_name} {column_type}")
+
+    if not table_exists(conn, "background_processes"):
+        conn.execute(
+            """
+            CREATE TABLE background_processes (
+                process_session_id TEXT PRIMARY KEY,
+                owner_session_id TEXT NOT NULL REFERENCES chats(session_id) ON DELETE CASCADE,
+                owner_run_id TEXT,
+                owner_channel TEXT,
+                owner_external_chat_id TEXT,
+                pid INTEGER,
+                command TEXT NOT NULL,
+                cwd TEXT,
+                state TEXT NOT NULL,
+                termination_reason TEXT,
+                exit_code INTEGER,
+                notify_mode TEXT NOT NULL DEFAULT 'agent_summary',
+                output_tail TEXT NOT NULL DEFAULT '',
+                output_path TEXT,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                started_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                finished_at REAL
+            )
+            """
+        )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_background_processes_owner_updated
+        ON background_processes(owner_session_id, updated_at)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_background_processes_state_updated
+        ON background_processes(state, updated_at)
+        """
+    )
 
 
 def ensure_chat_row(
@@ -841,6 +907,32 @@ class SQLiteStorage(StorageProvider):
             updated_at=float(row["updated_at"] or 0),
         )
 
+    @staticmethod
+    def _row_to_background_process(row: sqlite3.Row | None) -> StoredBackgroundProcess | None:
+        """Convert one background-process row into a StoredBackgroundProcess object."""
+        if row is None:
+            return None
+        return StoredBackgroundProcess(
+            process_session_id=str(row["process_session_id"]),
+            owner_session_id=str(row["owner_session_id"]),
+            owner_run_id=row["owner_run_id"],
+            owner_channel=row["owner_channel"],
+            owner_external_chat_id=row["owner_external_chat_id"],
+            pid=None if row["pid"] is None else int(row["pid"]),
+            command=str(row["command"]),
+            cwd=row["cwd"],
+            state=str(row["state"]),
+            termination_reason=row["termination_reason"],
+            exit_code=None if row["exit_code"] is None else int(row["exit_code"]),
+            notify_mode=str(row["notify_mode"] or "agent_summary"),
+            output_tail=str(row["output_tail"] or ""),
+            output_path=row["output_path"],
+            metadata=_load_metadata(row["metadata_json"]),
+            started_at=float(row["started_at"] or 0),
+            updated_at=float(row["updated_at"] or 0),
+            finished_at=None if row["finished_at"] is None else float(row["finished_at"]),
+        )
+
     async def get_messages(self, session_id: str, limit: int | None = None) -> list[StoredMessage]:
         """Return the persisted messages for one chat."""
         async with self._lock:
@@ -1091,6 +1183,143 @@ class SQLiteStorage(StorageProvider):
                     (session_id, run_id),
                 ).fetchone()
                 return self._row_to_run(row)
+            finally:
+                conn.close()
+
+    async def upsert_background_process(
+        self,
+        process: StoredBackgroundProcess,
+    ) -> StoredBackgroundProcess | None:
+        """Create or update persisted metadata for one managed background process."""
+        async with self._lock:
+            conn = self._get_conn()
+            try:
+                started_at = float(process.started_at or time.time())
+                updated_at = float(process.updated_at or time.time())
+                ensure_chat_row(conn, process.owner_session_id, created_at=started_at, updated_at=updated_at)
+                existing = conn.execute(
+                    "SELECT started_at FROM background_processes WHERE process_session_id = ?",
+                    (process.process_session_id,),
+                ).fetchone()
+                if existing is not None and existing["started_at"] is not None:
+                    started_at = float(existing["started_at"])
+                conn.execute(
+                    """
+                    INSERT INTO background_processes (
+                        process_session_id,
+                        owner_session_id,
+                        owner_run_id,
+                        owner_channel,
+                        owner_external_chat_id,
+                        pid,
+                        command,
+                        cwd,
+                        state,
+                        termination_reason,
+                        exit_code,
+                        notify_mode,
+                        output_tail,
+                        output_path,
+                        metadata_json,
+                        started_at,
+                        updated_at,
+                        finished_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(process_session_id) DO UPDATE SET
+                        owner_session_id = excluded.owner_session_id,
+                        owner_run_id = excluded.owner_run_id,
+                        owner_channel = excluded.owner_channel,
+                        owner_external_chat_id = excluded.owner_external_chat_id,
+                        pid = excluded.pid,
+                        command = excluded.command,
+                        cwd = excluded.cwd,
+                        state = excluded.state,
+                        termination_reason = excluded.termination_reason,
+                        exit_code = excluded.exit_code,
+                        notify_mode = excluded.notify_mode,
+                        output_tail = excluded.output_tail,
+                        output_path = excluded.output_path,
+                        metadata_json = excluded.metadata_json,
+                        updated_at = excluded.updated_at,
+                        finished_at = excluded.finished_at
+                    """,
+                    (
+                        process.process_session_id,
+                        process.owner_session_id,
+                        process.owner_run_id,
+                        process.owner_channel,
+                        process.owner_external_chat_id,
+                        process.pid,
+                        process.command,
+                        process.cwd,
+                        process.state,
+                        process.termination_reason,
+                        process.exit_code,
+                        process.notify_mode,
+                        process.output_tail,
+                        process.output_path,
+                        json.dumps(json_safe(process.metadata or {}), ensure_ascii=False),
+                        started_at,
+                        updated_at,
+                        process.finished_at,
+                    ),
+                )
+                conn.commit()
+                row = conn.execute(
+                    "SELECT * FROM background_processes WHERE process_session_id = ?",
+                    (process.process_session_id,),
+                ).fetchone()
+                return self._row_to_background_process(row)
+            finally:
+                conn.close()
+
+    async def get_background_process(self, process_session_id: str) -> StoredBackgroundProcess | None:
+        """Return one persisted background process by process session id."""
+        async with self._lock:
+            conn = self._get_conn()
+            try:
+                row = conn.execute(
+                    "SELECT * FROM background_processes WHERE process_session_id = ?",
+                    (process_session_id,),
+                ).fetchone()
+                return self._row_to_background_process(row)
+            finally:
+                conn.close()
+
+    async def list_background_processes(
+        self,
+        *,
+        owner_session_id: str | None = None,
+        states: tuple[str, ...] | None = None,
+        limit: int | None = None,
+    ) -> list[StoredBackgroundProcess]:
+        """Return persisted background processes from newest to oldest."""
+        async with self._lock:
+            conn = self._get_conn()
+            try:
+                clauses: list[str] = []
+                params: list[Any] = []
+                if owner_session_id is not None:
+                    clauses.append("owner_session_id = ?")
+                    params.append(owner_session_id)
+                if states:
+                    placeholders = ", ".join("?" for _ in states)
+                    clauses.append(f"state IN ({placeholders})")
+                    params.extend(states)
+                query = "SELECT * FROM background_processes"
+                if clauses:
+                    query += " WHERE " + " AND ".join(clauses)
+                query += " ORDER BY updated_at DESC, process_session_id DESC"
+                if limit is not None:
+                    query += " LIMIT ?"
+                    params.append(int(limit))
+                rows = conn.execute(query, tuple(params)).fetchall()
+                return [
+                    process
+                    for process in (self._row_to_background_process(row) for row in rows)
+                    if process is not None
+                ]
             finally:
                 conn.close()
 

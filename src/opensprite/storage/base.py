@@ -95,6 +95,30 @@ class StoredRunTrace:
 
 
 @dataclass
+class StoredBackgroundProcess:
+    """Persisted metadata for one managed background shell process."""
+
+    process_session_id: str
+    owner_session_id: str
+    command: str
+    state: str
+    started_at: float
+    updated_at: float
+    owner_run_id: str | None = None
+    owner_channel: str | None = None
+    owner_external_chat_id: str | None = None
+    pid: int | None = None
+    cwd: str | None = None
+    termination_reason: str | None = None
+    exit_code: int | None = None
+    notify_mode: str = "agent_summary"
+    output_tail: str = ""
+    output_path: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    finished_at: float | None = None
+
+
+@dataclass
 class StoredDelegatedTask:
     """Persisted delegated child-task status for one parent session."""
 
@@ -449,6 +473,27 @@ class StorageProvider(ABC):
             parts=await self.get_run_parts(session_id, run_id),
             file_changes=await self.get_run_file_changes(session_id, run_id),
         )
+
+    async def upsert_background_process(
+        self,
+        process: StoredBackgroundProcess,
+    ) -> StoredBackgroundProcess | None:
+        """Create or update persisted background process metadata when supported."""
+        return None
+
+    async def get_background_process(self, process_session_id: str) -> StoredBackgroundProcess | None:
+        """Return one persisted background process by process session id when supported."""
+        return None
+
+    async def list_background_processes(
+        self,
+        *,
+        owner_session_id: str | None = None,
+        states: tuple[str, ...] | None = None,
+        limit: int | None = None,
+    ) -> list[StoredBackgroundProcess]:
+        """Return persisted background processes from newest to oldest when supported."""
+        return []
 
     async def get_work_state(self, session_id: str) -> StoredWorkState | None:
         """Return persisted structured work state for one chat when supported."""

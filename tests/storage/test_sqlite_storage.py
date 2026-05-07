@@ -2,7 +2,12 @@ import asyncio
 import json
 import sqlite3
 
-from opensprite.storage.base import StoredDelegatedTask, StoredMessage, StoredWorkState
+from opensprite.storage.base import (
+    StoredBackgroundProcess,
+    StoredDelegatedTask,
+    StoredMessage,
+    StoredWorkState,
+)
 from opensprite.storage.sqlite import SQLiteStorage
 
 
@@ -364,3 +369,83 @@ def test_sqlite_work_state_backfills_delegated_tasks_from_legacy_active_fields(t
     assert work_state.delegated_tasks[0].task_id == "task_legacy123"
     assert work_state.delegated_tasks[0].prompt_type == "implementer"
     assert work_state.delegated_tasks[0].selected is True
+
+
+def test_sqlite_storage_persists_background_processes(tmp_path):
+    async def scenario():
+        storage = SQLiteStorage(tmp_path / "background-processes.db")
+        started = await storage.upsert_background_process(
+            StoredBackgroundProcess(
+                process_session_id="proc-1",
+                owner_session_id="chat-1",
+                owner_run_id="run-1",
+                owner_channel="web",
+                owner_external_chat_id="external-1",
+                pid=1234,
+                command="python -m pytest",
+                cwd="C:/repo",
+                state="running",
+                notify_mode="agent_summary",
+                output_tail="collecting tests",
+                output_path="C:/repo/.opensprite/proc-1.log",
+                metadata={"source": "shell"},
+                started_at=10.0,
+                updated_at=11.0,
+            )
+        )
+        finished = await storage.upsert_background_process(
+            StoredBackgroundProcess(
+                process_session_id="proc-1",
+                owner_session_id="chat-1",
+                owner_run_id="run-1",
+                owner_channel="web",
+                owner_external_chat_id="external-1",
+                pid=1234,
+                command="python -m pytest",
+                cwd="C:/repo",
+                state="completed",
+                termination_reason="exited",
+                exit_code=0,
+                notify_mode="agent_summary",
+                output_tail="2 passed",
+                output_path="C:/repo/.opensprite/proc-1.log",
+                metadata={"source": "shell", "summary_requested": True},
+                started_at=12.0,
+                updated_at=13.0,
+                finished_at=14.0,
+            )
+        )
+        await storage.upsert_background_process(
+            StoredBackgroundProcess(
+                process_session_id="proc-2",
+                owner_session_id="chat-2",
+                command="npm run build",
+                state="running",
+                started_at=20.0,
+                updated_at=21.0,
+            )
+        )
+        loaded = await storage.get_background_process("proc-1")
+        owner_processes = await storage.list_background_processes(owner_session_id="chat-1")
+        running_processes = await storage.list_background_processes(states=("running",))
+        limited_processes = await storage.list_background_processes(limit=1)
+        chats = await storage.get_all_sessions()
+        return started, finished, loaded, owner_processes, running_processes, limited_processes, chats
+
+    started, finished, loaded, owner_processes, running_processes, limited_processes, chats = asyncio.run(scenario())
+
+    assert started is not None
+    assert started.state == "running"
+    assert started.started_at == 10.0
+    assert finished is not None
+    assert finished.state == "completed"
+    assert finished.started_at == 10.0
+    assert finished.finished_at == 14.0
+    assert loaded is not None
+    assert loaded.exit_code == 0
+    assert loaded.output_tail == "2 passed"
+    assert loaded.metadata == {"source": "shell", "summary_requested": True}
+    assert [process.process_session_id for process in owner_processes] == ["proc-1"]
+    assert [process.process_session_id for process in running_processes] == ["proc-2"]
+    assert [process.process_session_id for process in limited_processes] == ["proc-2"]
+    assert chats == ["chat-1", "chat-2"]
