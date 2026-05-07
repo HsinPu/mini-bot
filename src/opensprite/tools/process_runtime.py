@@ -121,7 +121,7 @@ class BackgroundProcessManager:
         )
         session.watch_task = asyncio.create_task(self._watch_session(session))
         self._sessions[session.session_id] = session
-        self._schedule_persist_session(session)
+        self._schedule_persist_session(session, event_type="background_process.started")
         return session
 
     def _stored_process_for_session(self, session: BackgroundSession) -> StoredBackgroundProcess | None:
@@ -151,25 +151,67 @@ class BackgroundProcessManager:
             finished_at=session.finished_at_wall,
         )
 
-    async def _persist_session(self, session: BackgroundSession) -> None:
+    @staticmethod
+    def _event_payload_for_process(process: StoredBackgroundProcess) -> dict[str, object]:
+        return {
+            "process_session_id": process.process_session_id,
+            "command": process.command,
+            "cwd": process.cwd,
+            "pid": process.pid,
+            "state": process.state,
+            "termination_reason": process.termination_reason,
+            "exit_code": process.exit_code,
+            "notify_mode": process.notify_mode,
+            "output_tail": process.output_tail,
+        }
+
+    async def _persist_stored_process(
+        self,
+        stored_process: StoredBackgroundProcess,
+        *,
+        event_type: str | None = None,
+    ) -> StoredBackgroundProcess | None:
         if self.storage is None:
+            return None
+        try:
+            persisted = await self.storage.upsert_background_process(stored_process)
+            if persisted is not None and event_type and persisted.owner_run_id:
+                run = await self.storage.get_run(persisted.owner_session_id, persisted.owner_run_id)
+                if run is not None:
+                    await self.storage.add_run_event(
+                        persisted.owner_session_id,
+                        persisted.owner_run_id,
+                        event_type,
+                        payload=self._event_payload_for_process(persisted),
+                        created_at=persisted.updated_at,
+                    )
+            return persisted
+        except Exception:
+            logger.exception(
+                "background.process.persist-failed | session_id={} state={}",
+                stored_process.process_session_id,
+                stored_process.state,
+            )
+            return None
+
+    async def _persist_session(
+        self,
+        session: BackgroundSession,
+        *,
+        event_type: str | None = None,
+    ) -> None:
+        stored_process = self._stored_process_for_session(session)
+        if stored_process is None:
+            return
+        await self._persist_stored_process(stored_process, event_type=event_type)
+
+    def _schedule_persist_session(self, session: BackgroundSession, *, event_type: str | None = None) -> None:
+        if self.storage is None or session.owner_session_id is None:
             return
         stored_process = self._stored_process_for_session(session)
         if stored_process is None:
             return
-        try:
-            await self.storage.upsert_background_process(stored_process)
-        except Exception:
-            logger.exception(
-                "background.process.persist-failed | session_id={} state={}",
-                session.session_id,
-                session.state,
-            )
-
-    def _schedule_persist_session(self, session: BackgroundSession) -> None:
-        if self.storage is None or session.owner_session_id is None:
-            return
-        asyncio.create_task(self._persist_session(session))
+        asyncio.create_task(self._persist_stored_process(stored_process, event_type=event_type))
 
     async def mark_lost_persisted_sessions(self) -> int:
         """Mark persisted running sessions as lost after a runtime restart."""
@@ -189,7 +231,7 @@ class BackgroundProcessManager:
                 finished_at=now,
                 metadata=metadata,
             )
-            stored = await self.storage.upsert_background_process(updated)
+            stored = await self._persist_stored_process(updated, event_type="background_process.lost")
             if stored is not None:
                 marked += 1
         if marked:
@@ -260,7 +302,7 @@ class BackgroundProcessManager:
             session.finished_at = time.monotonic()
             session.finished_at_wall = time.time()
             self._prune_exited_sessions()
-            await self._persist_session(session)
+            await self._persist_session(session, event_type="background_process.completed")
             if self._should_notify_on_exit(session):
                 try:
                     await session.exit_notifier(session)

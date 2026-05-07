@@ -124,6 +124,7 @@ def test_exec_tool_persists_background_session_lifecycle(tmp_path):
     )
 
     async def run():
+        await storage.create_run("chat-1", "run-1", status="running", created_at=1.0)
         result = await tool.execute(
             command=_python_shell_command("print('persisted background', flush=True)"),
             background=True,
@@ -137,9 +138,14 @@ def test_exec_tool_persists_background_session_lifecycle(tmp_path):
             await asyncio.sleep(0.05)
             session = (await manager.list_sessions())[0]
         stored = await storage.get_background_process(session.session_id)
-        return result, session, stored
+        events = await storage.get_run_events("chat-1", "run-1")
+        deadline = time.time() + 5
+        while len(events) < 2 and time.time() < deadline:
+            await asyncio.sleep(0.05)
+            events = await storage.get_run_events("chat-1", "run-1")
+        return result, session, stored, events
 
-    result, session, stored = asyncio.run(run())
+    result, session, stored, events = asyncio.run(run())
 
     assert "Background session started." in result
     assert session.state == "exited"
@@ -150,6 +156,12 @@ def test_exec_tool_persists_background_session_lifecycle(tmp_path):
     assert stored.exit_code == 0
     assert stored.notify_mode == "none"
     assert "persisted background" in stored.output_tail
+    assert [event.event_type for event in events] == [
+        "background_process.started",
+        "background_process.completed",
+    ]
+    assert events[-1].payload["process_session_id"] == session.session_id
+    assert events[-1].payload["exit_code"] == 0
 
 
 def test_background_process_manager_marks_persisted_running_sessions_lost(tmp_path):
@@ -161,10 +173,12 @@ def test_background_process_manager_marks_persisted_running_sessions_lost(tmp_pa
     manager = BackgroundProcessManager(storage=storage)
 
     async def run():
+        await storage.create_run("chat-1", "run-1", status="running", created_at=1.0)
         await storage.upsert_background_process(
             StoredBackgroundProcess(
                 process_session_id="proc-running",
                 owner_session_id="chat-1",
+                owner_run_id="run-1",
                 command="npm run dev",
                 state="running",
                 pid=1234,
@@ -188,9 +202,10 @@ def test_background_process_manager_marks_persisted_running_sessions_lost(tmp_pa
         marked = await manager.mark_lost_persisted_sessions()
         lost = await storage.get_background_process("proc-running")
         exited = await storage.get_background_process("proc-exited")
-        return marked, lost, exited
+        events = await storage.get_run_events("chat-1", "run-1")
+        return marked, lost, exited, events
 
-    marked, lost, exited = asyncio.run(run())
+    marked, lost, exited, events = asyncio.run(run())
 
     assert marked == 1
     assert lost is not None
@@ -201,6 +216,8 @@ def test_background_process_manager_marks_persisted_running_sessions_lost(tmp_pa
     assert lost.metadata == {"source": "test", "recovery_reason": "runtime_restart"}
     assert exited is not None
     assert exited.state == "exited"
+    assert [event.event_type for event in events] == ["background_process.lost"]
+    assert events[0].payload["process_session_id"] == "proc-running"
 
 
 def test_exec_tool_preserves_stdout_stderr_order(tmp_path):
