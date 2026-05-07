@@ -15,5 +15,8 @@ venv/
 apps/web/node_modules/
 apps/web/dist/
 
+# local agent instructions
+AGENTS.md
+
 # opensprite runtime data (should live in user home)
 ~/.opensprite/
