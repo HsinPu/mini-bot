@@ -1259,14 +1259,9 @@
                   <span>{{ session.session_id }}</span>
                   <span>{{ copy.settings.data.sessionMeta(session.channel || 'unknown', session.message_count || 0, formatTimestamp(session.updated_at)) }}</span>
                 </div>
-              </div>
-              <div v-if="session.messages?.length" class="settings-card settings-card--form">
-                <div v-for="message in session.messages" :key="`${session.session_id}:${message.created_at}:${message.role}`" class="settings-row">
-                  <div>
-                    <strong>{{ copy.settings.data.messageRole(message.role) }}</strong>
-                    <span>{{ previewMessage(message.content) }}</span>
-                  </div>
-                </div>
+                <button class="provider-row__action" type="button" @click="openDataSessionDialog(session)">
+                  {{ copy.settings.data.maintain }}
+                </button>
               </div>
             </div>
           </div>
@@ -1604,12 +1599,81 @@
           </button>
         </form>
       </div>
+
+      <div v-if="selectedDataSession" class="provider-connect-dialog" role="dialog" aria-modal="true">
+        <header class="provider-connect-dialog__top">
+          <button
+            class="provider-connect-dialog__icon-button"
+            type="button"
+            :aria-label="copy.settings.data.backToList"
+            @click="closeDataSessionDialog"
+          >
+            ←
+          </button>
+          <button
+            class="provider-connect-dialog__icon-button"
+            type="button"
+            :aria-label="copy.settings.closeAria"
+            @click="closeDataSessionDialog"
+          >
+            ×
+          </button>
+        </header>
+
+        <div class="provider-connect-dialog__body">
+          <div class="provider-connect-dialog__title">
+            <span class="provider-row__mark" aria-hidden="true">{{ selectedDataSession.channel?.slice(0, 2).toUpperCase() || 'OS' }}</span>
+            <h3>{{ copy.settings.data.maintenanceTitle }}</h3>
+          </div>
+
+          <p>{{ copy.settings.data.maintenanceDescription }}</p>
+
+          <div class="settings-card">
+            <div class="settings-row">
+              <div>
+                <strong>{{ selectedDataSession.title || selectedDataSession.session_id }}</strong>
+                <span>{{ selectedDataSession.session_id }}</span>
+              </div>
+              <span class="provider-row__badge">{{ selectedDataSession.channel || copy.settings.data.unknown }}</span>
+            </div>
+            <div class="settings-row">
+              <div>
+                <strong>{{ copy.settings.data.messageCount }}</strong>
+                <span>{{ selectedDataSession.message_count || 0 }}</span>
+              </div>
+            </div>
+            <div class="settings-row">
+              <div>
+                <strong>{{ copy.settings.data.updatedAt }}</strong>
+                <span>{{ formatTimestamp(selectedDataSession.updated_at) }}</span>
+              </div>
+            </div>
+          </div>
+
+          <h3>{{ copy.settings.data.previewTitle }}</h3>
+          <div class="settings-card">
+            <div v-if="!selectedDataSession.messages?.length" class="provider-row provider-row--empty">
+              <div>
+                <strong>{{ copy.settings.data.noMessagesTitle }}</strong>
+                <span>{{ copy.settings.data.noMessagesDescription }}</span>
+              </div>
+            </div>
+            <div v-for="message in selectedDataSession.messages" :key="`${selectedDataSession.session_id}:${message.created_at}:${message.role}`" class="settings-row">
+              <div>
+                <strong>{{ copy.settings.data.messageRole(message.role) }}</strong>
+                <span>{{ previewMessage(message.content) }}</span>
+                <span>{{ formatTimestamp(message.created_at) }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
   </div>
 </template>
 
 <script setup>
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import CuratorSettingsPage from "./CuratorSettingsPage.vue";
 
 const props = defineProps({
@@ -1650,6 +1714,16 @@ const props = defineProps({
     default: null,
   },
 });
+
+const selectedDataSession = ref(null);
+
+function openDataSessionDialog(session) {
+  selectedDataSession.value = session;
+}
+
+function closeDataSessionDialog() {
+  selectedDataSession.value = null;
+}
 
 const selectedConnectProvider = computed(() => {
   const providerId = props.settingsState.connectForm.providerId;

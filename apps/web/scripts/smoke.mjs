@@ -98,6 +98,8 @@ assertIncludes(settingsModal, "credentialSourceLabel", "credential source status
 assertIncludes(settingsModal, "set-provider-credential", "provider credential selection event");
 assertIncludes(settingsModal, "section === 'data'", "data settings section");
 assertIncludes(settingsModal, "settingsState.dataSessions", "data session rendering");
+assertIncludes(settingsModal, "selectedDataSession", "data maintenance dialog state");
+assertIncludes(settingsModal, "copy.settings.data.maintenanceTitle", "data maintenance dialog copy");
 assertOrder(settingsModal, "section === 'providers'", "copy.settings.providers.copilotAuth.title", "Copilot auth provider placement");
 assertIncludes(chatClient, "/api/commands", "command catalog fetch");
 assertIncludes(settingsLogic, "/api/settings/media", "media model settings fetch");
