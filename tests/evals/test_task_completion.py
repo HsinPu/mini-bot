@@ -58,6 +58,37 @@ def test_task_completion_case_reports_failed_checks():
     }
 
 
+def test_task_completion_case_requires_response_ending():
+    passing = evaluate_task_completion_case(
+        {
+            "id": "ending",
+            "expected_completion_status": "complete",
+            "must_end_with": "final line",
+        },
+        {
+            "response_text": "first line\nfinal line",
+            "completion_status": "complete",
+            "had_tool_error": False,
+        },
+    )
+    failing = evaluate_task_completion_case(
+        {
+            "id": "ending",
+            "expected_completion_status": "complete",
+            "must_end_with": "final line",
+        },
+        {
+            "response_text": "first line\nfinal line\nextra text",
+            "completion_status": "complete",
+            "had_tool_error": False,
+        },
+    )
+
+    assert passing["ok"] is True
+    assert failing["ok"] is False
+    assert "must_end_with_final_line" in {check["id"] for check in failing["checks"] if not check["ok"]}
+
+
 def test_task_completion_smoke_runs_fixed_cases():
     payload = run_task_completion_smoke()
 
@@ -86,7 +117,17 @@ async def _run_live_task_completion_eval_scores_agent_result():
 
         async def process(self, user_message):
             self.seen_messages.append(user_message)
-            run_id = "run-live"
+            case_id = user_message.metadata["eval_case_id"]
+            run_id = f"run-{case_id}"
+            response_text = {
+                "literal_instruction": "alpha beta gamma",
+                "multi_step_completion": (
+                    "1. 問題是回答可能在完成所有要求前就停住。\n"
+                    "2. 可能原因：流程誤判完成；續跑條件沒有觸發。\n"
+                    "3. 最後確認三個步驟都已輸出。\n"
+                    "結論：已完成三步驟回答"
+                ),
+            }[case_id]
             await storage.create_run(user_message.session_id, run_id, status="running", created_at=1.0)
             await storage.add_run_event(
                 user_message.session_id,
@@ -110,7 +151,7 @@ async def _run_live_task_completion_eval_scores_agent_result():
                 finished_at=3.0,
             )
             return AssistantMessage(
-                text="alpha beta gamma",
+                text=response_text,
                 channel=user_message.channel,
                 external_chat_id=user_message.external_chat_id,
                 session_id=user_message.session_id,
@@ -121,21 +162,28 @@ async def _run_live_task_completion_eval_scores_agent_result():
 
     assert payload["ok"] is True
     assert payload["live"] is True
-    assert payload["summary"]["passed_cases"] == payload["summary"]["total_cases"] == 1
+    assert payload["summary"]["passed_cases"] == payload["summary"]["total_cases"] == 2
     assert payload["summary"]["passed_checks"] == payload["summary"]["total_checks"]
     assert agent.seen_messages[0].metadata == {
         "eval_kind": "task_completion",
         "eval_case_id": "literal_instruction",
     }
-    [case] = payload["cases"]
-    assert case["id"] == "literal_instruction"
-    assert case["run_id"] == "run-live"
-    assert case["eval_id"].startswith("eval_")
-    assert case["completion_status"] == "complete"
-    assert case["response_preview"] == "alpha beta gamma"
+    assert agent.seen_messages[1].metadata == {
+        "eval_kind": "task_completion",
+        "eval_case_id": "multi_step_completion",
+    }
+    cases_by_id = {case["id"]: case for case in payload["cases"]}
+    assert set(cases_by_id) == {"literal_instruction", "multi_step_completion"}
+    assert cases_by_id["literal_instruction"]["run_id"] == "run-literal_instruction"
+    assert cases_by_id["literal_instruction"]["eval_id"].startswith("eval_")
+    assert cases_by_id["literal_instruction"]["completion_status"] == "complete"
+    assert cases_by_id["literal_instruction"]["response_preview"] == "alpha beta gamma"
+    assert cases_by_id["multi_step_completion"]["run_id"] == "run-multi_step_completion"
+    assert cases_by_id["multi_step_completion"]["response_preview"].endswith("結論：已完成三步驟回答")
     history = await storage.list_eval_runs(kind="task_completion", limit=10)
-    assert len(history) == 1
-    assert history[0].eval_id == case["eval_id"]
-    assert history[0].case_id == "literal_instruction"
-    assert history[0].summary["text"] == case["summary"]
-    assert history[0].response_preview == "alpha beta gamma"
+    assert len(history) == 2
+    history_by_case = {item.case_id: item for item in history}
+    assert history_by_case["literal_instruction"].eval_id == cases_by_id["literal_instruction"]["eval_id"]
+    assert history_by_case["literal_instruction"].summary["text"] == cases_by_id["literal_instruction"]["summary"]
+    assert history_by_case["literal_instruction"].response_preview == "alpha beta gamma"
+    assert history_by_case["multi_step_completion"].eval_id == cases_by_id["multi_step_completion"]["eval_id"]

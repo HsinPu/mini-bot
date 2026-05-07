@@ -62,6 +62,24 @@ TASK_COMPLETION_LIVE_CASES: tuple[dict[str, Any], ...] = (
         "require_run_trace": True,
         "max_response_chars": 120,
     },
+    {
+        "id": "multi_step_completion",
+        "label": "Multi-step completion answer",
+        "prompt": (
+            "請完成一個三步驟回答：\n"
+            "1. 用一句話說明問題\n"
+            "2. 列出兩個可能原因\n"
+            "3. 最後用「結論：已完成三步驟回答」作為最後一行\n\n"
+            "請不要省略任何步驟。"
+        ),
+        "expected_completion_status": "complete",
+        "must_include": ("1.", "2.", "3.", "可能原因", "結論：已完成三步驟回答"),
+        "must_not_include": ("我會", "稍後", "正在", "請稍候"),
+        "must_end_with": "結論：已完成三步驟回答",
+        "require_no_tool_error": True,
+        "require_run_trace": True,
+        "max_response_chars": 800,
+    },
 )
 
 
@@ -207,6 +225,18 @@ def evaluate_task_completion_case(case: Mapping[str, Any], result: Mapping[str, 
             )
         )
 
+    must_end_with = _string(case.get("must_end_with"))
+    if must_end_with:
+        ends_with = _ends_with(response_text, must_end_with)
+        checks.append(
+            _check(
+                f"must_end_with_{_slug(must_end_with)}",
+                f"Response ends with `{must_end_with}`",
+                ends_with,
+                "Required ending was found." if ends_with else "Required ending was missing.",
+            )
+        )
+
     for phrase in _string_sequence(case.get("must_include")):
         found = _contains(response_text, phrase)
         checks.append(
@@ -345,6 +375,10 @@ def _check(check_id: str, label: str, ok: bool, detail: str) -> dict[str, Any]:
 
 def _contains(text: str, phrase: str) -> bool:
     return _normalize(phrase) in _normalize(text)
+
+
+def _ends_with(text: str, phrase: str) -> bool:
+    return _normalize(text).endswith(_normalize(phrase))
 
 
 def _normalize(text: str) -> str:

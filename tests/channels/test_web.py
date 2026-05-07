@@ -1234,7 +1234,17 @@ async def _run_web_task_completion_live_eval_api():
 
         async def process(self, user_message):
             self.seen_messages.append(user_message)
-            run_id = "run-live"
+            case_id = user_message.metadata["eval_case_id"]
+            run_id = f"run-{case_id}"
+            response_text = {
+                "literal_instruction": "alpha beta gamma",
+                "multi_step_completion": (
+                    "1. 問題是回答可能在完成所有要求前就停住。\n"
+                    "2. 可能原因：流程誤判完成；續跑條件沒有觸發。\n"
+                    "3. 最後確認三個步驟都已輸出。\n"
+                    "結論：已完成三步驟回答"
+                ),
+            }[case_id]
             await storage.create_run(user_message.session_id, run_id, status="running", created_at=1.0)
             await storage.add_run_event(
                 user_message.session_id,
@@ -1258,7 +1268,7 @@ async def _run_web_task_completion_live_eval_api():
                 finished_at=3.0,
             )
             return AssistantMessage(
-                text="alpha beta gamma",
+                text=response_text,
                 channel="web",
                 external_chat_id=user_message.external_chat_id,
                 session_id=user_message.session_id,
@@ -1294,15 +1304,20 @@ async def _run_web_task_completion_live_eval_api():
 
         assert payload["ok"] is True
         assert payload["live"] is True
-        assert payload["summary"]["passed_cases"] == 1
-        assert payload["cases"][0]["run_id"] == "run-live"
-        assert payload["cases"][0]["eval_id"].startswith("eval_")
-        assert payload["cases"][0]["completion_status"] == "complete"
-        assert history_payload["history"][0]["eval_id"] == payload["cases"][0]["eval_id"]
-        assert history_payload["history"][0]["case_id"] == "literal_instruction"
-        assert history_payload["history"][0]["response_preview"] == "alpha beta gamma"
+        assert payload["summary"]["passed_cases"] == 2
+        cases_by_id = {case["id"]: case for case in payload["cases"]}
+        assert set(cases_by_id) == {"literal_instruction", "multi_step_completion"}
+        assert cases_by_id["literal_instruction"]["run_id"] == "run-literal_instruction"
+        assert cases_by_id["literal_instruction"]["eval_id"].startswith("eval_")
+        assert cases_by_id["literal_instruction"]["completion_status"] == "complete"
+        assert cases_by_id["multi_step_completion"]["run_id"] == "run-multi_step_completion"
+        history_by_case = {item["case_id"]: item for item in history_payload["history"]}
+        assert history_by_case["literal_instruction"]["eval_id"] == cases_by_id["literal_instruction"]["eval_id"]
+        assert history_by_case["literal_instruction"]["response_preview"] == "alpha beta gamma"
+        assert history_by_case["multi_step_completion"]["eval_id"] == cases_by_id["multi_step_completion"]["eval_id"]
         assert agent.seen_messages[0].channel == "web"
         assert agent.seen_messages[0].external_chat_id.startswith("eval-task-completion-literal_instruction-")
+        assert agent.seen_messages[1].external_chat_id.startswith("eval-task-completion-multi_step_completion-")
     finally:
         adapter_task.cancel()
         try:
