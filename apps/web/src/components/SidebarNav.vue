@@ -67,6 +67,9 @@
         </div>
       </section>
 
+    </div>
+
+    <div class="sidebar__bottom">
       <BackgroundProcessSidebar
         :copy="copy"
         :processes="backgroundProcesses.processes"
@@ -78,9 +81,7 @@
         @select-run="$emit('select-background-process', $event)"
         @refresh="$emit('refresh-background-processes')"
       />
-    </div>
 
-    <div class="sidebar__bottom">
       <button class="settings-button" type="button" :title="copy.sidebar.settings" @click="$emit('open-settings')">
         <span class="settings-button__avatar" aria-hidden="true">OS</span>
         <span class="settings-button__copy">
