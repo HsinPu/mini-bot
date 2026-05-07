@@ -1,9 +1,14 @@
 import json
 import asyncio
+import socket
 
 import pytest
 
-from opensprite.tools.web_fetch import WebFetcher, WebFetchTool
+from opensprite.tools.web_fetch import WebFetcher, WebFetchTool, _do_fetch, validate_url
+
+
+def _public_getaddrinfo(host, port=None, *args, **kwargs):
+    return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port or 443))]
 
 
 class _FakeFetcher:
@@ -114,12 +119,102 @@ def test_web_fetch_execute_allows_max_chars_override(monkeypatch):
     assert created_fetchers[-1].max_chars == 4321
 
 
-def test_web_fetcher_enforces_configured_response_size(monkeypatch):
-    monkeypatch.setattr(
-        "opensprite.tools.web_fetch.fetch_url",
-        lambda *args, **kwargs: ("text/plain", b"abc", 200),
-    )
+def test_web_fetcher_passes_configured_response_size_to_fetch_layer(monkeypatch):
+    captured = {}
+
+    def fake_fetch_url(*args, **kwargs):
+        captured["max_response_size"] = args[3]
+        return "text/plain", b"ab", 200, "https://example.com"
+
+    monkeypatch.setattr("opensprite.tools.web_fetch.fetch_url", fake_fetch_url)
     fetcher = WebFetcher(max_response_size=2)
 
-    with pytest.raises(Exception, match="exceeds 2 bytes limit"):
-        fetcher.fetch("https://example.com")
+    fetcher.fetch("https://example.com")
+
+    assert captured["max_response_size"] == 2
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.0.0.1:8765",
+        "http://localhost",
+        "http://10.0.0.1",
+        "http://192.168.1.1",
+        "http://172.16.0.1",
+        "http://169.254.169.254/latest/meta-data",
+    ],
+)
+def test_validate_url_blocks_private_targets(url):
+    with pytest.raises(Exception, match="blocked non-public IP address"):
+        validate_url(url)
+
+
+def test_validate_url_blocks_hosts_that_resolve_private(monkeypatch):
+    monkeypatch.setattr(
+        "opensprite.tools.web_fetch.socket.getaddrinfo",
+        lambda *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 80))],
+    )
+
+    with pytest.raises(Exception, match="blocked non-public IP address"):
+        validate_url("https://example.com")
+
+
+def test_do_fetch_blocks_private_final_url(monkeypatch):
+    class FakeResponse:
+        status = 200
+        headers = {"Content-Type": "text/plain"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def geturl(self):
+            return "http://127.0.0.1/private"
+
+        def read(self, size=-1):
+            return b"ok"
+
+    class FakeOpener:
+        def open(self, *args, **kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr("opensprite.tools.web_fetch.socket.getaddrinfo", _public_getaddrinfo)
+    monkeypatch.setattr("opensprite.tools.web_fetch.build_opener", lambda *args, **kwargs: FakeOpener())
+
+    with pytest.raises(Exception, match="blocked non-public IP address"):
+        _do_fetch("https://example.com", 30, "test-agent", 1024)
+
+
+def test_do_fetch_stops_reading_when_response_exceeds_limit(monkeypatch):
+    class FakeResponse:
+        status = 200
+        headers = {"Content-Type": "text/plain"}
+
+        def __init__(self):
+            self.reads = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def geturl(self):
+            return "https://example.com/large"
+
+        def read(self, size=-1):
+            self.reads += 1
+            return b"abc" if self.reads == 1 else b"def"
+
+    class FakeOpener:
+        def open(self, *args, **kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr("opensprite.tools.web_fetch.socket.getaddrinfo", _public_getaddrinfo)
+    monkeypatch.setattr("opensprite.tools.web_fetch.build_opener", lambda *args, **kwargs: FakeOpener())
+
+    with pytest.raises(Exception, match="exceeds 5 bytes limit"):
+        _do_fetch("https://example.com/large", 30, "test-agent", 5)

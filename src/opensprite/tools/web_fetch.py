@@ -167,8 +167,11 @@ pip install trafilatura html2text
 """
 
 import json
+import ipaddress
 import re
-from urllib.request import Request, urlopen
+import socket
+from urllib.parse import urlparse
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 from urllib.error import URLError, HTTPError
 from html import unescape
 
@@ -178,7 +181,7 @@ from ..utils.log import logger
 
 # 嘗試引入 trafilatura
 try:
-    from trafilatura import fetch_url as trafilatura_fetch, extract as trafilatura_extract
+    from trafilatura import extract as trafilatura_extract
     TRAFILATURA_AVAILABLE = True
 except ImportError:
     TRAFILATURA_AVAILABLE = False
@@ -372,46 +375,100 @@ DEFAULT_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTM
 FALLBACK_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
 
+def _blocked_ip_reason(value: str) -> str | None:
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        return None
+    if address.is_global:
+        return None
+    return f"blocked non-public IP address: {address}"
+
+
+def _validate_public_host(host: str, port: int | None = None) -> None:
+    reason = _blocked_ip_reason(host)
+    if reason:
+        raise Exception(reason)
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise Exception(f"URL host could not be resolved: {host}") from exc
+    for info in infos:
+        address = info[4][0]
+        reason = _blocked_ip_reason(address)
+        if reason:
+            raise Exception(reason)
+
+
 def validate_url(url: str) -> bool:
-    """驗證 URL 必須以 http:// 或 https:// 開頭"""
+    """Validate URL scheme and block private/internal network targets."""
     if not url:
         raise Exception("URL is required")
-    if not url.startswith("http://") and not url.startswith("https://"):
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
         raise Exception("URL must start with http:// or https://")
+    if not parsed.hostname:
+        raise Exception("URL host is required")
+    _validate_public_host(parsed.hostname, parsed.port)
     return True
 
 
-def fetch_url(url: str, timeout: int = 30, retry_on_403: bool = True) -> tuple:
+def _read_response_with_limit(response, max_response_size: int) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = response.read(64 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_response_size:
+            raise Exception(f"Response too large (exceeds {max_response_size} bytes limit)")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+class _SafeRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        validate_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def fetch_url(url: str, timeout: int = 30, retry_on_403: bool = True, max_response_size: int = 5 * 1024 * 1024) -> tuple:
     """fetch_url with 403 retry support"""
     
     # 第一次嘗試
-    content, status, headers = _do_fetch(url, timeout, DEFAULT_UA)
+    content, status, headers, final_url = _do_fetch(url, timeout, DEFAULT_UA, max_response_size)
     
     # 403 Cloudflare 重試 (參考 OpenCode)
     if retry_on_403 and status == 403:
         cf_mitigated = headers.get("cf-mitigated")
         if cf_mitigated == "challenge":
             # 更換 User-Agent 重試
-            content, status, headers = _do_fetch(url, timeout, FALLBACK_UA)
+            content, status, headers, final_url = _do_fetch(url, timeout, FALLBACK_UA, max_response_size)
     
-    return headers.get('Content-Type', 'text/html'), content, status
+    return headers.get('Content-Type', 'text/html'), content, status, final_url
 
 
-def _do_fetch(url: str, timeout: int, user_agent: str) -> tuple:
+def _do_fetch(url: str, timeout: int, user_agent: str, max_response_size: int) -> tuple:
     """執行實際的 HTTP 請求"""
+    validate_url(url)
     headers = {
         'User-Agent': user_agent,
         'Accept': 'text/markdown;q=1.0, text/x-markdown;q=0.9, text/plain;q=0.8, text/html;q=0.7, */*;q=0.1',
         'Accept-Language': 'en-US,en;q=0.9',
     }
     request = Request(url, headers=headers)
+    opener = build_opener(_SafeRedirectHandler())
     
     try:
-        with urlopen(request, timeout=timeout) as response:
+        with opener.open(request, timeout=timeout) as response:
+            final_url = response.geturl()
+            validate_url(final_url)
             return (
-                response.read(),
+                _read_response_with_limit(response, max_response_size),
                 response.status,
-                dict(response.headers)
+                dict(response.headers),
+                final_url,
             )
     except HTTPError as e:
         raise Exception(f"HTTP Error: {e.code} {e.reason}")
@@ -437,12 +494,12 @@ def truncate_text(text: str, max_chars: int) -> tuple:
 # Trafilatura 擷取
 # ============================================
 
-def extract_with_trafilatura(url: str, mode: str = 'markdown') -> dict:
+def extract_with_trafilatura(html: str, mode: str = 'markdown') -> dict:
     if not TRAFILATURA_AVAILABLE:
         return None
     
     try:
-        downloaded = trafilatura_fetch(url)
+        downloaded = html
         if not downloaded:
             return None
         
@@ -639,14 +696,10 @@ class WebFetcher:
         # 權限詢問回調 (參考 OpenCode ctx.ask)
         if self.permission_callback:
             self.permission_callback(url, mode, self.timeout)
-        content_type, content, status = fetch_url(url, self.timeout, self.retry_on_403)
-        
-        # 檢查回應大小
-        if len(content) > self.max_response_size:
-            raise Exception(f"Response too large (exceeds {self.max_response_size} bytes limit)")
+        content_type, content, status, final_url = fetch_url(url, self.timeout, self.retry_on_403, self.max_response_size)
         
         result = {
-            'url': url, 'finalUrl': url, 'status': status,
+            'url': url, 'finalUrl': final_url, 'status': status,
             'contentType': content_type, 'extractor': 'raw',
             'title': f"{url} ({content_type})",
             'text': '', 'truncated': False,
@@ -690,7 +743,7 @@ class WebFetcher:
             
             # 1. 優先嘗試 trafilatura
             if self.prefer_trafilatura:
-                trafilatura_result = extract_with_trafilatura(url, mode)
+                trafilatura_result = extract_with_trafilatura(text, mode)
                 if trafilatura_result and trafilatura_result.get('text'):
                     result['text'] = trafilatura_result['text']
                     result['extractor'] = trafilatura_result['extractor']
