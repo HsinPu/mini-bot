@@ -273,6 +273,23 @@ class WebApiHandlers:
         history = await storage.list_eval_runs(kind="task_completion", limit=limit)
         return web.json_response({"ok": True, "history": [item.to_payload() for item in history]})
 
+    async def handle_task_completion_eval_history_delete(self, request: web.Request) -> web.Response:
+        adapter = self.adapter
+        storage = adapter._require_storage()
+        eval_id = adapter._coerce_optional_text(request.match_info.get("eval_id"))
+        if eval_id is None:
+            raise web.HTTPBadRequest(text="eval_id is required")
+        deleted = await storage.delete_eval_run(eval_id, kind="task_completion")
+        if not deleted:
+            raise web.HTTPNotFound(text="Eval run not found")
+        return web.json_response({"ok": True, "eval_id": eval_id, "deleted": 1})
+
+    async def handle_task_completion_eval_history_clear(self, request: web.Request) -> web.Response:
+        adapter = self.adapter
+        storage = adapter._require_storage()
+        deleted = await storage.clear_eval_runs(kind="task_completion")
+        return web.json_response({"ok": True, "deleted": deleted})
+
     async def handle_sessions(self, request: web.Request) -> web.Response:
         adapter = self.adapter
         storage = adapter._require_storage()

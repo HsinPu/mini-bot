@@ -523,6 +523,14 @@ class StorageProvider(ABC):
         """Return persisted eval results from newest to oldest when supported."""
         return []
 
+    async def delete_eval_run(self, eval_id: str, *, kind: str | None = None) -> bool:
+        """Delete one persisted eval result when supported."""
+        return False
+
+    async def clear_eval_runs(self, *, kind: str | None = None) -> int:
+        """Delete persisted eval results and return the number deleted when supported."""
+        return 0
+
     async def upsert_background_process(
         self,
         process: StoredBackgroundProcess,

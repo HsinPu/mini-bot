@@ -1356,9 +1356,14 @@
                 <strong>{{ copy.settings.eval.historyRecentTitle }}</strong>
                 <span>{{ copy.settings.eval.historyDescription }}</span>
               </div>
-              <button class="secondary-button" type="button" :disabled="settingsState.taskCompletionHistoryLoading" @click="$emit('refresh-task-completion-history')">
-                {{ copy.settings.eval.refreshHistory }}
-              </button>
+              <div class="settings-row__actions">
+                <button class="secondary-button" type="button" :disabled="settingsState.taskCompletionHistoryLoading" @click="$emit('refresh-task-completion-history')">
+                  {{ copy.settings.eval.refreshHistory }}
+                </button>
+                <button class="secondary-button" type="button" :disabled="settingsState.taskCompletionHistoryLoading || !settingsState.taskCompletionHistory.length" @click="$emit('clear-task-completion-history')">
+                  {{ copy.settings.eval.clearHistory }}
+                </button>
+              </div>
             </div>
             <p v-if="settingsState.taskCompletionHistoryLoading" class="settings-inline-status">{{ copy.settings.eval.historyLoading }}</p>
             <p v-if="settingsState.taskCompletionHistoryError" class="settings-inline-status settings-inline-status--error">
@@ -1378,7 +1383,12 @@
                 <span>{{ item.response_preview }}</span>
                 <span v-if="failedEvalChecks(item).length">{{ failedEvalChecksSummary(item) }}</span>
               </div>
-              <span class="provider-row__badge">{{ item.ok ? copy.settings.eval.pass : copy.settings.eval.fail }}</span>
+              <div class="settings-row__actions">
+                <span class="provider-row__badge">{{ item.ok ? copy.settings.eval.pass : copy.settings.eval.fail }}</span>
+                <button class="secondary-button" type="button" :disabled="settingsState.taskCompletionHistoryLoading" @click="$emit('delete-task-completion-history-item', item.eval_id)">
+                  {{ copy.settings.eval.deleteHistoryItem }}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -2609,6 +2619,8 @@ const emit = defineEmits([
   "run-task-completion-smoke",
   "run-task-completion-live",
   "refresh-task-completion-history",
+  "delete-task-completion-history-item",
+  "clear-task-completion-history",
   "load-data-session-timeline",
   "refresh-curator",
   "run-curator-action",

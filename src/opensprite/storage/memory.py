@@ -249,6 +249,19 @@ class MemoryStorage(StorageProvider):
             return runs[:limit]
         return runs
 
+    async def delete_eval_run(self, eval_id: str, *, kind: str | None = None) -> bool:
+        run = self._eval_runs.get(eval_id)
+        if run is None or (kind is not None and run.kind != kind):
+            return False
+        del self._eval_runs[eval_id]
+        return True
+
+    async def clear_eval_runs(self, *, kind: str | None = None) -> int:
+        eval_ids = [eval_id for eval_id, run in self._eval_runs.items() if kind is None or run.kind == kind]
+        for eval_id in eval_ids:
+            del self._eval_runs[eval_id]
+        return len(eval_ids)
+
     async def get_work_state(self, session_id: str) -> StoredWorkState | None:
         return self._work_states.get(session_id)
 

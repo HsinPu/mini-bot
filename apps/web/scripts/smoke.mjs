@@ -121,6 +121,8 @@ assertIncludes(settingsModal, "form.accessToken", "gateway access token setting"
 assertIncludes(settingsModal, "run-task-completion-smoke", "task completion eval action");
 assertIncludes(settingsModal, "run-task-completion-live", "live task completion eval action");
 assertIncludes(settingsModal, "refresh-task-completion-history", "task completion history refresh action");
+assertIncludes(settingsModal, "delete-task-completion-history-item", "task completion history delete action");
+assertIncludes(settingsModal, "clear-task-completion-history", "task completion history clear action");
 assertIncludes(settingsModal, "failedEvalChecksSummary", "task completion failed-check summary rendering");
 assertIncludes(settingsModal, "failedEvalCheckText", "task completion failed-check detail rendering");
 assertIncludes(settingsModal, "evalModelLabel", "task completion eval model label rendering");
@@ -130,6 +132,8 @@ assertIncludes(chatClient, "access_token", "authorized websocket connection");
 assertIncludes(chatClient, "/api/evals/task-completion/smoke", "task completion eval fetch");
 assertIncludes(chatClient, "/api/evals/task-completion/run", "live task completion eval fetch");
 assertIncludes(chatClient, "/api/evals/task-completion/history", "task completion history fetch");
+assertIncludes(chatClient, "deleteTaskCompletionHistoryItem", "task completion history delete fetch");
+assertIncludes(chatClient, "clearTaskCompletionHistory", "task completion history clear fetch");
 assertIncludes(settingsModal, "hasConnectedProvider", "OAuth auth card connected-provider visibility");
 assertIncludes(settingsModal, "providerCredentials", "credential picker rendering");
 assertIncludes(settingsModal, "providerEffectiveCredentialId", "effective credential selection");
@@ -185,6 +189,11 @@ for (const key of [
   "taskCompletionLivePassed",
   "taskCompletionLiveEvalFailed",
   "taskCompletionHistoryLoadFailed",
+  "taskCompletionHistoryDeleteFailed",
+  "clearHistory",
+  "deleteHistoryItem",
+  "confirmClearHistory",
+  "historyCleared",
   "failedChecks",
   "modelLabel",
 ]) {

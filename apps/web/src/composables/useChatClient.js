@@ -3466,6 +3466,47 @@ export function useChatClient() {
     }
   }
 
+  async function deleteTaskCompletionHistoryItem(evalId) {
+    const normalizedEvalId = String(evalId || "").trim();
+    if (!normalizedEvalId) {
+      return;
+    }
+    settingsState.taskCompletionHistoryLoading = true;
+    settingsState.taskCompletionHistoryError = "";
+    settingsState.evalNotice = "";
+    try {
+      await requestSettingsJson(`/api/evals/task-completion/history/${encodeURIComponent(normalizedEvalId)}`, {
+        method: "DELETE",
+      });
+      settingsState.taskCompletionHistory = settingsState.taskCompletionHistory.filter(
+        (item) => item?.eval_id !== normalizedEvalId,
+      );
+      settingsState.evalNotice = copy.value.settings.eval.historyDeleted;
+    } catch (error) {
+      settingsState.taskCompletionHistoryError = error?.message || copy.value.notices.taskCompletionHistoryDeleteFailed;
+    } finally {
+      settingsState.taskCompletionHistoryLoading = false;
+    }
+  }
+
+  async function clearTaskCompletionHistory() {
+    if (typeof window !== "undefined" && !window.confirm(copy.value.settings.eval.confirmClearHistory)) {
+      return;
+    }
+    settingsState.taskCompletionHistoryLoading = true;
+    settingsState.taskCompletionHistoryError = "";
+    settingsState.evalNotice = "";
+    try {
+      const payload = await requestSettingsJson("/api/evals/task-completion/history", { method: "DELETE" });
+      settingsState.taskCompletionHistory = [];
+      settingsState.evalNotice = copy.value.settings.eval.historyCleared(Number(payload?.deleted || 0));
+    } catch (error) {
+      settingsState.taskCompletionHistoryError = error?.message || copy.value.notices.taskCompletionHistoryDeleteFailed;
+    } finally {
+      settingsState.taskCompletionHistoryLoading = false;
+    }
+  }
+
   function loadSettingsSection(sectionName) {
     if (sectionName === "general") {
       loadUpdateStatus();
@@ -4328,6 +4369,8 @@ export function useChatClient() {
     runTaskCompletionEvalSmoke,
     runTaskCompletionLiveEval,
     loadTaskCompletionHistory,
+    deleteTaskCompletionHistoryItem,
+    clearTaskCompletionHistory,
     loadBackgroundProcesses,
     loadDataSessionTimeline,
     loadMcpSettings,

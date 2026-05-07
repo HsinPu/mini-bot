@@ -1332,6 +1332,35 @@ async def _run_web_task_completion_live_eval_api():
         assert history_by_case["literal_instruction"]["response_preview"] == "alpha beta gamma"
         assert history_by_case["literal_instruction"]["model"] == agent.eval_model_info
         assert history_by_case["multi_step_completion"]["eval_id"] == cases_by_id["multi_step_completion"]["eval_id"]
+
+        async with ClientSession() as session:
+            literal_eval_id = cases_by_id["literal_instruction"]["eval_id"]
+            async with session.delete(
+                f"http://127.0.0.1:{port}/api/evals/task-completion/history/{literal_eval_id}"
+            ) as resp:
+                assert resp.status == 200
+                delete_payload = await resp.json()
+
+            async with session.get(f"http://127.0.0.1:{port}/api/evals/task-completion/history") as resp:
+                assert resp.status == 200
+                history_after_delete = await resp.json()
+
+            async with session.delete(f"http://127.0.0.1:{port}/api/evals/task-completion/history") as resp:
+                assert resp.status == 200
+                clear_payload = await resp.json()
+
+            async with session.get(f"http://127.0.0.1:{port}/api/evals/task-completion/history") as resp:
+                assert resp.status == 200
+                history_after_clear = await resp.json()
+
+        assert delete_payload == {"ok": True, "eval_id": literal_eval_id, "deleted": 1}
+        assert {item["case_id"] for item in history_after_delete["history"]} == {
+            "multi_step_completion",
+            "exact_two_line_output",
+            "exact_json_output",
+        }
+        assert clear_payload == {"ok": True, "deleted": 3}
+        assert history_after_clear["history"] == []
         assert agent.seen_messages[0].channel == "web"
         assert agent.seen_messages[0].external_chat_id.startswith("eval-task-completion-literal_instruction-")
         assert agent.seen_messages[1].external_chat_id.startswith("eval-task-completion-multi_step_completion-")

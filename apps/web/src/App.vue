@@ -152,6 +152,8 @@
     @run-task-completion-smoke="runTaskCompletionEvalSmoke"
     @run-task-completion-live="runTaskCompletionLiveEval"
     @refresh-task-completion-history="loadTaskCompletionHistory"
+    @delete-task-completion-history-item="deleteTaskCompletionHistoryItem"
+    @clear-task-completion-history="clearTaskCompletionHistory"
     @load-data-session-timeline="loadDataSessionTimeline"
     @begin-cron-job-create="beginCronJobCreate"
     @save-cron-job="saveCronJob"
@@ -265,6 +267,8 @@ const {
   runTaskCompletionEvalSmoke,
   runTaskCompletionLiveEval,
   loadTaskCompletionHistory,
+  deleteTaskCompletionHistoryItem,
+  clearTaskCompletionHistory,
   loadBackgroundProcesses,
   loadDataSessionTimeline,
   beginCronJobCreate,

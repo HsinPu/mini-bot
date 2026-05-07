@@ -1350,6 +1350,34 @@ class SQLiteStorage(StorageProvider):
             finally:
                 conn.close()
 
+    async def delete_eval_run(self, eval_id: str, *, kind: str | None = None) -> bool:
+        """Delete one persisted eval result."""
+        async with self._lock:
+            conn = self._get_conn()
+            try:
+                if kind is None:
+                    cursor = conn.execute("DELETE FROM eval_runs WHERE eval_id = ?", (eval_id,))
+                else:
+                    cursor = conn.execute("DELETE FROM eval_runs WHERE eval_id = ? AND kind = ?", (eval_id, kind))
+                conn.commit()
+                return cursor.rowcount > 0
+            finally:
+                conn.close()
+
+    async def clear_eval_runs(self, *, kind: str | None = None) -> int:
+        """Delete persisted eval results and return the number deleted."""
+        async with self._lock:
+            conn = self._get_conn()
+            try:
+                if kind is None:
+                    cursor = conn.execute("DELETE FROM eval_runs")
+                else:
+                    cursor = conn.execute("DELETE FROM eval_runs WHERE kind = ?", (kind,))
+                conn.commit()
+                return int(cursor.rowcount or 0)
+            finally:
+                conn.close()
+
     async def upsert_background_process(
         self,
         process: StoredBackgroundProcess,
