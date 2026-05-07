@@ -110,6 +110,19 @@ def test_completion_gate_marks_progress_only_search_response_incomplete():
     assert result.reason == "assistant only reported progress without performing requested work"
 
 
+def test_completion_gate_marks_progress_only_fetch_response_incomplete():
+    intent = TaskIntentService().classify("看一下 ai 版 幫我抓20 筆")
+
+    result = CompletionGateService().evaluate(
+        task_intent=intent,
+        response_text="好，幫你抓 r/taiwan 熱門文章 20 筆！",
+        execution_result=ExecutionResult(content="好，幫你抓 r/taiwan 熱門文章 20 筆！"),
+    )
+
+    assert result.status == "incomplete"
+    assert result.reason == "assistant did not provide the requested itemized result"
+
+
 def test_auto_continue_allows_first_retry_after_progress_only_response():
     intent = TaskIntentService().classify("那幫我找找有沒有可以在reddit 搜尋的")
     completion = CompletionGateService().evaluate(
@@ -129,6 +142,72 @@ def test_auto_continue_allows_first_retry_after_progress_only_response():
     assert decision.should_continue is True
     assert decision.reason == "completion_gate_incomplete"
     assert "Continue the current task" in (decision.prompt or "")
+
+
+def test_auto_continue_allows_first_retry_after_progress_only_fetch_response():
+    intent = TaskIntentService().classify("看一下 ai 版 幫我抓20 筆")
+    response = "好，幫你抓 r/taiwan 熱門文章 20 筆！"
+    completion = CompletionGateService().evaluate(
+        task_intent=intent,
+        response_text=response,
+        execution_result=ExecutionResult(content=response),
+    )
+
+    decision = AutoContinueService(max_auto_continues=1).decide(
+        task_intent=intent,
+        completion_result=completion,
+        execution_result=ExecutionResult(content=response),
+        attempts_used=0,
+        previous_response=response,
+    )
+
+    assert decision.should_continue is True
+    assert decision.reason == "completion_gate_incomplete"
+    assert "Continue the current task" in (decision.prompt or "")
+
+
+def test_completion_gate_marks_internal_only_response_incomplete():
+    intent = TaskIntentService().classify("幫我抓 Reddit ai 版 20 筆")
+
+    result = CompletionGateService().evaluate(
+        task_intent=intent,
+        response_text="",
+        execution_result=ExecutionResult(
+            content="",
+            assistant_internal_only_response=True,
+        ),
+    )
+
+    assert result.status == "incomplete"
+    assert result.reason == "assistant only emitted internal control text"
+
+
+def test_auto_continue_guides_retry_after_internal_only_response():
+    intent = TaskIntentService().classify("幫我抓 Reddit ai 版 20 筆")
+    completion = CompletionGateService().evaluate(
+        task_intent=intent,
+        response_text="",
+        execution_result=ExecutionResult(
+            content="",
+            assistant_internal_only_response=True,
+        ),
+    )
+
+    decision = AutoContinueService(max_auto_continues=1).decide(
+        task_intent=intent,
+        completion_result=completion,
+        execution_result=ExecutionResult(
+            content="",
+            assistant_internal_only_response=True,
+        ),
+        attempts_used=0,
+        previous_response="",
+    )
+
+    assert decision.should_continue is True
+    assert decision.reason == "completion_gate_incomplete"
+    assert "only contained internal control text" in (decision.prompt or "")
+    assert "Do not repeat internal tags" in (decision.prompt or "")
 
 
 def test_completion_gate_marks_explicit_task_completion_done():

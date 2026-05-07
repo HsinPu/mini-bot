@@ -154,7 +154,12 @@ class AutoContinueService:
             and execution_result.executed_tool_calls == 0
             and not task_intent.expects_code_change
             and not direct_action_available
-            and completion_result.reason != "assistant only reported progress without performing requested work"
+            and completion_result.reason
+            not in {
+                "assistant only reported progress without performing requested work",
+                "assistant did not provide the requested itemized result",
+                "assistant only emitted internal control text",
+            }
         ):
             return self._skip(
                 "no_tool_progress_after_incomplete_response",
@@ -250,6 +255,12 @@ class AutoContinueService:
         if completion_result.status == "incomplete" and follow_up_detail:
             incomplete_instruction = (
                 "\n- The missing work is already identified. Resume from the required follow-up detail below before doing broader new work."
+            )
+        if completion_result.reason == "assistant only emitted internal control text":
+            incomplete_instruction += (
+                "\n- The previous response only contained internal control text and no user-visible work. "
+                "Do not repeat internal tags such as <system-reminder> or <think>. "
+                "Continue the user's task by calling tools when needed, or provide a clear blocker if you cannot proceed."
             )
 
         return (

@@ -152,6 +152,21 @@ class CompletionGateService:
             verification_passed=verification_passed,
         )
 
+        if execution_result.assistant_internal_only_response:
+            return CompletionGateResult(
+                status="incomplete",
+                reason="assistant only emitted internal control text",
+                verification_required=verification_required,
+                verification_attempted=verification_attempted,
+                verification_passed=verification_passed,
+                review_required=review_required,
+                review_attempted=review["attempted"],
+                review_passed=review["passed"],
+                review_summary=review["summary"],
+                review_prompt_types=review["prompt_types"],
+                review_finding_count=review["finding_count"],
+            )
+
         immediate_transition = infer_immediate_task_transition(
             response_text,
             had_tool_error=execution_result.had_tool_error,
@@ -313,6 +328,24 @@ class CompletionGateService:
                 review_finding_count=review["finding_count"],
             )
 
+        if execution_result.executed_tool_calls == 0 and _looks_like_missing_requested_items(
+            task_intent,
+            response_text,
+        ):
+            return CompletionGateResult(
+                status="incomplete",
+                reason="assistant did not provide the requested itemized result",
+                verification_required=verification_required,
+                verification_attempted=verification_attempted,
+                verification_passed=verification_passed,
+                review_required=review_required,
+                review_attempted=review["attempted"],
+                review_passed=review["passed"],
+                review_summary=review["summary"],
+                review_prompt_types=review["prompt_types"],
+                review_finding_count=review["finding_count"],
+            )
+
         if task_intent.kind in {"conversation", "question", "command", "media_upload"}:
             return CompletionGateResult(
                 status="complete" if response_text.strip() else "incomplete",
@@ -419,6 +452,30 @@ def _looks_like_progress_only(response_text: str) -> bool:
     if len(normalized) > 220:
         return False
     return any(marker in normalized for marker in _PROGRESS_ONLY_MARKERS)
+
+
+def _looks_like_missing_requested_items(task_intent: TaskIntent, response_text: str) -> bool:
+    requested_count = _requested_item_count(task_intent.objective)
+    if requested_count < 3:
+        return False
+    normalized = re.sub(r"\s+", " ", (response_text or "").strip())
+    if not normalized or len(normalized) > 260:
+        return False
+    return _response_item_count(response_text) < min(requested_count, 3)
+
+
+def _requested_item_count(objective: str) -> int:
+    counts = [int(match) for match in re.findall(r"(?<!\d)\d{1,3}(?!\d)", str(objective or ""))]
+    return max(counts, default=0)
+
+
+def _response_item_count(response_text: str) -> int:
+    lines = [line.strip() for line in str(response_text or "").splitlines() if line.strip()]
+    item_like = 0
+    for line in lines:
+        if re.match(r"^(?:[-*]|\d+[.)]|\|)", line):
+            item_like += 1
+    return item_like
 
 
 def _review_evidence(delegated_tasks: tuple[StoredDelegatedTask, ...]) -> dict[str, Any]:

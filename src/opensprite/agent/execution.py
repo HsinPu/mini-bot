@@ -87,6 +87,7 @@ class ExecutionResult:
     context_compaction_events: list[ContextCompactionEvent] = field(default_factory=list)
     llm_step_events: list[LlmStepEvent] = field(default_factory=list)
     reasoning_details: list[dict[str, Any]] | None = None
+    assistant_internal_only_response: bool = False
 
 
 @dataclass
@@ -166,7 +167,7 @@ class ExecutionEngine:
     )
     SANITIZED_EMPTY_RESPONSE_RETRY_MESSAGE = (
         "Previous attempt only contained hidden or non-displayable content. "
-        "Do not output <think> or hidden reasoning. If tools are needed, call them. Otherwise answer now in plain visible text for the user."
+        "Do not output <think>, <system-reminder>, or hidden reasoning. If tools are needed, call them. Otherwise answer now in plain visible text for the user."
     )
     CONTEXT_COMPACTION_RETRY_LIMIT = 1
     PROACTIVE_CONTEXT_COMPACTION_LIMIT = 1
@@ -1292,6 +1293,7 @@ Output exactly these sections when applicable:
             response.content = self.sanitize_response_content(raw_content)
             sanitized_became_empty = bool(raw_content.strip() and not response.content)
             tool_calls_count = len(response.tool_calls or [])
+            assistant_internal_only_response = sanitized_became_empty and tool_calls_count == 0
             logger.info(
                 f"[{log_id}] llm.response | iter={iteration + 1} model={response.model} raw_len={len(raw_content)} "
                 f"visible_len={len(response.content)} tool_calls={tool_calls_count} "
@@ -1648,6 +1650,7 @@ Output exactly these sections when applicable:
                     context_compactions=context_compactions,
                     context_compaction_events=context_compaction_events,
                     llm_step_events=llm_step_events,
+                    assistant_internal_only_response=assistant_internal_only_response,
                 )
 
             if response_delta_count == 0:

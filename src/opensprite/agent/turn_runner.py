@@ -885,6 +885,7 @@ class AgentTurnRunner:
                 ),
                 None,
             ),
+            assistant_internal_only_response=any(result.assistant_internal_only_response for result in results),
         )
 
     @staticmethod
