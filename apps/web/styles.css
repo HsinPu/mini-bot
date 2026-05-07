@@ -232,6 +232,7 @@
 :root[data-color-scheme="dark"] .settings-nav,
 :root[data-color-scheme="dark"] .settings-card,
 :root[data-color-scheme="dark"] .settings-inline-status,
+:root[data-color-scheme="dark"] .eval-history-row__failures,
 :root[data-color-scheme="dark"] .data-timeline-table th,
 :root[data-color-scheme="dark"] .data-timeline-table__details-grid pre {
   background: var(--surface-muted);
@@ -254,6 +255,7 @@
 :root[data-color-scheme="dark"] .custom-model-row label,
 :root[data-color-scheme="dark"] .channel-field,
 :root[data-color-scheme="dark"] .settings-row span,
+:root[data-color-scheme="dark"] .eval-history-row__failures ul,
 :root[data-color-scheme="dark"] .data-timeline-table,
 :root[data-color-scheme="dark"] .data-timeline-table th,
 :root[data-color-scheme="dark"] .data-timeline-table__row span:not(.provider-row__badge),
@@ -287,6 +289,7 @@
 :root[data-color-scheme="dark"] .model-select-row select,
 :root[data-color-scheme="dark"] .provider-row__select select,
 :root[data-color-scheme="dark"] .settings-row strong,
+:root[data-color-scheme="dark"] .eval-history-row__failures strong,
 :root[data-color-scheme="dark"] .data-timeline-table__row strong,
 :root[data-color-scheme="dark"] .data-timeline-table__details-grid strong,
 :root[data-color-scheme="dark"] .settings-row select,
@@ -315,6 +318,7 @@
 
 :root[data-color-scheme="dark"] .provider-row,
 :root[data-color-scheme="dark"] .settings-row,
+:root[data-color-scheme="dark"] .eval-history-row__failures,
 :root[data-color-scheme="dark"] .data-timeline-table th,
 :root[data-color-scheme="dark"] .data-timeline-table td,
 :root[data-color-scheme="dark"] .data-timeline-table__details-grid,
@@ -3834,6 +3838,62 @@ button:disabled {
   padding: 16px;
 }
 
+.settings-row.eval-history-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.settings-row .eval-history-row__title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.settings-row .eval-history-row__title strong {
+  margin-bottom: 0;
+}
+
+.settings-row .eval-history-row__title .provider-row__badge {
+  display: inline-flex;
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.eval-history-row__actions {
+  align-self: start;
+}
+
+.eval-history-row__actions .secondary-button {
+  white-space: nowrap;
+}
+
+.eval-history-row__failures {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 8px;
+  padding: 11px 12px;
+  border: 1px solid rgba(217, 45, 32, 0.18);
+  border-radius: 8px;
+  background: #fff3f1;
+}
+
+.eval-history-row__failures strong {
+  margin: 0;
+  color: #9b241c;
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.eval-history-row__failures ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #666666;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
 .data-timeline-table-wrap {
   overflow-x: auto;
 }
@@ -4922,6 +4982,7 @@ textarea:focus-visible {
   .settings-row,
   .settings-row--field,
   .settings-row--update,
+  .settings-row.eval-history-row,
   .provider-row,
   .provider-row__content,
   .channel-card__header,

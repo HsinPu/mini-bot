@@ -1395,19 +1395,28 @@
                 <span>{{ copy.settings.eval.noHistoryDescription }}</span>
               </div>
             </div>
-            <div v-for="item in settingsState.taskCompletionHistory" :key="item.eval_id" class="settings-row">
+            <div v-for="item in settingsState.taskCompletionHistory" :key="item.eval_id" class="settings-row eval-history-row">
               <div>
-                <strong>{{ item.case_id || copy.settings.eval.none }}</strong>
+                <span class="eval-history-row__title">
+                  <strong>{{ item.case_id || copy.settings.eval.none }}</strong>
+                  <span class="provider-row__badge">{{ item.ok ? copy.settings.eval.pass : copy.settings.eval.fail }}</span>
+                </span>
                 <span>{{ copy.settings.eval.historyMeta(formatTimestamp(item.created_at), item.completion_status || copy.settings.eval.none, item.run_id || copy.settings.eval.none) }}</span>
                 <span v-if="evalModelLabel(item)">{{ evalModelLabel(item) }}</span>
                 <span>{{ item.response_preview }}</span>
-                <span v-if="failedEvalChecks(item).length">{{ failedEvalChecksSummary(item) }}</span>
               </div>
-              <div class="settings-row__actions">
-                <span class="provider-row__badge">{{ item.ok ? copy.settings.eval.pass : copy.settings.eval.fail }}</span>
+              <div class="settings-row__actions eval-history-row__actions">
                 <button class="secondary-button" type="button" :disabled="settingsState.taskCompletionHistoryLoading" @click="$emit('delete-task-completion-history-item', item.eval_id)">
                   {{ copy.settings.eval.deleteHistoryItem }}
                 </button>
+              </div>
+              <div v-if="failedEvalChecks(item).length" class="eval-history-row__failures">
+                <strong>{{ copy.settings.eval.failedChecksTitle }}</strong>
+                <ul>
+                  <li v-for="(check, index) in failedEvalChecks(item)" :key="`${item.eval_id}:${check.id || index}`">
+                    {{ failedEvalCheckText(check) }}
+                  </li>
+                </ul>
               </div>
             </div>
           </div>

@@ -136,6 +136,7 @@ assertIncludes(settingsModal, "delete-task-completion-history-item", "task compl
 assertIncludes(settingsModal, "clear-task-completion-history", "task completion history clear action");
 assertIncludes(settingsModal, "failedEvalChecksSummary", "task completion failed-check summary rendering");
 assertIncludes(settingsModal, "failedEvalCheckText", "task completion failed-check detail rendering");
+assertIncludes(settingsModal, "eval-history-row__failures", "task completion history failure details rendering");
 assertIncludes(settingsModal, "evalModelLabel", "task completion eval model label rendering");
 assertIncludes(chatClient, "STORAGE_KEYS.accessToken", "access token preference persistence");
 assertIncludes(chatClient, "authorizedHeaders", "authorized API requests");
@@ -218,6 +219,7 @@ for (const key of [
   "deleteHistoryItem",
   "confirmClearHistory",
   "historyCleared",
+  "failedChecksTitle",
   "failedChecks",
   "modelLabel",
 ]) {
