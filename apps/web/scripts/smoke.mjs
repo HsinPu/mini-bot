@@ -43,6 +43,7 @@ const [
   chatComposer,
   toastStack,
   curatorSettingsPage,
+  app,
   settingsModal,
   chatClient,
   dataSettingsActions,
@@ -62,6 +63,7 @@ const [
   read("src/components/ChatComposer.vue"),
   read("src/components/ToastStack.vue"),
   read("src/components/CuratorSettingsPage.vue"),
+  read("src/App.vue"),
   read("src/components/SettingsModal.vue"),
   read("src/composables/useChatClient.js"),
   read("src/composables/useDataSettingsActions.js"),
@@ -95,6 +97,9 @@ assertIncludes(chatPanel, ":show-run-history=\"showRunHistory\"", "run history p
 assertIncludes(chatComposer, "composer__commands", "slash command hints rendering");
 assertIncludes(toastStack, "toast-stack", "toast stack rendering");
 assertIncludes(toastStack, "dismiss-toast", "toast dismiss event");
+assertIncludes(app, "state.authRequired", "auth gate visibility");
+assertIncludes(app, "submitAccessToken", "auth gate submit wiring");
+assertIncludes(styles, ".auth-gate", "auth gate styling");
 assertIncludes(curatorSettingsPage, "settings-card", "curator settings card layout");
 assertIncludes(curatorSettingsPage, "provider-row", "curator settings history layout");
 assertIncludes(settingsModal, "CuratorSettingsPage", "curator settings placement");
@@ -112,6 +117,10 @@ assertIncludes(settingsModal, "showCodexAuthCard", "conditional Codex auth card"
 assertIncludes(settingsModal, "showCopilotAuthCard", "conditional Copilot auth card");
 assertIncludes(settingsModal, "form.showWorkState", "work state settings switch");
 assertIncludes(settingsModal, "form.showRunHistory", "run history settings switch");
+assertIncludes(settingsModal, "form.accessToken", "gateway access token setting");
+assertIncludes(chatClient, "STORAGE_KEYS.accessToken", "access token preference persistence");
+assertIncludes(chatClient, "authorizedHeaders", "authorized API requests");
+assertIncludes(chatClient, "access_token", "authorized websocket connection");
 assertIncludes(settingsModal, "hasConnectedProvider", "OAuth auth card connected-provider visibility");
 assertIncludes(settingsModal, "providerCredentials", "credential picker rendering");
 assertIncludes(settingsModal, "providerEffectiveCredentialId", "effective credential selection");

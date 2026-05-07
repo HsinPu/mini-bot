@@ -196,6 +196,14 @@
 
             <label class="settings-row settings-row--field">
               <div>
+                <strong>{{ copy.settings.general.accessToken.title }}</strong>
+                <span>{{ copy.settings.general.accessToken.description }}</span>
+              </div>
+              <input v-model="form.accessToken" type="password" autocomplete="current-password" spellcheck="false" @change="$emit('save-connection-settings')" />
+            </label>
+
+            <label class="settings-row settings-row--field">
+              <div>
                 <strong>{{ copy.settings.general.displayName.title }}</strong>
                 <span>{{ copy.settings.general.displayName.description }}</span>
               </div>

@@ -82,6 +82,15 @@ export const DISPLAY_COPY = {
       retry: "重試",
       reconnect: "重新連線",
     },
+    auth: {
+      title: "需要 Access token",
+      description: "這個 OpenSprite gateway 已開啟外部存取保護。請輸入 gateway auth_token 以繼續使用 Web UI。",
+      tokenLabel: "Access token",
+      submit: "登入",
+      settings: "連線設定",
+      invalidToken: "Access token 無效或缺少權限。",
+      connectionFailed: "無法用目前 token 建立 WebSocket 連線。",
+    },
     empty: {
       ariaLabel: "開始對話",
       title: "OpenSprite 可以怎麼幫你？",
@@ -579,6 +588,10 @@ export const DISPLAY_COPY = {
         wsUrl: {
           title: "WebSocket URL",
           description: "OpenSprite gateway 的連線位置",
+        },
+        accessToken: {
+          title: "Access token",
+          description: "外部 gateway 設定 auth_token 時，在這裡填入同一組 token",
         },
         displayName: {
           title: "Display name",
@@ -1204,6 +1217,15 @@ export const DISPLAY_COPY = {
       retry: "Retry",
       reconnect: "Reconnect",
     },
+    auth: {
+      title: "Access token required",
+      description: "This OpenSprite gateway is protected for external access. Enter the gateway auth_token to continue using the Web UI.",
+      tokenLabel: "Access token",
+      submit: "Log in",
+      settings: "Connection settings",
+      invalidToken: "The access token is missing or invalid.",
+      connectionFailed: "The WebSocket connection could not be opened with the current token.",
+    },
     empty: {
       ariaLabel: "Start a chat",
       title: "How can OpenSprite help?",
@@ -1701,6 +1723,10 @@ export const DISPLAY_COPY = {
         wsUrl: {
           title: "WebSocket URL",
           description: "Connection endpoint for the OpenSprite gateway",
+        },
+        accessToken: {
+          title: "Access token",
+          description: "Use the same token as the gateway auth_token when connecting from another device",
         },
         displayName: {
           title: "Display name",

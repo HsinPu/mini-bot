@@ -8,6 +8,8 @@ MessageQueue and routes assistant replies back to the same web session.
 from __future__ import annotations
 
 import asyncio
+import hmac
+import ipaddress
 import json
 import os
 import shutil
@@ -83,6 +85,7 @@ class WebAdapter(MessageAdapter):
         "frontend_auto_install": True,
         "frontend_build_timeout": 120,
         "frontend_install_timeout": 300,
+        "auth_token": "",
     }
 
     def __init__(self, mq=None, config: dict[str, Any] | None = None):
@@ -110,6 +113,56 @@ class WebAdapter(MessageAdapter):
 
     def _get_max_message_size(self) -> int:
         return int(self.config.get("max_message_size", self.DEFAULT_CONFIG["max_message_size"]))
+
+    def _get_auth_token(self) -> str:
+        return str(self.config.get("auth_token", "") or "").strip()
+
+    @staticmethod
+    def _is_loopback_host(host: str) -> bool:
+        normalized = str(host or "").strip().strip("[]").lower()
+        if normalized in {"localhost"}:
+            return True
+        if normalized in {"", "*", "0.0.0.0", "::", "::0"}:
+            return False
+        try:
+            return ipaddress.ip_address(normalized).is_loopback
+        except ValueError:
+            return False
+
+    def _validate_bind_auth_config(self, host: str) -> None:
+        if self._is_loopback_host(host):
+            return
+        if self._get_auth_token():
+            return
+        raise RuntimeError(
+            "WebAdapter refuses to bind to a non-loopback host without auth_token configured. "
+            "Use host=127.0.0.1 for local-only access or set a strong web auth_token."
+        )
+
+    def _auth_required(self, request: web.Request) -> bool:
+        token = self._get_auth_token()
+        if not token:
+            return False
+        path = request.path or ""
+        return path == self._get_path("path") or path.startswith("/api/")
+
+    def _request_has_valid_auth(self, request: web.Request) -> bool:
+        token = self._get_auth_token()
+        if not token:
+            return True
+        auth_header = request.headers.get("Authorization", "").strip()
+        supplied = ""
+        if auth_header.lower().startswith("bearer "):
+            supplied = auth_header[7:].strip()
+        if not supplied:
+            supplied = str(request.query.get("access_token") or "").strip()
+        return bool(supplied) and hmac.compare_digest(supplied, token)
+
+    @web.middleware
+    async def _auth_middleware(self, request: web.Request, handler):
+        if self._auth_required(request) and not self._request_has_valid_auth(request):
+            raise web.HTTPUnauthorized(text="Unauthorized")
+        return await handler(request)
 
     def _get_frontend_build_timeout(self) -> int:
         return int(self.config.get("frontend_build_timeout", self.DEFAULT_CONFIG["frontend_build_timeout"]))
@@ -1830,8 +1883,10 @@ class WebAdapter(MessageAdapter):
         port = self._get_port()
         ws_path = self._get_path("path")
         health_path = self._get_path("health_path")
+        self._validate_bind_auth_config(host)
 
-        self.app = web.Application()
+        middlewares = [self._auth_middleware] if self._get_auth_token() else []
+        self.app = web.Application(middlewares=middlewares)
         self.app.router.add_get(ws_path, self._handle_websocket)
         self.app.router.add_get(health_path, self._handle_health)
         self.app.router.add_get("/api/commands", self._api.handle_command_catalog)

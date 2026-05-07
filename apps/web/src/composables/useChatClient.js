@@ -13,6 +13,7 @@ import { createCuratorState, createPermissionState, createSettingsForm, createSe
 
 const STORAGE_KEYS = {
   wsUrl: "opensprite:web:wsUrl",
+  accessToken: "opensprite:web:accessToken",
   displayName: "opensprite:web:displayName",
   activeExternalChatId: "opensprite:web:activeExternalChatId",
   showWorkState: "opensprite:web:showWorkState",
@@ -1483,6 +1484,7 @@ export function useChatClient() {
 
   const state = reactive({
     wsUrl: readStoredValue(STORAGE_KEYS.wsUrl, DEFAULT_WS_URL),
+    accessToken: readStoredValue(STORAGE_KEYS.accessToken, ""),
     displayName: readStoredValue(STORAGE_KEYS.displayName, "Local browser"),
     showWorkState: readStoredBoolean(STORAGE_KEYS.showWorkState, true),
     showRunHistory: readStoredBoolean(STORAGE_KEYS.showRunHistory, true),
@@ -1494,6 +1496,8 @@ export function useChatClient() {
     activeExternalChatId: initialSession.externalChatId,
     sessions: [initialSession],
     connectionState: "disconnected",
+    authRequired: false,
+    authError: "",
     notice: {
       text: initialCopy.notices.connectingGateway,
       tone: "info",
@@ -2524,14 +2528,36 @@ export function useChatClient() {
     setNotice(reason, tone);
   }
 
-  function buildSocketUrl(baseUrl, externalChatId) {
+  function buildSocketUrl(baseUrl, externalChatId, accessToken = "") {
     const url = new URL(baseUrl);
     url.searchParams.set("external_chat_id", externalChatId);
+    if (accessToken) {
+      url.searchParams.set("access_token", accessToken);
+    }
     return url.toString();
   }
 
+  function authorizedHeaders(headers = {}) {
+    const token = String(state.accessToken || "").trim();
+    return token ? { ...headers, Authorization: `Bearer ${token}` } : headers;
+  }
+
   async function requestSettingsJson(pathname, options = {}) {
-    return requestSettingsJsonFromApi(state.wsUrl, pathname, options);
+    try {
+      const payload = await requestSettingsJsonFromApi(state.wsUrl, pathname, {
+        ...options,
+        headers: authorizedHeaders(options.headers || {}),
+      });
+      state.authError = "";
+      return payload;
+    } catch (error) {
+      if (error?.status === 401) {
+        state.authRequired = true;
+        state.authError = copy.value.auth.invalidToken;
+        state.connectionState = "disconnected";
+      }
+      throw error;
+    }
   }
 
   async function loadCommandCatalog() {
@@ -3767,7 +3793,7 @@ export function useChatClient() {
 
     let socketUrl;
     try {
-      socketUrl = buildSocketUrl(state.wsUrl, session.externalChatId);
+      socketUrl = buildSocketUrl(state.wsUrl, session.externalChatId, state.accessToken);
     } catch {
       setNotice(copy.value.notices.invalidWs, "error");
       openSettings("general");
@@ -3788,6 +3814,8 @@ export function useChatClient() {
       if (activeSocket !== socket) {
         return;
       }
+      state.authRequired = false;
+      state.authError = "";
       state.connectionState = "connected";
       setNotice(copy.value.notices.connected, "success");
       void loadBackgroundProcesses({ quiet: true });
@@ -3803,6 +3831,9 @@ export function useChatClient() {
     socket.addEventListener("error", () => {
       if (activeSocket !== socket) {
         return;
+      }
+      if (state.accessToken) {
+        state.authError = copy.value.auth.connectionFailed;
       }
       setNotice(copy.value.notices.socketFailed, "error");
     });
@@ -3853,9 +3884,11 @@ export function useChatClient() {
 
   function saveConnectionSettings() {
     const nextWsUrl = settingsForm.wsUrl.trim() || DEFAULT_WS_URL;
-    const shouldReconnect = state.wsUrl !== nextWsUrl && activeSocket && state.connectionState !== "disconnected";
+    const nextAccessToken = settingsForm.accessToken.trim();
+    const shouldReconnect = (state.wsUrl !== nextWsUrl || state.accessToken !== nextAccessToken) && activeSocket && state.connectionState !== "disconnected";
 
     state.wsUrl = nextWsUrl;
+    state.accessToken = nextAccessToken;
     state.displayName = settingsForm.displayName.trim() || "Local browser";
     saveRunPanelVisibilitySettings(
       settingsForm.showWorkState,
@@ -3877,9 +3910,11 @@ export function useChatClient() {
     }
 
     writeStoredValue(STORAGE_KEYS.wsUrl, state.wsUrl);
+    writeStoredValue(STORAGE_KEYS.accessToken, state.accessToken);
     writeStoredValue(STORAGE_KEYS.displayName, state.displayName);
     writeStoredValue(STORAGE_KEYS.activeExternalChatId, state.activeExternalChatId);
     settingsForm.wsUrl = state.wsUrl;
+    settingsForm.accessToken = state.accessToken;
     settingsForm.displayName = state.displayName;
     settingsForm.externalChatId = state.activeExternalChatId;
     void loadCommandCatalog();
@@ -3887,6 +3922,17 @@ export function useChatClient() {
     if (shouldReconnect) {
       connectSocket();
     }
+  }
+
+  function submitAccessToken() {
+    const nextAccessToken = settingsForm.accessToken.trim();
+    state.accessToken = nextAccessToken;
+    writeStoredValue(STORAGE_KEYS.accessToken, state.accessToken);
+    settingsForm.accessToken = state.accessToken;
+    state.authError = "";
+    state.authRequired = false;
+    void loadCommandCatalog();
+    connectSocket();
   }
 
   function toggleSettingsConnection(shouldConnect) {
@@ -3911,7 +3957,10 @@ export function useChatClient() {
 
     run.cancelPending = true;
     try {
-      const response = await fetch(buildRunCancelUrl(state.wsUrl, run.runId, sessionId), { method: "POST" });
+      const response = await fetch(buildRunCancelUrl(state.wsUrl, run.runId, sessionId), {
+        method: "POST",
+        headers: authorizedHeaders(),
+      });
       if (!response.ok) {
         throw new Error(`Cancel request failed with HTTP ${response.status}`);
       }
@@ -4088,6 +4137,9 @@ export function useChatClient() {
     if (clientDisposed) {
       return;
     }
+    if (state.authRequired) {
+      return;
+    }
     void loadCommandCatalog();
     void loadPermissionRequests();
     persistActiveSession();
@@ -4194,6 +4246,7 @@ export function useChatClient() {
     openSettings,
     closeSettings,
     saveConnectionSettings,
+    submitAccessToken,
     loadProviderSettings,
     loadCodexAuthStatus,
     loadCopilotAuthStatus,

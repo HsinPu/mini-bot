@@ -1,6 +1,7 @@
 export function createSettingsForm(state) {
   return {
     wsUrl: state.wsUrl,
+    accessToken: state.accessToken,
     displayName: state.displayName,
     externalChatId: state.activeExternalChatId,
     showWorkState: state.showWorkState,

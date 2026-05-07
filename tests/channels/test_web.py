@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from aiohttp import ClientSession
+from aiohttp import ClientSession, WSServerHandshakeError
 
 from opensprite.bus.dispatcher import MessageQueue
 from opensprite.bus.events import RunEvent, SessionStatusEvent
@@ -197,6 +197,90 @@ async def _run_web_roundtrip():
 
 def test_web_adapter_roundtrip():
     asyncio.run(_run_web_roundtrip())
+
+
+def test_web_adapter_refuses_non_loopback_without_auth_token():
+    adapter = WebAdapter(
+        mq=MessageQueue(EchoAgent()),
+        config={"host": "0.0.0.0", "frontend_auto_build": False},
+    )
+
+    try:
+        adapter._validate_bind_auth_config("0.0.0.0")
+    except RuntimeError as exc:
+        assert "non-loopback host without auth_token" in str(exc)
+    else:
+        raise AssertionError("expected non-loopback bind without auth_token to fail")
+
+
+def test_web_adapter_allows_loopback_without_auth_token():
+    adapter = WebAdapter(
+        mq=MessageQueue(EchoAgent()),
+        config={"host": "127.0.0.1", "frontend_auto_build": False},
+    )
+
+    adapter._validate_bind_auth_config("127.0.0.1")
+    adapter._validate_bind_auth_config("localhost")
+    adapter._validate_bind_auth_config("::1")
+
+
+async def _run_web_auth_token_guard():
+    agent = EchoAgent()
+    queue = MessageQueue(agent)
+    adapter = WebAdapter(
+        mq=queue,
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "path": "/ws",
+            "health_path": "/healthz",
+            "frontend_auto_build": False,
+            "auth_token": "test-token",
+        },
+    )
+    processor = asyncio.create_task(queue.process_queue())
+    adapter_task = asyncio.create_task(adapter.run())
+
+    try:
+        await adapter.wait_until_started()
+        port = adapter.bound_port
+        assert port is not None
+
+        async with ClientSession() as session:
+            async with session.get(f"http://127.0.0.1:{port}/healthz") as resp:
+                assert resp.status == 200
+
+            async with session.get(f"http://127.0.0.1:{port}/api/commands") as resp:
+                assert resp.status == 401
+
+            async with session.get(
+                f"http://127.0.0.1:{port}/api/commands",
+                headers={"Authorization": "Bearer test-token"},
+            ) as resp:
+                assert resp.status == 200
+
+            try:
+                await session.ws_connect(f"ws://127.0.0.1:{port}/ws")
+            except WSServerHandshakeError as exc:
+                assert exc.status == 401
+            else:
+                raise AssertionError("expected websocket without token to be rejected")
+
+            async with session.ws_connect(f"ws://127.0.0.1:{port}/ws?access_token=test-token") as ws:
+                session_frame = await ws.receive_json(timeout=2)
+                assert session_frame["type"] == "session"
+    finally:
+        adapter_task.cancel()
+        try:
+            await adapter_task
+        except asyncio.CancelledError:
+            pass
+        await queue.stop()
+        await asyncio.wait_for(processor, timeout=2)
+
+
+def test_web_adapter_auth_token_guard():
+    asyncio.run(_run_web_auth_token_guard())
 
 
 async def _run_web_command_catalog_api():

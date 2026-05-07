@@ -79,6 +79,23 @@
     />
   </div>
 
+  <section v-if="state.authRequired" class="auth-gate" aria-labelledby="authGateTitle">
+    <form class="auth-gate__card" @submit.prevent="submitAccessToken">
+      <span class="auth-gate__mark" aria-hidden="true">OS</span>
+      <h1 id="authGateTitle">{{ copy.auth.title }}</h1>
+      <p>{{ copy.auth.description }}</p>
+      <label>
+        <span>{{ copy.auth.tokenLabel }}</span>
+        <input v-model="settingsForm.accessToken" type="password" autocomplete="current-password" spellcheck="false" autofocus />
+      </label>
+      <p v-if="state.authError" class="auth-gate__error">{{ state.authError }}</p>
+      <div class="auth-gate__actions">
+        <button class="primary-button" type="submit">{{ copy.auth.submit }}</button>
+        <button class="secondary-button" type="button" @click="openSettings('general')">{{ copy.auth.settings }}</button>
+      </div>
+    </form>
+  </section>
+
   <SettingsModal
     :copy="copy"
     :open="settingsOpen"
@@ -202,6 +219,7 @@ const {
   openSettings,
   closeSettings,
   saveConnectionSettings,
+  submitAccessToken,
   loadUpdateStatus,
   runUpdate,
   beginChannelConnect,
