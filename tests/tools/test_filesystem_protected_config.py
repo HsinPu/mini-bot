@@ -3,7 +3,7 @@
 import asyncio
 import json
 
-from opensprite.tools.filesystem import EditFileTool, WriteFileTool
+from opensprite.tools.filesystem import ApplyPatchTool, EditFileTool, WriteFileTool
 
 
 def test_write_file_blocks_opensprite_json_basename(tmp_path):
@@ -88,3 +88,27 @@ def test_edit_file_blocks_opensprite_json(tmp_path):
     )
     assert "cannot modify" in out.lower()
     assert '"a":1' in target.read_text()
+
+
+def test_write_file_blocks_sensitive_user_config_under_home(tmp_path, monkeypatch):
+    monkeypatch.setattr("opensprite.tools.filesystem.Path.home", lambda: tmp_path)
+    tool = WriteFileTool(workspace=tmp_path)
+
+    out = asyncio.run(tool.execute(path=".ssh/authorized_keys", content="ssh-rsa AAA"))
+
+    assert "sensitive user configuration" in out.lower()
+    assert not (tmp_path / ".ssh" / "authorized_keys").exists()
+
+
+def test_apply_patch_blocks_sensitive_user_config_under_home(tmp_path, monkeypatch):
+    monkeypatch.setattr("opensprite.tools.filesystem.Path.home", lambda: tmp_path)
+    tool = ApplyPatchTool(workspace=tmp_path)
+
+    out = asyncio.run(
+        tool.execute(
+            changes=[{"action": "add", "path": ".aws/credentials", "content": "[default]\n"}]
+        )
+    )
+
+    assert "sensitive user configuration" in out.lower()
+    assert not (tmp_path / ".aws" / "credentials").exists()

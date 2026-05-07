@@ -31,6 +31,10 @@ _CONFIG_WRITE_GUARD_MSG = (
     "Error: Cannot modify OpenSprite configuration files with write_file, edit_file, or apply_patch. "
     "Use the OpenSprite Web UI Settings or edit them outside the agent."
 )
+_SENSITIVE_USER_WRITE_GUARD_MSG = (
+    "Error: Cannot modify sensitive user configuration files with write_file, edit_file, or apply_patch. "
+    "Edit SSH keys, cloud credentials, shell profiles, and credential files outside the agent."
+)
 _DEFAULT_READ_LIMIT = 2000
 _MAX_READ_LIMIT = 2000
 _MAX_READ_CHARS = 50_000
@@ -66,6 +70,33 @@ _CONTEXT_THREAT_PATTERNS = (
     (re.compile(r"curl\s+[^\n]*\$\{?\w*(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|API)", re.IGNORECASE), "secret_exfiltration"),
     (re.compile(r"cat\s+[^\n]*(\.env|credentials|\.netrc|\.pgpass)", re.IGNORECASE), "secret_file_access"),
 )
+_SENSITIVE_USER_FILE_PARTS = frozenset(
+    {
+        (".ssh", "authorized_keys"),
+        (".ssh", "id_rsa"),
+        (".ssh", "id_ed25519"),
+        (".ssh", "config"),
+        (".netrc",),
+        (".pgpass",),
+        (".npmrc",),
+        (".pypirc",),
+        (".bashrc",),
+        (".zshrc",),
+        (".profile",),
+        (".bash_profile",),
+        (".zprofile",),
+    }
+)
+_SENSITIVE_USER_DIR_PARTS = frozenset(
+    {
+        (".aws",),
+        (".gnupg",),
+        (".kube",),
+        (".docker",),
+        (".azure",),
+        (".config", "gh"),
+    }
+)
 
 
 def path_touches_protected_system_config(
@@ -96,6 +127,24 @@ def path_touches_protected_system_config(
     if resolved.name.lower() == "opensprite.json":
         return _CONFIG_WRITE_GUARD_MSG
 
+    return None
+
+
+def path_touches_sensitive_user_config(file_path: Path) -> str | None:
+    """Return an error when a write targets sensitive files under the user home."""
+    try:
+        resolved = file_path.resolve(strict=False)
+        home = Path.home().expanduser().resolve(strict=False)
+        relative_parts = resolved.relative_to(home).parts
+    except (OSError, ValueError):
+        return None
+
+    normalized = tuple(part.lower() for part in relative_parts)
+    if normalized in _SENSITIVE_USER_FILE_PARTS:
+        return _SENSITIVE_USER_WRITE_GUARD_MSG
+    for directory_parts in _SENSITIVE_USER_DIR_PARTS:
+        if normalized[: len(directory_parts)] == directory_parts:
+            return _SENSITIVE_USER_WRITE_GUARD_MSG
     return None
 
 
@@ -147,6 +196,9 @@ def _write_guard(
     )
     if prot_cfg:
         return prot_cfg
+    sensitive_user_config = path_touches_sensitive_user_config(file_path)
+    if sensitive_user_config:
+        return sensitive_user_config
     return path_touches_read_only_app_skills_dir(file_path)
 
 
