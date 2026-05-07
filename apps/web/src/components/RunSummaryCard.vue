@@ -110,6 +110,19 @@
           </code>
         </div>
 
+        <div v-if="backgroundProcesses.total > 0" class="run-summary-card__note" :data-tone="backgroundProcessesTone">
+          <strong>{{ copy.runSummary.backgroundProcesses }}</strong>
+          <span>{{ backgroundProcessesLabel }}</span>
+          <small v-if="backgroundProcessesDetail">{{ backgroundProcessesDetail }}</small>
+        </div>
+
+        <div v-if="backgroundProcesses.items.length" class="run-summary-card__chips">
+          <span>{{ copy.runSummary.backgroundProcessRuns }}</span>
+          <code v-for="process in visibleBackgroundProcesses" :key="process.id" :data-status="process.status">
+            {{ backgroundProcessChip(process) }}
+          </code>
+        </div>
+
         <div v-if="hasDiffSummary" class="run-summary-card__diff">
           <div class="run-summary-card__diff-header">
             <strong>{{ copy.runSummary.diffSummary }}</strong>
@@ -450,6 +463,30 @@ const parallelDelegationDetail = computed(() => {
     .join(" · ");
 });
 
+const backgroundProcesses = computed(() => summarizeBackgroundProcesses(props.run));
+
+const visibleBackgroundProcesses = computed(() => backgroundProcesses.value.items.slice(0, 4));
+
+const backgroundProcessesTone = computed(() => {
+  const statuses = backgroundProcesses.value.byStatus || {};
+  if ((statuses.failed || 0) > 0 || (statuses.lost || 0) > 0) {
+    return "warning";
+  }
+  if ((statuses.running || 0) > 0) {
+    return "neutral";
+  }
+  return "success";
+});
+
+const backgroundProcessesLabel = computed(() => {
+  const data = backgroundProcesses.value;
+  return props.copy.runSummary.backgroundProcessSummary(data.total, data.byStatus.completed || 0, data.byStatus.lost || 0);
+});
+
+const backgroundProcessesDetail = computed(() => {
+  return visibleBackgroundProcesses.value.map((process) => backgroundProcessChip(process)).join(" · ");
+});
+
 const warningLabels = computed(() => (summary.value?.warnings || []).map((warning) => warningLabel(warning)));
 
 const followUpTarget = computed(() => {
@@ -668,6 +705,15 @@ function buildRunReport() {
     );
   }
 
+  if (backgroundProcesses.value.total > 0) {
+    lines.push(
+      "",
+      `## ${props.copy.runSummary.backgroundProcesses}`,
+      `- ${backgroundProcessesLabel.value}`,
+      ...backgroundProcesses.value.items.map((process) => `- ${backgroundProcessChip(process)}`),
+    );
+  }
+
   lines.push("", `## ${props.copy.runSummary.files}`, ...formatFileChanges(data.fileChanges));
 
   if (data.nextAction) {
@@ -807,6 +853,88 @@ function parallelGroupLabel(group) {
 function parallelStatusLabel(status) {
   const labels = props.copy.runSummary.parallelStatusLabels || {};
   return labels[status] || status;
+}
+
+function summarizeBackgroundProcesses(run) {
+  const itemsById = new Map();
+  const artifacts = Array.isArray(run?.artifacts) ? run.artifacts : [];
+  const events = Array.isArray(run?.rawEvents) ? run.rawEvents : [];
+  for (const artifact of artifacts) {
+    if (artifact?.kind !== "process" && artifact?.artifactType !== "background_process") {
+      continue;
+    }
+    upsertBackgroundProcess(itemsById, processFromArtifact(artifact));
+  }
+  for (const event of events) {
+    if (!String(event?.eventType || "").startsWith("background_process.")) {
+      continue;
+    }
+    upsertBackgroundProcess(itemsById, processFromEvent(event));
+  }
+  const items = Array.from(itemsById.values()).sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0));
+  const byStatus = items.reduce((counts, item) => {
+    counts[item.status] = (counts[item.status] || 0) + 1;
+    return counts;
+  }, {});
+  return { total: items.length, byStatus, items };
+}
+
+function upsertBackgroundProcess(itemsById, next) {
+  if (!next?.id) {
+    return;
+  }
+  const current = itemsById.get(next.id);
+  if (!current || (next.updatedAt || 0) >= (current.updatedAt || 0)) {
+    itemsById.set(next.id, { ...current, ...next });
+  }
+}
+
+function processFromArtifact(artifact) {
+  const metadata = artifact.metadata || {};
+  return {
+    id: String(metadata.process_session_id || metadata.processSessionId || artifact.sourceId || artifact.artifactId || "").trim(),
+    command: String(metadata.command || artifact.title || "").trim(),
+    status: normalizeProcessStatus(metadata.state || artifact.status, metadata.exit_code ?? metadata.exitCode),
+    exitCode: metadata.exit_code ?? metadata.exitCode,
+    updatedAt: Number(artifact.createdAt || 0),
+  };
+}
+
+function processFromEvent(event) {
+  const payload = event.payload || {};
+  return {
+    id: String(payload.process_session_id || payload.processSessionId || event.artifact?.sourceId || "").trim(),
+    command: String(payload.command || event.artifact?.title || "").trim(),
+    status: normalizeProcessStatus(payload.state || event.status, payload.exit_code ?? payload.exitCode),
+    exitCode: payload.exit_code ?? payload.exitCode,
+    updatedAt: Number(event.createdAt || 0),
+  };
+}
+
+function normalizeProcessStatus(status, exitCode) {
+  const normalized = String(status || "").trim();
+  if (normalized === "exited") {
+    return Number(exitCode ?? 0) === 0 ? "completed" : "failed";
+  }
+  if (normalized === "running" || normalized === "completed" || normalized === "failed" || normalized === "lost") {
+    return normalized;
+  }
+  if (exitCode !== null && exitCode !== undefined) {
+    return Number(exitCode) === 0 ? "completed" : "failed";
+  }
+  return normalized || "unknown";
+}
+
+function backgroundProcessChip(process) {
+  const command = process.command || process.id || props.copy.runSummary.backgroundProcessFallback;
+  const status = backgroundProcessStatusLabel(process.status);
+  const exitCode = process.exitCode !== null && process.exitCode !== undefined ? ` exit ${process.exitCode}` : "";
+  return `${command} · ${status}${exitCode}`;
+}
+
+function backgroundProcessStatusLabel(status) {
+  const labels = props.copy.runSummary.backgroundProcessStatusLabels || {};
+  return labels[status] || status || labels.unknown || "unknown";
 }
 
 function warningLabel(warning) {
