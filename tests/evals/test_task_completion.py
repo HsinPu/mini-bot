@@ -226,6 +226,7 @@ async def _run_live_task_completion_eval_scores_agent_result():
     assert cases_by_id["literal_instruction"]["run_id"] == "run-literal_instruction"
     assert cases_by_id["literal_instruction"]["eval_id"].startswith("eval_")
     assert cases_by_id["literal_instruction"]["label"] == "Literal instruction answer"
+    assert cases_by_id["literal_instruction"]["expected_summary"] == "alpha beta gamma"
     assert {case["batch_id"] for case in cases_by_id.values()} == {payload["batch_id"]}
     assert cases_by_id["literal_instruction"]["completion_status"] == "complete"
     assert cases_by_id["literal_instruction"]["response_preview"] == "alpha beta gamma"
@@ -242,5 +243,7 @@ async def _run_live_task_completion_eval_scores_agent_result():
     assert history_by_case["literal_instruction"].summary["text"] == cases_by_id["literal_instruction"]["summary"]
     assert history_by_case["literal_instruction"].response_preview == "alpha beta gamma"
     assert history_by_case["literal_instruction"].metadata["case_label"] == "Literal instruction answer"
+    assert history_by_case["literal_instruction"].metadata["expected_summary"] == "alpha beta gamma"
+    assert history_by_case["literal_instruction"].metadata["actual_response"] == "alpha beta gamma"
     assert history_by_case["literal_instruction"].metadata["model"] == model_info
     assert history_by_case["multi_step_completion"].eval_id == cases_by_id["multi_step_completion"]["eval_id"]

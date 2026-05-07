@@ -133,6 +133,8 @@ class StoredEvalRun:
             "metadata": metadata,
             "model": dict(metadata.get("model") or {}),
             "batch_id": str(metadata.get("batch_id") or ""),
+            "expected_summary": str(metadata.get("expected_summary") or ""),
+            "actual_response": str(metadata.get("actual_response") or self.response_preview),
             "created_at": self.created_at,
         }
 

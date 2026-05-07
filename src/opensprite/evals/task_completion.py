@@ -201,6 +201,8 @@ async def _persist_eval_case(storage: Any, evaluated_case: Mapping[str, Any]) ->
             "error": _string(evaluated_case.get("error")),
             "model": _model_info_payload(evaluated_case.get("model")),
             "batch_id": _string(evaluated_case.get("batch_id")),
+            "expected_summary": _string(evaluated_case.get("expected_summary")),
+            "actual_response": _string(evaluated_case.get("actual_response")),
         },
         created_at=time.time(),
     )
@@ -343,6 +345,8 @@ def evaluate_task_completion_case(case: Mapping[str, Any], result: Mapping[str, 
         "run_status": _string(result.get("run_status")),
         "error": _string(result.get("error")),
         "model": _model_info_payload(result.get("model")),
+        "expected_summary": _expected_summary(case),
+        "actual_response": response_text.strip(),
         "response_preview": _preview(response_text),
         "checks": checks,
     }
@@ -485,6 +489,37 @@ def _preview(text: str) -> str:
     if len(value) <= _RESPONSE_PREVIEW_CHARS:
         return value
     return f"{value[: _RESPONSE_PREVIEW_CHARS - 1]}..."
+
+
+def _expected_summary(case: Mapping[str, Any]) -> str:
+    exact_response = _string(case.get("exact_response"))
+    if exact_response:
+        return exact_response
+
+    parts: list[str] = []
+    expected_status = _string(case.get("expected_completion_status"))
+    if expected_status:
+        parts.append(f"Completion status: {expected_status}")
+    expected_lines = _optional_int(case.get("expected_non_empty_lines"))
+    if expected_lines is not None:
+        parts.append(f"Non-empty lines: {expected_lines}")
+    must_end_with = _string(case.get("must_end_with"))
+    if must_end_with:
+        parts.append(f"Must end with: {must_end_with}")
+    must_include = _string_sequence(case.get("must_include"))
+    if must_include:
+        parts.append(f"Must include: {', '.join(must_include)}")
+    must_not_include = _string_sequence(case.get("must_not_include"))
+    if must_not_include:
+        parts.append(f"Must not include: {', '.join(must_not_include)}")
+    max_response_chars = _optional_int(case.get("max_response_chars"))
+    if max_response_chars is not None:
+        parts.append(f"Max response chars: {max_response_chars}")
+    if _bool(case.get("require_no_tool_error", True)):
+        parts.append("No tool errors")
+    if _bool(case.get("require_run_trace", False)):
+        parts.append("Run trace required")
+    return "; ".join(parts)
 
 
 def _slug(text: str) -> str:

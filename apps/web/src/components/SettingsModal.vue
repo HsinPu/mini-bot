@@ -1437,6 +1437,16 @@
                         {{ failedEvalCheckText(check) }}
                       </li>
                     </ul>
+                    <div class="eval-history-row__comparison">
+                      <div>
+                        <strong>{{ copy.settings.eval.expectedAnswerTitle }}</strong>
+                        <p>{{ evalExpectedSummary(item) }}</p>
+                      </div>
+                      <div>
+                        <strong>{{ copy.settings.eval.actualAnswerTitle }}</strong>
+                        <p>{{ evalActualResponse(item) }}</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2232,11 +2242,80 @@ function failedEvalCheckText(check) {
   const id = String(check?.id || props.copy.settings.eval.none).trim();
   const label = String(check?.label || "").trim();
   const detail = String(check?.detail || "").trim();
-  return [id, label, detail].filter(Boolean).join(" - ");
+  const item = failedEvalCheckItem(id, label);
+  const hint = failedEvalCheckHint(id);
+  return props.copy.settings.eval.failedCheckItem(item, detail || label || id, hint);
 }
 
 function evalHistoryCaseLabel(entry) {
   return String(entry?.case_label || entry?.metadata?.case_label || entry?.case_id || props.copy.settings.eval.none).trim();
+}
+
+function evalExpectedSummary(entry) {
+  return String(entry?.expected_summary || entry?.metadata?.expected_summary || props.copy.settings.eval.none).trim();
+}
+
+function evalActualResponse(entry) {
+  return String(entry?.actual_response || entry?.metadata?.actual_response || entry?.response_preview || props.copy.settings.eval.none).trim();
+}
+
+function failedEvalCheckItem(checkId, fallbackLabel = "") {
+  const labels = props.copy.settings.eval.failedCheckItems;
+  if (checkId === "completion_status") {
+    return labels.completionStatus;
+  }
+  if (checkId === "response_present") {
+    return labels.responsePresent;
+  }
+  if (checkId === "tool_errors") {
+    return labels.toolErrors;
+  }
+  if (checkId === "run_trace") {
+    return labels.runTrace;
+  }
+  if (checkId === "max_response_chars") {
+    return labels.maxResponseChars;
+  }
+  if (checkId === "exact_response") {
+    return labels.exactResponse;
+  }
+  if (checkId === "expected_non_empty_lines") {
+    return labels.expectedLines;
+  }
+  if (checkId.startsWith("must_end_with_")) {
+    return labels.mustEndWith;
+  }
+  if (checkId.startsWith("must_include_")) {
+    return labels.mustInclude;
+  }
+  if (checkId.startsWith("must_not_include_")) {
+    return labels.mustNotInclude;
+  }
+  return fallbackLabel || labels.generic;
+}
+
+function failedEvalCheckHint(checkId) {
+  const hints = props.copy.settings.eval.failedCheckHints;
+  if (checkId === "completion_status") {
+    return hints.completionStatus;
+  }
+  if (checkId === "tool_errors" || checkId === "run_trace") {
+    return hints.execution;
+  }
+  if (checkId === "response_present") {
+    return hints.responsePresent;
+  }
+  if (
+    checkId === "max_response_chars" ||
+    checkId === "exact_response" ||
+    checkId === "expected_non_empty_lines" ||
+    checkId.startsWith("must_end_with_") ||
+    checkId.startsWith("must_include_") ||
+    checkId.startsWith("must_not_include_")
+  ) {
+    return hints.llmOutput;
+  }
+  return "";
 }
 
 function failedEvalChecksSummary(entry) {

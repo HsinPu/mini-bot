@@ -258,6 +258,7 @@
 :root[data-color-scheme="dark"] .channel-field,
 :root[data-color-scheme="dark"] .settings-row span,
 :root[data-color-scheme="dark"] .eval-history-row__failures ul,
+:root[data-color-scheme="dark"] .eval-history-row__comparison p,
 :root[data-color-scheme="dark"] .eval-history-group__main span,
 :root[data-color-scheme="dark"] .eval-history-group__chevron,
 :root[data-color-scheme="dark"] .data-timeline-table,
@@ -294,6 +295,7 @@
 :root[data-color-scheme="dark"] .provider-row__select select,
 :root[data-color-scheme="dark"] .settings-row strong,
 :root[data-color-scheme="dark"] .eval-history-row__failures strong,
+:root[data-color-scheme="dark"] .eval-history-row__comparison strong,
 :root[data-color-scheme="dark"] .eval-history-group__main strong,
 :root[data-color-scheme="dark"] .data-timeline-table__row strong,
 :root[data-color-scheme="dark"] .data-timeline-table__details-grid strong,
@@ -324,6 +326,7 @@
 :root[data-color-scheme="dark"] .provider-row,
 :root[data-color-scheme="dark"] .settings-row,
 :root[data-color-scheme="dark"] .eval-history-row__failures,
+:root[data-color-scheme="dark"] .eval-history-row__comparison div,
 :root[data-color-scheme="dark"] .eval-history-group,
 :root[data-color-scheme="dark"] .eval-history-group__toggle,
 :root[data-color-scheme="dark"] .data-timeline-table th,
@@ -3972,6 +3975,39 @@ button:disabled {
   line-height: 1.45;
 }
 
+.eval-history-row__comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.eval-history-row__comparison div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid rgba(217, 45, 32, 0.12);
+  border-radius: 7px;
+  background: #ffffff;
+}
+
+.eval-history-row__comparison strong {
+  margin: 0;
+  color: #333333;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.eval-history-row__comparison p {
+  overflow: auto;
+  max-height: 140px;
+  margin: 0;
+  color: #555555;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
 .data-timeline-table-wrap {
   overflow-x: auto;
 }
@@ -5090,6 +5126,10 @@ textarea:focus-visible {
   .eval-history-group__toggle .provider-row__badge {
     grid-column: 2;
     justify-self: start;
+  }
+
+  .eval-history-row__comparison {
+    grid-template-columns: 1fr;
   }
 
   .schedule-editor__header,
