@@ -52,21 +52,62 @@ const props = defineProps({
   },
 });
 
-const messages = computed(() => {
-  if (props.entries.length) {
-    return props.entries.map((entry, index) => ({
-      id: entry.id || `entry-${index}`,
-      role: entry.role === "user" ? "user" : "assistant",
-      text: entry.text || "",
-      meta: entry.meta || (entry.role === "user" ? props.displayName : "OpenSprite"),
-      content: Array.isArray(entry.content) ? entry.content : [],
-    }));
+const INTERNAL_BLOCK_RE = /<\s*(think|thinking|system-reminder)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi;
+const INTERNAL_OPEN_BLOCK_RE = /<\s*(think|thinking|system-reminder)\b[^>]*>[\s\S]*$/i;
+
+function sanitizeVisibleText(value) {
+  return String(value || "")
+    .replace(INTERNAL_BLOCK_RE, "")
+    .replace(INTERNAL_OPEN_BLOCK_RE, "")
+    .trim();
+}
+
+function normalizeTextPart(part, index) {
+  const text = sanitizeVisibleText(part?.text || part?.detail || "");
+  if (!text) {
+    return null;
+  }
+  return {
+    id: part?.id || `text-${index}`,
+    type: "text",
+    text,
+  };
+}
+
+function normalizeEntry(entry, index) {
+  const role = entry.role === "user" ? "user" : "assistant";
+  const content = Array.isArray(entry.content)
+    ? entry.content.map(normalizeTextPart).filter(Boolean)
+    : [];
+  const text = sanitizeVisibleText(entry.text || "");
+
+  if (!text && content.length === 0) {
+    return null;
   }
 
-  return props.messages.map((message) => ({
+  return {
+    id: entry.id || `entry-${index}`,
+    role,
+    text,
+    meta: entry.meta || (role === "user" ? props.displayName : "OpenSprite"),
+    content,
+  };
+}
+
+function normalizeMessage(message) {
+  return {
     ...message,
+    text: sanitizeVisibleText(message.text),
     content: [],
-  }));
+  };
+}
+
+const messages = computed(() => {
+  if (props.entries.length) {
+    return props.entries.map(normalizeEntry).filter(Boolean);
+  }
+
+  return props.messages.map(normalizeMessage).filter((message) => message.text.trim());
 });
 
 function artifactTypeLabel(type) {

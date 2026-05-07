@@ -2803,7 +2803,7 @@ button:disabled {
 
 .run-trace__artifact-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  grid-template-columns: 1fr;
   gap: 8px;
 }
 
@@ -2935,23 +2935,19 @@ button:disabled {
 }
 
 .run-trace__artifact-card strong {
-  overflow: hidden;
   color: var(--text);
   font-size: 0.8rem;
   font-weight: 700;
   line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .run-trace__artifact-card small,
 .run-trace__artifact-detail {
-  overflow: hidden;
   color: var(--text-muted);
   font-size: 0.72rem;
   line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .run-trace__artifact-detail {

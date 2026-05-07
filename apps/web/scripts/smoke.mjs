@@ -52,6 +52,7 @@ const [
   providerSettingsActions,
   scheduleSettingsActions,
   copy,
+  styles,
 ] = await Promise.all([
   read("src/components/MessageList.vue"),
   read("src/components/RunSummaryCard.vue"),
@@ -70,16 +71,22 @@ const [
   read("src/composables/useProviderSettingsActions.js"),
   read("src/composables/useScheduleSettingsActions.js"),
   read("src/i18n/copy.js"),
+  read("styles.css"),
 ]);
 
 const settingsLogic = `${chatClient}\n${dataSettingsActions}\n${mcpSettingsActions}\n${modelSettingsActions}\n${networkSettingsActions}\n${providerSettingsActions}\n${scheduleSettingsActions}`;
 
 assertIncludes(messageList, "artifactTypeLabel", "session entry artifact labels");
 assertIncludes(messageList, "message__artifact-status", "session entry artifact status");
+assertIncludes(messageList, "sanitizeVisibleText", "message visible text sanitizer");
+assertIncludes(messageList, "normalizeTextPart", "message text-only entry filtering");
+assertIncludes(messageList, "system-reminder", "message internal reminder stripping");
 assertIncludes(runSummaryCard, "visibleDiffPathItems", "diff summary file links");
 assertIncludes(runSummaryCard, "cleanup-worktree", "worktree cleanup action");
 assertIncludes(runTraceViewer, "codeNavigationResults", "code navigation trace rendering");
 assertIncludes(runTraceViewer, "showRetentionSummary", "trace retention summary");
+assertIncludes(styles, ".run-trace__artifact-grid", "trace artifact grid styling");
+assertIncludes(styles, "grid-template-columns: 1fr", "trace artifacts render in one column");
 assertIncludes(runDetailsPanel, "RunHistorySelector", "run details history selector");
 assertIncludes(runDetailsPanel, "showRunHistory", "run history visibility toggle");
 assertIncludes(runDetailsPanel, "RunFileChangeDrawer", "run details file drawer");
