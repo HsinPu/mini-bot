@@ -11,6 +11,7 @@ from pathlib import Path
 from opensprite.tools.shell import (
     _build_pipe_drain_warning_result,
     _build_timeout_result,
+    classify_destructive_shell_command,
     _foreground_exec_guidance,
     _has_shell_background_operator,
 )
@@ -82,6 +83,56 @@ def test_exec_tool_blocks_dangerous_command(tmp_path):
     result = asyncio.run(tool.execute(command="git reset --hard"))
 
     assert result == "Error: Command blocked by safety guard (dangerous pattern detected)"
+
+
+def test_destructive_classifier_blocks_common_bypass_variants():
+    commands = [
+        "Git Reset --Hard HEAD",
+        '"git" reset --hard HEAD',
+        "git clean -fdx",
+        "git clean -d -f",
+        "rm -rf build",
+        "rm -Recurse build",
+        "Remove-Item -LiteralPath build -Force",
+        "cmd /c del /f important.txt",
+        'powershell -Command "Remove-Item -Recurse ."',
+        "rmdir /s build",
+        "diskpart /s wipe.txt",
+    ]
+
+    for command in commands:
+        assert classify_destructive_shell_command(command), command
+
+
+def test_destructive_classifier_allows_safe_commands():
+    commands = [
+        "git status",
+        "git diff -- src/app.py",
+        "Remove-Item --help",
+        "npm run build",
+        "echo git reset --hard",
+    ]
+
+    for command in commands:
+        assert classify_destructive_shell_command(command) is None, command
+
+
+def test_exec_tool_blocks_wrapped_destructive_command(tmp_path):
+    from opensprite.tools.shell import ExecTool
+
+    tool = ExecTool(workspace=Path(tmp_path))
+    result = asyncio.run(tool.execute(command='powershell -Command "Remove-Item -Recurse ."'))
+
+    assert result == "Error: Command blocked by safety guard (dangerous pattern detected)"
+
+
+def test_exec_tool_allows_help_for_dangerous_command_names(tmp_path):
+    from opensprite.tools.shell import ExecTool
+
+    tool = ExecTool(workspace=Path(tmp_path))
+    result = asyncio.run(tool.execute(command="Remove-Item --help"))
+
+    assert result != "Error: Command blocked by safety guard (dangerous pattern detected)"
 
 
 def test_exec_tool_accepts_notify_on_complete_alias(tmp_path):

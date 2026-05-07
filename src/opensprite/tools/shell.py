@@ -161,6 +161,122 @@ _LONG_LIVED_FOREGROUND_GUIDANCE = (
 )
 
 
+def _strip_shell_quotes(token: str) -> str:
+    token = str(token or "").strip()
+    if len(token) >= 2 and token[0] == token[-1] and token[0] in {"'", '"'}:
+        token = token[1:-1]
+    return token.strip()
+
+
+def _shell_tokens(command: str) -> list[str]:
+    tokens: list[str] = []
+    i = 0
+    n = len(command)
+    while i < n:
+        ch = command[i]
+        if ch.isspace() or ch in ";|&()":
+            i += 1
+            continue
+        token, next_i = _read_shell_token(command, i)
+        if token:
+            tokens.append(_strip_shell_quotes(token))
+        i = max(next_i, i + 1)
+    return tokens
+
+
+def _shell_segments(command: str) -> list[str]:
+    segments: list[str] = []
+    start = 0
+    i = 0
+    n = len(command)
+    while i < n:
+        ch = command[i]
+        if ch in {"'", '"'}:
+            _, i = _read_shell_token(command, i)
+            continue
+        if ch in ";|&":
+            segment = command[start:i].strip()
+            if segment:
+                segments.append(segment)
+            if ch == "&" and i + 1 < n and command[i + 1] == "&":
+                i += 2
+            else:
+                i += 1
+            start = i
+            continue
+        i += 1
+    tail = command[start:].strip()
+    if tail:
+        segments.append(tail)
+    return segments
+
+
+def _is_rm_recursive_or_forced(tokens: list[str], index: int) -> bool:
+    flags = [token.lower() for token in tokens[index + 1 :]]
+    for flag in flags:
+        if flag in {"-recurse", "-recursive", "--recursive", "-force", "--force"}:
+            return True
+        if flag.startswith("-") and "r" in flag[1:]:
+            return True
+    return False
+
+
+def _has_windows_delete_flags(tokens: list[str], index: int) -> bool:
+    flags = {token.lower() for token in tokens[index + 1 :]}
+    return bool(flags & {"/f", "/q", "/s"})
+
+
+def classify_destructive_shell_command(command: str) -> str | None:
+    """Return a stable reason when a shell command is unambiguously destructive."""
+    segments = _shell_segments(command)
+    if len(segments) > 1:
+        for segment in segments:
+            if reason := classify_destructive_shell_command(segment):
+                return reason
+        return None
+
+    tokens = _shell_tokens(command)
+    lowered = [token.lower() for token in tokens]
+    if not lowered:
+        return None
+    if lowered[0] in {"echo", "printf"}:
+        return None
+
+    for index, token in enumerate(lowered):
+        if token in {"cmd", "cmd.exe"} and index + 2 < len(lowered) and lowered[index + 1] in {"/c", "/k"}:
+            nested = " ".join(tokens[index + 2 :])
+            if reason := classify_destructive_shell_command(nested):
+                return reason
+        if token in {"powershell", "powershell.exe", "pwsh", "pwsh.exe"}:
+            for flag_index in range(index + 1, len(lowered)):
+                if lowered[flag_index] in {"-command", "-c", "/command", "/c"} and flag_index + 1 < len(tokens):
+                    nested = " ".join(tokens[flag_index + 1 :])
+                    if reason := classify_destructive_shell_command(nested):
+                        return reason
+
+    for index, token in enumerate(lowered):
+        if token == "git" and index + 2 < len(lowered):
+            subcommand = lowered[index + 1]
+            args = lowered[index + 2 :]
+            if subcommand == "reset" and "--hard" in args:
+                return "git reset --hard"
+            if subcommand == "clean":
+                clean_flags = [arg for arg in args if arg.startswith("-")]
+                if any("f" in flag.lstrip("-") for flag in clean_flags):
+                    return "git clean force"
+
+        if token in {"rm", "remove-item"} and _is_rm_recursive_or_forced(lowered, index):
+            return f"{token} recursive/forced delete"
+        if token in {"del", "erase", "rmdir"} and _has_windows_delete_flags(lowered, index):
+            return f"{token} forced delete"
+        if token in {"format", "format.com", "diskpart", "mkfs", "shutdown", "reboot", "poweroff"}:
+            return token
+        if token == "dd" and any(arg.startswith("if=") for arg in lowered[index + 1 :]):
+            return "dd raw disk copy"
+
+    return None
+
+
 def _looks_like_help_or_version_command(command: str) -> bool:
     """Return True for informational invocations that should never be blocked."""
     normalized = " ".join(command.lower().split())
@@ -307,12 +423,15 @@ class ExecTool(Tool):
         *,
         allow_managed_background: bool,
     ) -> str | None:
+        if _looks_like_help_or_version_command(command):
+            return None
+
+        if classify_destructive_shell_command(command):
+            return _DANGEROUS_COMMAND_ERROR
+
         for pattern in self.deny_patterns:
             if re.search(pattern, command, re.IGNORECASE):
                 return _DANGEROUS_COMMAND_ERROR
-
-        if _looks_like_help_or_version_command(command):
-            return None
 
         guidance = _foreground_exec_guidance(
             command,

@@ -182,6 +182,13 @@ def test_permission_request_classification_fields():
     assert destructive["risk_level"] == "high"
     assert destructive["recommended_decision"] == "deny"
 
+    wrapped_destructive = classify_permission_request(
+        "exec",
+        {"command": 'powershell -Command "Remove-Item -Recurse ."'},
+    )
+    assert wrapped_destructive["action_type"] == "destructive"
+    assert wrapped_destructive["recommended_decision"] == "deny"
+
 
 def test_approval_required_policy_denies_pending_request_in_ask_mode():
     async def scenario():

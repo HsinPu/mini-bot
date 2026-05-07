@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from ..utils.log import logger
 from .permissions import PermissionApprovalResult, ToolPermissionPolicy
+from .shell import classify_destructive_shell_command
 
 
 def _text(value: Any) -> str:
@@ -53,7 +54,7 @@ def classify_permission_request(tool_name: str, params: Any) -> dict[str, Any]:
         action_type = "commit"
     if "git push" in lowered_command:
         action_type = "push"
-    if any(token in lowered_command for token in ("rm -rf", "del /", "rmdir", "git reset --hard", "drop table")):
+    if classify_destructive_shell_command(command) or "drop table" in lowered_command:
         action_type = "destructive"
 
     if action_type in {"destructive", "push"}:
