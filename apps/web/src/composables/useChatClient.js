@@ -2,6 +2,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { getDisplayCopy } from "../i18n/copy";
 import { useChannelSettingsActions } from "./useChannelSettingsActions";
 import { useModelSettingsActions } from "./useModelSettingsActions";
+import { useNetworkSettingsActions } from "./useNetworkSettingsActions";
 import { useProviderSettingsActions } from "./useProviderSettingsActions";
 import { useUpdateSettingsActions } from "./useUpdateSettingsActions";
 import { buildHttpApiUrl, requestSettingsJson as requestSettingsJsonFromApi } from "./settingsApi";
@@ -2124,6 +2125,13 @@ export function useChatClient() {
     setSettingsSuccess,
   });
 
+  const { loadNetworkSettings, saveNetworkSettings } = useNetworkSettingsActions({
+    settingsState,
+    requestSettingsJson,
+    copy,
+    setSettingsSuccess,
+  });
+
   const {
     loadProviderSettings,
     loadCodexAuthStatus,
@@ -3211,27 +3219,6 @@ export function useChatClient() {
     }
   }
 
-  async function loadNetworkSettings() {
-    settingsState.networkLoading = true;
-    settingsState.networkError = "";
-    try {
-      const payload = await requestSettingsJson("/api/settings/network");
-      const network = payload.network || {};
-      settingsState.network = {
-        http_proxy: network.http_proxy || "",
-        https_proxy: network.https_proxy || "",
-        no_proxy: network.no_proxy || "127.0.0.1,localhost",
-      };
-      settingsState.networkForm.httpProxy = settingsState.network.http_proxy;
-      settingsState.networkForm.httpsProxy = settingsState.network.https_proxy;
-      settingsState.networkForm.noProxy = settingsState.network.no_proxy;
-    } catch (error) {
-      settingsState.networkError = error?.message || copy.value.notices.networkLoadFailed;
-    } finally {
-      settingsState.networkLoading = false;
-    }
-  }
-
   async function loadCronJobs() {
     settingsState.cronJobsLoading = true;
     settingsState.cronJobsError = "";
@@ -3743,36 +3730,6 @@ export function useChatClient() {
       settingsState.scheduleError = error?.message || copy.value.notices.scheduleSaveFailed;
     } finally {
       settingsState.scheduleLoading = false;
-    }
-  }
-
-  async function saveNetworkSettings() {
-    settingsState.networkLoading = true;
-    settingsState.networkError = "";
-    settingsState.networkNotice = "";
-    try {
-      const payload = await requestSettingsJson("/api/settings/network", {
-        method: "PUT",
-        body: JSON.stringify({
-          http_proxy: settingsState.networkForm.httpProxy,
-          https_proxy: settingsState.networkForm.httpsProxy,
-          no_proxy: settingsState.networkForm.noProxy,
-        }),
-      });
-      const network = payload.network || {};
-      settingsState.network = {
-        http_proxy: network.http_proxy || "",
-        https_proxy: network.https_proxy || "",
-        no_proxy: network.no_proxy || "127.0.0.1,localhost",
-      };
-      settingsState.networkForm.httpProxy = settingsState.network.http_proxy;
-      settingsState.networkForm.httpsProxy = settingsState.network.https_proxy;
-      settingsState.networkForm.noProxy = settingsState.network.no_proxy;
-      setSettingsSuccess("networkNotice", copy.value.notices.networkSaved);
-    } catch (error) {
-      settingsState.networkError = error?.message || copy.value.notices.networkSaveFailed;
-    } finally {
-      settingsState.networkLoading = false;
     }
   }
 

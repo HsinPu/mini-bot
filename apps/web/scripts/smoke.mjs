@@ -39,6 +39,7 @@ const [
   settingsModal,
   chatClient,
   modelSettingsActions,
+  networkSettingsActions,
   providerSettingsActions,
   copy,
 ] = await Promise.all([
@@ -52,11 +53,12 @@ const [
   read("src/components/SettingsModal.vue"),
   read("src/composables/useChatClient.js"),
   read("src/composables/useModelSettingsActions.js"),
+  read("src/composables/useNetworkSettingsActions.js"),
   read("src/composables/useProviderSettingsActions.js"),
   read("src/i18n/copy.js"),
 ]);
 
-const settingsLogic = `${chatClient}\n${modelSettingsActions}\n${providerSettingsActions}`;
+const settingsLogic = `${chatClient}\n${modelSettingsActions}\n${networkSettingsActions}\n${providerSettingsActions}`;
 
 assertIncludes(messageList, "artifactTypeLabel", "session entry artifact labels");
 assertIncludes(messageList, "message__artifact-status", "session entry artifact status");
