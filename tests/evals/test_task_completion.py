@@ -89,6 +89,36 @@ def test_task_completion_case_requires_response_ending():
     assert "must_end_with_final_line" in {check["id"] for check in failing["checks"] if not check["ok"]}
 
 
+def test_task_completion_case_requires_exact_response():
+    passing = evaluate_task_completion_case(
+        {"id": "exact", "exact_response": "alpha beta gamma"},
+        {"response_text": "alpha beta gamma"},
+    )
+    failing = evaluate_task_completion_case(
+        {"id": "exact", "exact_response": "alpha beta gamma"},
+        {"response_text": "alpha beta gamma."},
+    )
+
+    assert passing["ok"] is True
+    assert failing["ok"] is False
+    assert "exact_response" in {check["id"] for check in failing["checks"] if not check["ok"]}
+
+
+def test_task_completion_case_requires_non_empty_line_count():
+    passing = evaluate_task_completion_case(
+        {"id": "lines", "expected_non_empty_lines": 2},
+        {"response_text": "first\n\nsecond"},
+    )
+    failing = evaluate_task_completion_case(
+        {"id": "lines", "expected_non_empty_lines": 2},
+        {"response_text": "first\nsecond\nthird"},
+    )
+
+    assert passing["ok"] is True
+    assert failing["ok"] is False
+    assert "expected_non_empty_lines" in {check["id"] for check in failing["checks"] if not check["ok"]}
+
+
 def test_task_completion_smoke_runs_fixed_cases():
     payload = run_task_completion_smoke()
 
@@ -122,11 +152,12 @@ async def _run_live_task_completion_eval_scores_agent_result():
             response_text = {
                 "literal_instruction": "alpha beta gamma",
                 "multi_step_completion": (
-                    "1. 問題是回答可能在完成所有要求前就停住。\n"
-                    "2. 可能原因：流程誤判完成；續跑條件沒有觸發。\n"
-                    "3. 最後確認三個步驟都已輸出。\n"
-                    "結論：已完成三步驟回答"
+                    "1. 問題：這是格式遵循測試。\n"
+                    "2. 可能原因：模型可能漏掉步驟；輸出格式可能不穩定。\n"
+                    "3. 結論：已完成三步驟回答"
                 ),
+                "exact_two_line_output": "狀態：完成\n代碼：A7-42",
+                "exact_json_output": '{"status":"complete","items":["alpha","beta"]}',
             }[case_id]
             await storage.create_run(user_message.session_id, run_id, status="running", created_at=1.0)
             await storage.add_run_event(
@@ -158,32 +189,51 @@ async def _run_live_task_completion_eval_scores_agent_result():
             )
 
     agent = LiveEvalAgent()
-    payload = await run_live_task_completion_eval(agent=agent, storage=storage, channel="web", timeout_seconds=1)
+    model_info = {"provider_id": "test-provider", "provider": "test", "model": "test-model", "configured": True}
+    payload = await run_live_task_completion_eval(
+        agent=agent,
+        storage=storage,
+        channel="web",
+        timeout_seconds=1,
+        model_info=model_info,
+    )
 
     assert payload["ok"] is True
     assert payload["live"] is True
-    assert payload["summary"]["passed_cases"] == payload["summary"]["total_cases"] == 2
+    assert payload["model"] == model_info
+    assert payload["summary"]["passed_cases"] == payload["summary"]["total_cases"] == 4
     assert payload["summary"]["passed_checks"] == payload["summary"]["total_checks"]
     assert agent.seen_messages[0].metadata == {
         "eval_kind": "task_completion",
         "eval_case_id": "literal_instruction",
+        "eval_model": model_info,
     }
     assert agent.seen_messages[1].metadata == {
         "eval_kind": "task_completion",
         "eval_case_id": "multi_step_completion",
+        "eval_model": model_info,
     }
     cases_by_id = {case["id"]: case for case in payload["cases"]}
-    assert set(cases_by_id) == {"literal_instruction", "multi_step_completion"}
+    assert set(cases_by_id) == {
+        "literal_instruction",
+        "multi_step_completion",
+        "exact_two_line_output",
+        "exact_json_output",
+    }
     assert cases_by_id["literal_instruction"]["run_id"] == "run-literal_instruction"
     assert cases_by_id["literal_instruction"]["eval_id"].startswith("eval_")
     assert cases_by_id["literal_instruction"]["completion_status"] == "complete"
     assert cases_by_id["literal_instruction"]["response_preview"] == "alpha beta gamma"
+    assert cases_by_id["literal_instruction"]["model"] == model_info
     assert cases_by_id["multi_step_completion"]["run_id"] == "run-multi_step_completion"
-    assert cases_by_id["multi_step_completion"]["response_preview"].endswith("結論：已完成三步驟回答")
+    assert cases_by_id["multi_step_completion"]["response_preview"].endswith("3. 結論：已完成三步驟回答")
+    assert cases_by_id["exact_two_line_output"]["response_preview"] == "狀態：完成\n代碼：A7-42"
+    assert cases_by_id["exact_json_output"]["response_preview"] == '{"status":"complete","items":["alpha","beta"]}'
     history = await storage.list_eval_runs(kind="task_completion", limit=10)
-    assert len(history) == 2
+    assert len(history) == 4
     history_by_case = {item.case_id: item for item in history}
     assert history_by_case["literal_instruction"].eval_id == cases_by_id["literal_instruction"]["eval_id"]
     assert history_by_case["literal_instruction"].summary["text"] == cases_by_id["literal_instruction"]["summary"]
     assert history_by_case["literal_instruction"].response_preview == "alpha beta gamma"
+    assert history_by_case["literal_instruction"].metadata["model"] == model_info
     assert history_by_case["multi_step_completion"].eval_id == cases_by_id["multi_step_completion"]["eval_id"]

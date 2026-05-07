@@ -262,6 +262,7 @@ class WebApiHandlers:
             storage=storage,
             channel=adapter.channel_instance_id,
             timeout_seconds=float(timeout_seconds),
+            model_info=_active_llm_model_info(adapter),
         )
         return web.json_response(payload)
 
@@ -515,6 +516,65 @@ def _coerce_states(raw: str | None) -> tuple[str, ...] | None:
         return None
     states = tuple(item.strip() for item in str(raw).split(",") if item.strip())
     return states or None
+
+
+def _active_llm_model_info(adapter: Any) -> dict[str, Any]:
+    agent = adapter._get_agent()
+    explicit = getattr(agent, "eval_model_info", None) if agent is not None else None
+    if isinstance(explicit, dict):
+        return _model_info_payload(explicit)
+
+    provider_id = ""
+    provider_name = ""
+    model = ""
+    configured: bool | None = None
+    context_window_tokens: int | None = None
+
+    provider = getattr(agent, "provider", None) if agent is not None else None
+    get_default_model = getattr(provider, "get_default_model", None)
+    if callable(get_default_model):
+        model = str(get_default_model() or "").strip()
+
+    llm_config = getattr(agent, "llm_config", None) if agent is not None else None
+    if llm_config is not None:
+        provider_id = str(getattr(llm_config, "default", "") or "").strip()
+        get_active = getattr(llm_config, "get_active", None)
+        active = get_active() if callable(get_active) else None
+        if active is not None:
+            provider_name = str(getattr(active, "provider", "") or "").strip()
+            model = model or str(getattr(active, "model", "") or "").strip()
+            context_window_tokens = getattr(active, "context_window_tokens", None)
+        configured = bool(getattr(agent, "llm_configured", False))
+
+    if not model:
+        try:
+            config = Config.load(adapter._get_config_path())
+            active = config.llm.get_active()
+            provider_id = provider_id or str(config.llm.default or "").strip()
+            provider_name = provider_name or str(getattr(active, "provider", "") or "").strip()
+            model = str(getattr(active, "model", "") or "").strip()
+            configured = bool(config.is_llm_configured)
+            context_window_tokens = getattr(active, "context_window_tokens", None)
+        except Exception:
+            pass
+
+    return _model_info_payload(
+        {
+            "provider_id": provider_id,
+            "provider": provider_name or provider_id,
+            "model": model,
+            "configured": configured,
+            "context_window_tokens": context_window_tokens,
+        }
+    )
+
+
+def _model_info_payload(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value[key]
+        for key in ("provider_id", "provider", "model", "configured", "context_window_tokens")
+        if key in value and value[key] not in (None, "")
+    }
 
 
 def _long_task_eval_metrics() -> list[dict[str, str]]:

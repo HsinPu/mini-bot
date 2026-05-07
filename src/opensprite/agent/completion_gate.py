@@ -69,10 +69,15 @@ _DIRECT_REPLY_INSTRUCTION_MARKERS = (
     "say exactly",
     "return exactly",
     "output exactly",
+    "only output",
+    "output only",
     "只回覆",
     "只回答",
     "只要回覆",
     "只需回覆",
+    "只輸出",
+    "只要輸出",
+    "只需輸出",
     "不要加入其他文字",
 )
 

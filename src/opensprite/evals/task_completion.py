@@ -56,6 +56,7 @@ TASK_COMPLETION_LIVE_CASES: tuple[dict[str, Any], ...] = (
         "label": "Literal instruction answer",
         "prompt": "請只回覆這三個英文詞，且不要加入其他文字：alpha beta gamma",
         "expected_completion_status": "complete",
+        "exact_response": "alpha beta gamma",
         "must_include": ("alpha", "beta", "gamma"),
         "must_not_include": ("抱歉", "sorry", "無法"),
         "require_no_tool_error": True,
@@ -66,19 +67,47 @@ TASK_COMPLETION_LIVE_CASES: tuple[dict[str, Any], ...] = (
         "id": "multi_step_completion",
         "label": "Multi-step completion answer",
         "prompt": (
-            "請完成一個三步驟回答：\n"
-            "1. 用一句話說明問題\n"
-            "2. 列出兩個可能原因\n"
-            "3. 最後用「結論：已完成三步驟回答」作為最後一行\n\n"
-            "請不要省略任何步驟。"
+            "請嚴格輸出三行，不要標題、不要 Markdown 粗體、不要額外說明：\n"
+            "1. 問題：用一句話說明這是格式遵循測試\n"
+            "2. 可能原因：列出兩個原因，並用「；」分隔\n"
+            "3. 結論：已完成三步驟回答\n\n"
+            "第三行必須完全以「3. 結論：已完成三步驟回答」作為最後一行。"
         ),
         "expected_completion_status": "complete",
-        "must_include": ("1.", "2.", "3.", "可能原因", "結論：已完成三步驟回答"),
-        "must_not_include": ("我會", "稍後", "正在", "請稍候"),
-        "must_end_with": "結論：已完成三步驟回答",
+        "must_include": ("1. 問題：", "2. 可能原因：", "3. 結論：已完成三步驟回答"),
+        "must_not_include": ("##", "**", "- ", "4.", "我會", "稍後", "正在", "請稍候"),
+        "must_end_with": "3. 結論：已完成三步驟回答",
+        "expected_non_empty_lines": 3,
         "require_no_tool_error": True,
         "require_run_trace": True,
-        "max_response_chars": 800,
+        "max_response_chars": 500,
+    },
+    {
+        "id": "exact_two_line_output",
+        "label": "Exact two-line output",
+        "prompt": "請只輸出以下兩行，不要加入其他文字：\n狀態：完成\n代碼：A7-42",
+        "expected_completion_status": "complete",
+        "exact_response": "狀態：完成\n代碼：A7-42",
+        "must_not_include": ("```", "以下", "說明", "我會", "稍後", "正在", "請稍候"),
+        "expected_non_empty_lines": 2,
+        "require_no_tool_error": True,
+        "require_run_trace": True,
+        "max_response_chars": 80,
+    },
+    {
+        "id": "exact_json_output",
+        "label": "Exact JSON output",
+        "prompt": (
+            "請只輸出這一行 JSON，不要使用 Markdown code fence，也不要新增欄位："
+            '{"status":"complete","items":["alpha","beta"]}'
+        ),
+        "expected_completion_status": "complete",
+        "exact_response": '{"status":"complete","items":["alpha","beta"]}',
+        "must_not_include": ("```", "json", "以下", "說明", "我會", "稍後", "正在", "請稍候"),
+        "expected_non_empty_lines": 1,
+        "require_no_tool_error": True,
+        "require_run_trace": True,
+        "max_response_chars": 100,
     },
 )
 
@@ -95,9 +124,11 @@ async def run_live_task_completion_eval(
     storage: Any,
     channel: str = "web",
     timeout_seconds: float = 45.0,
+    model_info: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run fixed task-completion cases against the active agent."""
     cases = []
+    model = _model_info_payload(model_info)
     for case in TASK_COMPLETION_LIVE_CASES:
         cases.append(
             await _run_live_task_completion_case(
@@ -106,15 +137,21 @@ async def run_live_task_completion_eval(
                 storage=storage,
                 channel=channel,
                 timeout_seconds=timeout_seconds,
+                model_info=model,
             )
         )
         stored = await _persist_eval_case(storage, cases[-1])
         if stored is not None:
             cases[-1]["eval_id"] = stored.eval_id
-    return _summarize_cases(cases, live=True)
+    return _summarize_cases(cases, live=True, model_info=model)
 
 
-def _summarize_cases(cases: list[dict[str, Any]], *, live: bool) -> dict[str, Any]:
+def _summarize_cases(
+    cases: list[dict[str, Any]],
+    *,
+    live: bool,
+    model_info: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     total_checks = sum(len(case["checks"]) for case in cases)
     passed_checks = sum(1 for case in cases for check in case["checks"] if check["ok"])
     passed_cases = sum(1 for case in cases if case["ok"])
@@ -122,6 +159,7 @@ def _summarize_cases(cases: list[dict[str, Any]], *, live: bool) -> dict[str, An
     return {
         "ok": all(case["ok"] for case in cases),
         "live": live,
+        "model": _model_info_payload(model_info),
         "cases": cases,
         "summary": {
             "passed_cases": passed_cases,
@@ -156,6 +194,7 @@ async def _persist_eval_case(storage: Any, evaluated_case: Mapping[str, Any]) ->
             "live": _bool(evaluated_case.get("live")),
             "run_status": _string(evaluated_case.get("run_status")),
             "error": _string(evaluated_case.get("error")),
+            "model": _model_info_payload(evaluated_case.get("model")),
         },
         created_at=time.time(),
     )
@@ -225,6 +264,30 @@ def evaluate_task_completion_case(case: Mapping[str, Any], result: Mapping[str, 
             )
         )
 
+    expected_line_count = _optional_int(case.get("expected_non_empty_lines"))
+    if expected_line_count is not None:
+        observed_line_count = _non_empty_line_count(response_text)
+        checks.append(
+            _check(
+                "expected_non_empty_lines",
+                f"Response has {expected_line_count} non-empty line(s)",
+                observed_line_count == expected_line_count,
+                f"Expected {expected_line_count}, observed {observed_line_count}.",
+            )
+        )
+
+    exact_response = _string(case.get("exact_response"))
+    if exact_response:
+        exact_match = _exact_response_matches(response_text, exact_response)
+        checks.append(
+            _check(
+                "exact_response",
+                "Response exactly matches the expected text",
+                exact_match,
+                "Exact response matched." if exact_match else "Exact response did not match.",
+            )
+        )
+
     must_end_with = _string(case.get("must_end_with"))
     if must_end_with:
         ends_with = _ends_with(response_text, must_end_with)
@@ -273,6 +336,7 @@ def evaluate_task_completion_case(case: Mapping[str, Any], result: Mapping[str, 
         "run_id": _string(result.get("run_id")),
         "run_status": _string(result.get("run_status")),
         "error": _string(result.get("error")),
+        "model": _model_info_payload(result.get("model")),
         "response_preview": _preview(response_text),
         "checks": checks,
     }
@@ -285,6 +349,7 @@ async def _run_live_task_completion_case(
     storage: Any,
     channel: str,
     timeout_seconds: float,
+    model_info: Mapping[str, Any],
 ) -> dict[str, Any]:
     case_id = _string(case.get("id"), default="case")
     external_chat_id = f"eval-task-completion-{case_id}-{uuid4().hex[:12]}"
@@ -305,6 +370,7 @@ async def _run_live_task_completion_case(
                     metadata={
                         "eval_kind": "task_completion",
                         "eval_case_id": case_id,
+                        "eval_model": dict(model_info),
                     },
                 )
             ),
@@ -316,7 +382,13 @@ async def _run_live_task_completion_case(
     except Exception as exc:  # pragma: no cover - exercised through integration error paths.
         error = f"{type(exc).__name__}: {exc}"
 
-    result = await _live_result_from_storage(storage, session_id=session_id, response_text=response_text, error=error)
+    result = await _live_result_from_storage(
+        storage,
+        session_id=session_id,
+        response_text=response_text,
+        error=error,
+        model_info=model_info,
+    )
     evaluated = evaluate_task_completion_case(case, result)
     evaluated["live"] = True
     return evaluated
@@ -328,6 +400,7 @@ async def _live_result_from_storage(
     session_id: str,
     response_text: str,
     error: str,
+    model_info: Mapping[str, Any],
 ) -> dict[str, Any]:
     run = None
     trace = None
@@ -358,6 +431,7 @@ async def _live_result_from_storage(
         "completion_status": completion_payload.get("status") or "",
         "had_tool_error": _bool(run_metadata.get("had_tool_error")) or _bool(terminal_payload.get("had_tool_error")),
         "error": error,
+        "model": dict(model_info),
     }
 
 
@@ -381,6 +455,18 @@ def _ends_with(text: str, phrase: str) -> bool:
     return _normalize(text).endswith(_normalize(phrase))
 
 
+def _exact_response_matches(text: str, expected: str) -> bool:
+    return _normalize_line_endings(text).strip() == _normalize_line_endings(expected).strip()
+
+
+def _non_empty_line_count(text: str) -> int:
+    return len([line for line in _normalize_line_endings(text).split("\n") if line.strip()])
+
+
+def _normalize_line_endings(text: str) -> str:
+    return str(text or "").replace("\r\n", "\n").replace("\r", "\n")
+
+
 def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", str(text or "").strip().lower())
 
@@ -400,6 +486,16 @@ def _slug(text: str) -> str:
 def _string(value: Any, *, default: str = "") -> str:
     text = str(value or "").strip()
     return text or default
+
+
+def _model_info_payload(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        return {}
+    return {
+        key: value[key]
+        for key in ("provider_id", "provider", "model", "configured", "context_window_tokens")
+        if key in value and value[key] not in (None, "")
+    }
 
 
 def _string_sequence(value: Any) -> tuple[str, ...]:

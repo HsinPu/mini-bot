@@ -115,6 +115,7 @@ class StoredEvalRun:
 
     def to_payload(self) -> dict[str, Any]:
         """Return a JSON-safe API payload for eval history."""
+        metadata = dict(self.metadata or {})
         return {
             "eval_id": self.eval_id,
             "kind": self.kind,
@@ -128,7 +129,8 @@ class StoredEvalRun:
             "run_id": self.run_id,
             "completion_status": self.completion_status,
             "had_tool_error": bool(self.had_tool_error),
-            "metadata": dict(self.metadata or {}),
+            "metadata": metadata,
+            "model": dict(metadata.get("model") or {}),
             "created_at": self.created_at,
         }
 
