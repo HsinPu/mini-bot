@@ -28,7 +28,19 @@ function assertOrder(content, firstNeedle, secondNeedle, label) {
   }
 }
 
-const [messageList, runSummaryCard, runTraceViewer, runDetailsPanel, chatComposer, toastStack, curatorSettingsPage, settingsModal, chatClient, copy] = await Promise.all([
+const [
+  messageList,
+  runSummaryCard,
+  runTraceViewer,
+  runDetailsPanel,
+  chatComposer,
+  toastStack,
+  curatorSettingsPage,
+  settingsModal,
+  chatClient,
+  providerSettingsActions,
+  copy,
+] = await Promise.all([
   read("src/components/MessageList.vue"),
   read("src/components/RunSummaryCard.vue"),
   read("src/components/RunTraceViewer.vue"),
@@ -38,8 +50,11 @@ const [messageList, runSummaryCard, runTraceViewer, runDetailsPanel, chatCompose
   read("src/components/CuratorSettingsPage.vue"),
   read("src/components/SettingsModal.vue"),
   read("src/composables/useChatClient.js"),
+  read("src/composables/useProviderSettingsActions.js"),
   read("src/i18n/copy.js"),
 ]);
+
+const settingsLogic = `${chatClient}\n${providerSettingsActions}`;
 
 assertIncludes(messageList, "artifactTypeLabel", "session entry artifact labels");
 assertIncludes(messageList, "message__artifact-status", "session entry artifact status");
@@ -83,9 +98,9 @@ assertIncludes(chatClient, "scheduleCuratorPoll", "curator polling scheduler");
 assertIncludes(chatClient, "curator.completed", "curator event refresh");
 assertIncludes(chatClient, "viewExternalChatIdForPayload", "external session realtime keying");
 assertIncludes(chatClient, "setSettingsSuccess", "settings success toast routing");
-assertIncludes(chatClient, "connectForm.name", "provider connection naming");
-assertIncludes(chatClient, "/api/settings/credentials", "credential settings fetch");
-assertIncludes(chatClient, "setProviderCredential", "provider credential switching");
+assertIncludes(settingsLogic, "connectForm.name", "provider connection naming");
+assertIncludes(settingsLogic, "/api/settings/credentials", "credential settings fetch");
+assertIncludes(settingsLogic, "setProviderCredential", "provider credential switching");
 assertIncludes(chatClient, "window.requestAnimationFrame", "message stage deferred scroll");
 assertIncludes(chatClient, "currentEntries.value.length, currentMessages.value.length", "message list scroll watch");
 
