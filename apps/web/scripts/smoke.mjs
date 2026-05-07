@@ -107,7 +107,10 @@ assertIncludes(settingsModal, "settingsState.dataSessions", "data session render
 assertIncludes(settingsModal, "selectedDataSession", "data maintenance dialog state");
 assertIncludes(settingsModal, "copy.settings.data.maintenanceTitle", "data maintenance dialog copy");
 assertIncludes(settingsModal, "dataTimelineEntries", "data timeline rendering");
+assertIncludes(settingsModal, "data-timeline-table", "data timeline table rendering");
+assertIncludes(settingsModal, "toggleTimelineEntry", "data timeline row expansion");
 assertIncludes(settingsModal, "timelineItemLabel", "data timeline item labels");
+assertIncludes(copy, "timelineColumns", "data timeline table copy");
 assertNotIncludes(settingsModal, "props.copy.settings.general.update.branch", "update description hides branch");
 assertOrder(settingsModal, "section === 'providers'", "copy.settings.providers.copilotAuth.title", "Copilot auth provider placement");
 assertIncludes(chatClient, "/api/commands", "command catalog fetch");

@@ -1680,16 +1680,60 @@
                 <span>{{ copy.settings.data.noTimelineDescription }}</span>
               </div>
             </div>
-            <div v-for="entry in dataTimelineEntries" :key="entry.entry_id || `${entry.created_at}:${entry.entry_type}`" class="settings-row">
-              <div>
-                <strong>{{ timelineEntryLabel(entry) }}</strong>
-                <span>{{ timelineEntryDetail(entry) }}</span>
-                <span>{{ formatTimestamp(entry.created_at) }}</span>
-                <span v-for="item in timelineEntryContent(entry)" :key="`${entry.entry_id}:${item.created_at}:${item.type}:${item.title}`">
-                  {{ timelineItemLabel(item) }}
-                </span>
-              </div>
-              <span v-if="entry.status" class="provider-row__badge">{{ entry.status }}</span>
+            <div v-else class="data-timeline-table-wrap">
+              <table class="data-timeline-table">
+                <thead>
+                  <tr>
+                    <th>{{ copy.settings.data.timelineColumns.time }}</th>
+                    <th>{{ copy.settings.data.timelineColumns.type }}</th>
+                    <th>{{ copy.settings.data.timelineColumns.summary }}</th>
+                    <th>{{ copy.settings.data.timelineColumns.status }}</th>
+                    <th>{{ copy.settings.data.timelineColumns.actions }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template v-for="entry in dataTimelineEntries" :key="timelineEntryKey(entry)">
+                    <tr class="data-timeline-table__row" :class="{ 'data-timeline-table__row--expanded': isTimelineEntryExpanded(entry) }">
+                      <td>{{ formatTimestamp(entry.created_at) }}</td>
+                      <td>
+                        <span class="provider-row__badge">{{ timelineEntryLabel(entry) }}</span>
+                      </td>
+                      <td>
+                        <strong>{{ timelineEntryDetail(entry) }}</strong>
+                        <span v-if="timelineEntryContent(entry).length">{{ copy.settings.data.timelineItemCount(timelineEntryContent(entry).length) }}</span>
+                      </td>
+                      <td>{{ entry.status || copy.settings.data.timelineNoStatus }}</td>
+                      <td>
+                        <button class="provider-row__action" type="button" @click="toggleTimelineEntry(entry)">
+                          {{ isTimelineEntryExpanded(entry) ? copy.settings.data.collapseTimeline : copy.settings.data.expandTimeline }}
+                        </button>
+                      </td>
+                    </tr>
+                    <tr v-if="isTimelineEntryExpanded(entry)" class="data-timeline-table__details">
+                      <td colspan="5">
+                        <div class="data-timeline-table__details-grid">
+                          <section>
+                            <strong>{{ copy.settings.data.timelineTextTitle }}</strong>
+                            <p>{{ timelineEntryFullText(entry) }}</p>
+                          </section>
+                          <section v-if="timelineEntryContent(entry).length">
+                            <strong>{{ copy.settings.data.timelineItemsTitle }}</strong>
+                            <ul>
+                              <li v-for="item in timelineEntryContent(entry)" :key="`${timelineEntryKey(entry)}:${item.created_at}:${item.type}:${item.title}`">
+                                {{ timelineItemLabel(item) }}
+                              </li>
+                            </ul>
+                          </section>
+                          <section>
+                            <strong>{{ copy.settings.data.timelineRawTitle }}</strong>
+                            <pre>{{ timelineEntryJson(entry) }}</pre>
+                          </section>
+                        </div>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -1742,14 +1786,17 @@ const props = defineProps({
 });
 
 const selectedDataSession = ref(null);
+const expandedTimelineEntryKeys = ref(new Set());
 
 function openDataSessionDialog(session) {
   selectedDataSession.value = session;
+  expandedTimelineEntryKeys.value = new Set();
   emit("load-data-session-timeline", session?.session_id || "");
 }
 
 function closeDataSessionDialog() {
   selectedDataSession.value = null;
+  expandedTimelineEntryKeys.value = new Set();
 }
 
 const selectedConnectProvider = computed(() => {
@@ -1850,6 +1897,25 @@ function timelineEntryContent(entry) {
   return Array.isArray(entry?.content) ? entry.content : [];
 }
 
+function timelineEntryKey(entry) {
+  return entry?.entry_id || `${entry?.created_at || 0}:${entry?.entry_type || entry?.role || "entry"}:${entry?.run_id || ""}`;
+}
+
+function isTimelineEntryExpanded(entry) {
+  return expandedTimelineEntryKeys.value.has(timelineEntryKey(entry));
+}
+
+function toggleTimelineEntry(entry) {
+  const key = timelineEntryKey(entry);
+  const next = new Set(expandedTimelineEntryKeys.value);
+  if (next.has(key)) {
+    next.delete(key);
+  } else {
+    next.add(key);
+  }
+  expandedTimelineEntryKeys.value = next;
+}
+
 function timelineEntryLabel(entry) {
   if (entry?.run_id) {
     return props.copy.settings.data.timelineRun(entry.run_id);
@@ -1870,6 +1936,25 @@ function timelineEntryDetail(entry) {
     return props.copy.settings.data.timelineItemCount(itemCount);
   }
   return props.copy.settings.data.emptyMessage;
+}
+
+function timelineEntryFullText(entry) {
+  if (entry?.text) {
+    return String(entry.text || "");
+  }
+  const textItems = timelineEntryContent(entry)
+    .filter((item) => item?.text)
+    .map((item) => String(item.text || "").trim())
+    .filter(Boolean);
+  return textItems.join("\n\n") || timelineEntryDetail(entry);
+}
+
+function timelineEntryJson(entry) {
+  try {
+    return JSON.stringify(entry, null, 2);
+  } catch {
+    return String(entry || "");
+  }
 }
 
 function timelineItemLabel(item) {

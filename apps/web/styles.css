@@ -231,7 +231,9 @@
 
 :root[data-color-scheme="dark"] .settings-nav,
 :root[data-color-scheme="dark"] .settings-card,
-:root[data-color-scheme="dark"] .settings-inline-status {
+:root[data-color-scheme="dark"] .settings-inline-status,
+:root[data-color-scheme="dark"] .data-timeline-table th,
+:root[data-color-scheme="dark"] .data-timeline-table__details-grid pre {
   background: var(--surface-muted);
 }
 
@@ -252,6 +254,11 @@
 :root[data-color-scheme="dark"] .custom-model-row label,
 :root[data-color-scheme="dark"] .channel-field,
 :root[data-color-scheme="dark"] .settings-row span,
+:root[data-color-scheme="dark"] .data-timeline-table,
+:root[data-color-scheme="dark"] .data-timeline-table th,
+:root[data-color-scheme="dark"] .data-timeline-table__row span:not(.provider-row__badge),
+:root[data-color-scheme="dark"] .data-timeline-table__details-grid p,
+:root[data-color-scheme="dark"] .data-timeline-table__details-grid ul,
 :root[data-color-scheme="dark"] .schedule-editor__header span,
 :root[data-color-scheme="dark"] .schedule-job-row__main > span,
 :root[data-color-scheme="dark"] .provider-row__main span:not(.provider-row__mark):not(.provider-row__badge),
@@ -278,6 +285,8 @@
 :root[data-color-scheme="dark"] .provider-connect-dialog__title h3,
 :root[data-color-scheme="dark"] .model-select-row select,
 :root[data-color-scheme="dark"] .settings-row strong,
+:root[data-color-scheme="dark"] .data-timeline-table__row strong,
+:root[data-color-scheme="dark"] .data-timeline-table__details-grid strong,
 :root[data-color-scheme="dark"] .settings-row select,
 :root[data-color-scheme="dark"] .settings-row input[type="text"],
 :root[data-color-scheme="dark"] .provider-connect-field input,
@@ -304,6 +313,10 @@
 
 :root[data-color-scheme="dark"] .provider-row,
 :root[data-color-scheme="dark"] .settings-row,
+:root[data-color-scheme="dark"] .data-timeline-table th,
+:root[data-color-scheme="dark"] .data-timeline-table td,
+:root[data-color-scheme="dark"] .data-timeline-table__details-grid,
+:root[data-color-scheme="dark"] .data-timeline-table__details-grid pre,
 :root[data-color-scheme="dark"] .settings-nav,
 :root[data-color-scheme="dark"] .settings-panel,
 :root[data-color-scheme="dark"] .settings-inline-status,
@@ -330,6 +343,8 @@
 }
 
 :root[data-color-scheme="dark"] .provider-row__mark,
+:root[data-color-scheme="dark"] .data-timeline-table__row--expanded td,
+:root[data-color-scheme="dark"] .data-timeline-table__details td,
 :root[data-color-scheme="dark"] .provider-row__action,
 :root[data-color-scheme="dark"] .provider-connect-field input,
 :root[data-color-scheme="dark"] .custom-model-row input,
@@ -3450,6 +3465,104 @@ button:disabled {
 
 .settings-card--form {
   display: grid;
+}
+
+.data-timeline-table-wrap {
+  overflow-x: auto;
+}
+
+.data-timeline-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  color: #1d1d1d;
+  font-size: 0.88rem;
+}
+
+.data-timeline-table th,
+.data-timeline-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #dddddd;
+  text-align: left;
+  vertical-align: top;
+}
+
+.data-timeline-table th {
+  color: #777777;
+  background: #eeeeee;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.data-timeline-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.data-timeline-table__row strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #1d1d1d;
+  font-weight: 520;
+}
+
+.data-timeline-table__row span:not(.provider-row__badge) {
+  display: block;
+  color: #777777;
+  font-size: 0.82rem;
+}
+
+.data-timeline-table__row--expanded td {
+  background: #ffffff;
+}
+
+.data-timeline-table__details td {
+  padding: 0;
+  background: #ffffff;
+}
+
+.data-timeline-table__details-grid {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-bottom: 1px solid #dddddd;
+}
+
+.data-timeline-table__details-grid section {
+  display: grid;
+  gap: 6px;
+}
+
+.data-timeline-table__details-grid strong {
+  color: #333333;
+  font-size: 0.83rem;
+  font-weight: 650;
+}
+
+.data-timeline-table__details-grid p,
+.data-timeline-table__details-grid ul {
+  margin: 0;
+  color: #555555;
+  line-height: 1.55;
+}
+
+.data-timeline-table__details-grid ul {
+  padding-left: 18px;
+}
+
+.data-timeline-table__details-grid pre {
+  overflow: auto;
+  max-height: 260px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid #dddddd;
+  border-radius: 8px;
+  color: #2b2b2b;
+  background: #f7f7f7;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
 }
 
 .settings-inline-status {
