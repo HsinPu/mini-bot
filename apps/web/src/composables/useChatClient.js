@@ -1,5 +1,6 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { getDisplayCopy } from "../i18n/copy";
+import { buildHttpApiUrl, requestSettingsJson as requestSettingsJsonFromApi } from "./settingsApi";
 import { createSettingsForm, createSettingsState } from "./useSettingsState";
 
 const STORAGE_KEYS = {
@@ -629,14 +630,6 @@ function runTone(status, fallbackTone = "running") {
     return "warning";
   }
   return fallbackTone || "running";
-}
-
-function buildHttpApiUrl(wsUrl, pathname) {
-  const url = new URL(wsUrl);
-  url.protocol = url.protocol === "wss:" ? "https:" : "http:";
-  url.pathname = pathname;
-  url.search = "";
-  return url;
 }
 
 function buildRunCancelUrl(wsUrl, runId, sessionId) {
@@ -2269,24 +2262,7 @@ export function useChatClient() {
   }
 
   async function requestSettingsJson(pathname, options = {}) {
-    const [apiPathname, queryString] = String(pathname).split("?", 2);
-    const url = buildHttpApiUrl(state.wsUrl, apiPathname);
-    url.search = queryString || "";
-    const response = await fetch(url.toString(), {
-      ...options,
-      headers: {
-        ...(options.body ? { "Content-Type": "application/json" } : {}),
-        ...(options.headers || {}),
-      },
-    });
-    if (!response.ok) {
-      const text = await response.text();
-      const error = new Error(text || `HTTP ${response.status}`);
-      error.status = response.status;
-      error.statusText = response.statusText;
-      throw error;
-    }
-    return response.json();
+    return requestSettingsJsonFromApi(state.wsUrl, pathname, options);
   }
 
   async function loadCommandCatalog() {
