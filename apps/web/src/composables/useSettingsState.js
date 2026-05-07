@@ -186,6 +186,17 @@ export function createSettingsState() {
       background_process_counts: {},
       metrics: [],
     },
+    taskCompletionRunning: false,
+    taskCompletionSmoke: {
+      ok: false,
+      cases: [],
+      summary: {
+        passed_cases: 0,
+        total_cases: 0,
+        passed_checks: 0,
+        total_checks: 0,
+      },
+    },
     cronJobsLoading: false,
     cronJobsError: "",
     cronJobsNotice: "",

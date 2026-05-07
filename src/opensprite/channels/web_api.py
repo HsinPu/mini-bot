@@ -8,6 +8,7 @@ from aiohttp import web
 
 from ..bus.session_commands import session_command_catalog
 from ..config import Config
+from ..evals.task_completion import run_task_completion_smoke
 from ..runs.schema import (
     serialize_file_change,
     serialize_run_artifacts,
@@ -243,6 +244,9 @@ class WebApiHandlers:
                 "metrics": _long_task_eval_metrics(),
             }
         )
+
+    async def handle_task_completion_eval_smoke(self, request: web.Request) -> web.Response:
+        return web.json_response(run_task_completion_smoke())
 
     async def handle_sessions(self, request: web.Request) -> web.Response:
         adapter = self.adapter

@@ -1262,6 +1262,16 @@
                 {{ settingsState.evalRunning ? copy.settings.eval.running : copy.settings.eval.runSmoke }}
               </button>
             </div>
+
+            <div class="settings-row">
+              <div>
+                <strong>{{ copy.settings.eval.taskCompletionTitle }}</strong>
+                <span>{{ copy.settings.eval.taskCompletionDescription }}</span>
+              </div>
+              <button class="secondary-button" type="button" :disabled="settingsState.taskCompletionRunning" @click="$emit('run-task-completion-smoke')">
+                {{ settingsState.taskCompletionRunning ? copy.settings.eval.running : copy.settings.eval.runTaskCompletionSmoke }}
+              </button>
+            </div>
           </div>
 
           <h3>{{ copy.settings.eval.processCountsTitle }}</h3>
@@ -1288,6 +1298,23 @@
                 <span>{{ check.detail }}</span>
               </div>
               <span class="provider-row__badge">{{ check.ok ? copy.settings.eval.pass : copy.settings.eval.fail }}</span>
+            </div>
+          </div>
+
+          <h3>{{ copy.settings.eval.taskCompletionResultsTitle }}</h3>
+          <div class="settings-card">
+            <div v-if="!settingsState.taskCompletionSmoke.cases.length" class="provider-row provider-row--empty">
+              <div>
+                <strong>{{ copy.settings.eval.noTaskCompletionTitle }}</strong>
+                <span>{{ copy.settings.eval.noTaskCompletionDescription }}</span>
+              </div>
+            </div>
+            <div v-for="evalCase in settingsState.taskCompletionSmoke.cases" :key="evalCase.id" class="settings-row">
+              <div>
+                <strong>{{ evalCase.label }}</strong>
+                <span>{{ evalCase.summary }} {{ evalCase.response_preview }}</span>
+              </div>
+              <span class="provider-row__badge">{{ evalCase.ok ? copy.settings.eval.pass : copy.settings.eval.fail }}</span>
             </div>
           </div>
 
@@ -2485,6 +2512,7 @@ const emit = defineEmits([
   "save-network-settings",
   "refresh-eval-status",
   "run-eval-smoke",
+  "run-task-completion-smoke",
   "load-data-session-timeline",
   "refresh-curator",
   "run-curator-action",

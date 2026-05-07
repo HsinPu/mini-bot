@@ -118,9 +118,11 @@ assertIncludes(settingsModal, "showCopilotAuthCard", "conditional Copilot auth c
 assertIncludes(settingsModal, "form.showWorkState", "work state settings switch");
 assertIncludes(settingsModal, "form.showRunHistory", "run history settings switch");
 assertIncludes(settingsModal, "form.accessToken", "gateway access token setting");
+assertIncludes(settingsModal, "run-task-completion-smoke", "task completion eval action");
 assertIncludes(chatClient, "STORAGE_KEYS.accessToken", "access token preference persistence");
 assertIncludes(chatClient, "authorizedHeaders", "authorized API requests");
 assertIncludes(chatClient, "access_token", "authorized websocket connection");
+assertIncludes(chatClient, "/api/evals/task-completion/smoke", "task completion eval fetch");
 assertIncludes(settingsModal, "hasConnectedProvider", "OAuth auth card connected-provider visibility");
 assertIncludes(settingsModal, "providerCredentials", "credential picker rendering");
 assertIncludes(settingsModal, "providerEffectiveCredentialId", "effective credential selection");
@@ -171,6 +173,8 @@ for (const key of [
   "missingCredential",
   "dataLoadFailed",
   "dataTimelineLoadFailed",
+  "taskCompletionSmokePassed",
+  "taskCompletionEvalSmokeFailed",
 ]) {
   assertRegex(copy, new RegExp(`${key}\\s*:`), `copy key ${key}`);
 }

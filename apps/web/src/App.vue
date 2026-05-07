@@ -149,6 +149,7 @@
     @refresh-data-settings="loadDataSettings"
     @refresh-eval-status="loadEvalStatus"
     @run-eval-smoke="runEvalSmokeCheck"
+    @run-task-completion-smoke="runTaskCompletionEvalSmoke"
     @load-data-session-timeline="loadDataSessionTimeline"
     @begin-cron-job-create="beginCronJobCreate"
     @save-cron-job="saveCronJob"
@@ -259,6 +260,7 @@ const {
   loadDataSettings,
   loadEvalStatus,
   runEvalSmokeCheck,
+  runTaskCompletionEvalSmoke,
   loadBackgroundProcesses,
   loadDataSessionTimeline,
   beginCronJobCreate,

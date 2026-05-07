@@ -3400,6 +3400,32 @@ export function useChatClient() {
     }
   }
 
+  async function runTaskCompletionEvalSmoke() {
+    settingsState.taskCompletionRunning = true;
+    settingsState.evalError = "";
+    settingsState.evalNotice = "";
+    try {
+      const payload = await requestSettingsJson("/api/evals/task-completion/smoke", { method: "POST" });
+      settingsState.taskCompletionSmoke = {
+        ok: Boolean(payload?.ok),
+        cases: Array.isArray(payload?.cases) ? payload.cases : [],
+        summary: payload?.summary || {
+          passed_cases: 0,
+          total_cases: 0,
+          passed_checks: 0,
+          total_checks: 0,
+        },
+      };
+      settingsState.evalNotice = payload?.ok
+        ? copy.value.settings.eval.taskCompletionSmokePassed
+        : copy.value.settings.eval.taskCompletionSmokeFailed;
+    } catch (error) {
+      settingsState.evalError = error?.message || copy.value.notices.taskCompletionEvalSmokeFailed;
+    } finally {
+      settingsState.taskCompletionRunning = false;
+    }
+  }
+
   function loadSettingsSection(sectionName) {
     if (sectionName === "general") {
       loadUpdateStatus();
@@ -4258,6 +4284,7 @@ export function useChatClient() {
     loadDataSettings,
     loadEvalStatus,
     runEvalSmokeCheck,
+    runTaskCompletionEvalSmoke,
     loadBackgroundProcesses,
     loadDataSessionTimeline,
     loadMcpSettings,

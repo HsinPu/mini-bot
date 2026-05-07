@@ -940,6 +940,22 @@ async def _run_web_run_events_api():
             ]
             assert eval_smoke_payload["background_process_counts"] == {"completed": 1, "lost": 1, "running": 2}
 
+            async with session.post(f"http://127.0.0.1:{port}/api/evals/task-completion/smoke") as resp:
+                assert resp.status == 200
+                task_completion_payload = await resp.json()
+
+            assert task_completion_payload["ok"] is True
+            assert task_completion_payload["summary"] == {
+                "passed_cases": 2,
+                "total_cases": 2,
+                "passed_checks": 15,
+                "total_checks": 15,
+            }
+            assert {case["id"] for case in task_completion_payload["cases"]} == {
+                "web_smoke_question",
+                "task_completion_question",
+            }
+
             async with session.get(
                 f"http://127.0.0.1:{port}/api/runs/run-1",
                 params={"session_id": "web:browser-1"},
