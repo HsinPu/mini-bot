@@ -269,6 +269,8 @@ class VerifyTool(Tool):
         if not args and target != workspace:
             args = [_display_path(workspace, target)]
         result = await self._run_command([sys.executable, "-m", "pytest", *args], workspace, timeout)
+        if result.exit_code == 5 and _pytest_collected_no_tests(result.output):
+            return self._format_command_verification("pytest", result, status="skipped")
         return self._format_command_verification("pytest", result)
 
     async def _verify_web_build(self, workspace: Path, target: Path, timeout: int) -> str:
@@ -384,14 +386,23 @@ class VerifyTool(Tool):
             output=_format_streams(stdout, stderr),
         )
 
-    def _format_command_verification(self, name: str, result: VerifyCommandResult) -> str:
+    def _format_command_verification(
+        self,
+        name: str,
+        result: VerifyCommandResult,
+        *,
+        status: str | None = None,
+    ) -> str:
         cwd_display = _display_path(self._workspace_resolver(), result.cwd)
         command = _command_display(result.command)
-        heading = f"Verification {'failed' if result.exit_code else 'passed'}: {name}"
-        if result.timed_out:
+        if status == "skipped":
+            heading = f"Verification skipped: {name}"
+        elif result.timed_out:
             heading = f"Error: Verification timed out: {name}"
         elif result.exit_code:
             heading = f"Error: Verification failed: {name}"
+        else:
+            heading = f"Verification passed: {name}"
 
         return "\n".join(
             [
@@ -403,3 +414,8 @@ class VerifyTool(Tool):
                 result.output,
             ]
         )
+
+
+def _pytest_collected_no_tests(output: str) -> bool:
+    normalized = str(output or "").lower()
+    return "collected 0 items" in normalized or "no tests ran" in normalized

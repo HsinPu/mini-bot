@@ -54,6 +54,27 @@ def test_verify_pytest_uses_focused_args(tmp_path):
     assert result.startswith("Verification passed: pytest")
 
 
+def test_verify_pytest_skips_when_no_tests_are_collected(tmp_path):
+    tool = VerifyTool(workspace=tmp_path)
+
+    async def fake_run_command(command, cwd, timeout):
+        return VerifyCommandResult(
+            command=command,
+            cwd=cwd,
+            exit_code=5,
+            output="collected 0 items\n\n============================ no tests ran in 0.02s ============================",
+        )
+
+    tool._run_command = fake_run_command
+
+    result = asyncio.run(tool.execute(action="pytest"))
+
+    assert result.startswith("Verification skipped: pytest")
+    assert "Exit code: 5" in result
+    assert "no tests ran" in result
+    assert not result.startswith("Error: Verification failed")
+
+
 def test_verify_web_build_uses_package_json_build_script(tmp_path):
     package_dir = tmp_path / "apps" / "web"
     package_dir.mkdir(parents=True)
