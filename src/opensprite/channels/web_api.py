@@ -312,6 +312,26 @@ class WebApiHandlers:
         sessions.sort(key=lambda item: (item["updated_at"], item["session_id"]), reverse=True)
         return web.json_response({"sessions": sessions[:session_limit], "channel": channel_filter or adapter.channel_instance_id})
 
+    async def handle_sessions_delete(self, request: web.Request) -> web.Response:
+        adapter = self.adapter
+        storage = adapter._require_storage()
+        session_id = adapter._coerce_optional_text(
+            request.query.get("session_id") or request.match_info.get("session_id")
+        )
+        if session_id is not None:
+            deleted = await _delete_conversation_sessions(adapter, storage, [session_id])
+            if deleted <= 0:
+                raise web.HTTPNotFound(text="Session not found")
+            return web.json_response({"ok": True, "session_id": session_id, "deleted": deleted})
+
+        channel_filter = adapter._coerce_optional_text(request.query.get("channel"), default=adapter.channel_instance_id)
+        session_ids = await _visible_session_ids(storage)
+        if channel_filter is not None and channel_filter.lower() != "all":
+            prefix = f"{channel_filter}:"
+            session_ids = [candidate for candidate in session_ids if candidate.startswith(prefix)]
+        deleted = await _delete_conversation_sessions(adapter, storage, session_ids)
+        return web.json_response({"ok": True, "channel": channel_filter or "all", "deleted": deleted})
+
     async def handle_session_timeline(self, request: web.Request) -> web.Response:
         adapter = self.adapter
         storage = adapter._require_storage()
@@ -533,6 +553,47 @@ def _coerce_states(raw: str | None) -> tuple[str, ...] | None:
         return None
     states = tuple(item.strip() for item in str(raw).split(",") if item.strip())
     return states or None
+
+
+async def _visible_session_ids(storage: Any) -> list[str]:
+    return [session_id for session_id in await storage.get_all_sessions() if ":subagent:" not in session_id]
+
+
+async def _delete_conversation_sessions(adapter: Any, storage: Any, root_session_ids: list[str]) -> int:
+    all_session_ids = await storage.get_all_sessions()
+    existing = set(all_session_ids)
+    targets: list[str] = []
+    for root_session_id in root_session_ids:
+        if root_session_id not in existing:
+            continue
+        targets.append(root_session_id)
+        child_prefix = f"{root_session_id}:subagent:"
+        targets.extend(session_id for session_id in all_session_ids if session_id.startswith(child_prefix))
+
+    unique_targets = list(dict.fromkeys(targets))
+    for session_id in unique_targets:
+        await _delete_one_conversation_session(adapter, storage, session_id)
+    return len(unique_targets)
+
+
+async def _delete_one_conversation_session(adapter: Any, storage: Any, session_id: str) -> None:
+    cancel_session = getattr(getattr(adapter, "mq", None), "cancel_session", None)
+    if callable(cancel_session):
+        try:
+            await cancel_session(session_id)
+        except Exception:
+            pass
+
+    agent = adapter._get_agent()
+    reset_history = getattr(agent, "reset_history", None) if agent is not None else None
+    if callable(reset_history):
+        await reset_history(session_id)
+    else:
+        await storage.clear_messages(session_id)
+
+    status_service = adapter._get_session_status_service()
+    if status_service is not None:
+        status_service.set(session_id, "idle")
 
 
 def _active_llm_model_info(adapter: Any) -> dict[str, Any]:

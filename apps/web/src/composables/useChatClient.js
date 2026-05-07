@@ -820,6 +820,14 @@ function buildRunsPath(sessionId) {
   return `/api/runs?session_id=${encodeURIComponent(sessionId)}&limit=${RUN_HISTORY_LIMIT}`;
 }
 
+function buildSessionDeletePath(sessionId) {
+  return `/api/sessions?session_id=${encodeURIComponent(sessionId)}`;
+}
+
+function buildSessionsClearPath(channel = "web") {
+  return `/api/sessions?channel=${encodeURIComponent(channel)}`;
+}
+
 function buildBackgroundProcessesPath(sessionId = "", limit = BACKGROUND_PROCESS_LIMIT) {
   const params = new URLSearchParams({ limit: String(limit) });
   if (sessionId) {
@@ -3990,6 +3998,77 @@ export function useChatClient() {
     scrollMessagesToBottom();
   }
 
+  function clearSessionRunTimers(session) {
+    for (const run of session?.runs || []) {
+      if (run?.runId) {
+        clearRunSummaryTimer(session.sessionId, run.runId);
+      }
+    }
+  }
+
+  function ensureActiveAfterSessionRemoval(preferWeb = false) {
+    if (state.sessions.some((session) => session.externalChatId === state.activeExternalChatId)) {
+      writeStoredValue(STORAGE_KEYS.activeExternalChatId, state.activeExternalChatId);
+      return;
+    }
+    let nextSession = preferWeb ? getFirstWebSession() : state.sessions[0];
+    if (!nextSession) {
+      nextSession = createSession();
+      state.sessions.unshift(nextSession);
+    }
+    state.activeExternalChatId = nextSession.externalChatId;
+    writeStoredValue(STORAGE_KEYS.activeExternalChatId, nextSession.externalChatId);
+  }
+
+  function removeSessionsFromState(predicate, { preferWeb = false } = {}) {
+    const removed = state.sessions.filter(predicate);
+    for (const session of removed) {
+      clearSessionRunTimers(session);
+    }
+    state.sessions = state.sessions.filter((session) => !predicate(session));
+    ensureActiveAfterSessionRemoval(preferWeb);
+    scrollMessagesToBottom();
+    return removed.length;
+  }
+
+  async function deleteSession(session) {
+    if (!session) {
+      return;
+    }
+    const title = getSessionTitle(session);
+    if (typeof window !== "undefined" && !window.confirm(copy.value.sidebar.confirmDeleteChat(title))) {
+      return;
+    }
+    const sessionId = getCuratorSessionId(session);
+    if (!sessionId) {
+      removeSessionsFromState((candidate) => candidate.externalChatId === session.externalChatId, { preferWeb: true });
+      setNotice(copy.value.notices.sessionDeleted, "success");
+      return;
+    }
+    try {
+      await requestSettingsJson(buildSessionDeletePath(sessionId), { method: "DELETE" });
+      removeSessionsFromState((candidate) => candidate.externalChatId === session.externalChatId, { preferWeb: true });
+      setNotice(copy.value.notices.sessionDeleted, "success");
+      void loadDataSettings();
+    } catch (error) {
+      setNotice(error?.message || copy.value.notices.sessionDeleteFailed, "warning");
+    }
+  }
+
+  async function clearWebSessions() {
+    if (typeof window !== "undefined" && !window.confirm(copy.value.sidebar.confirmClearWebChats)) {
+      return;
+    }
+    try {
+      const payload = await requestSettingsJson(buildSessionsClearPath("web"), { method: "DELETE" });
+      removeSessionsFromState((session) => !session.channel || session.channel === "web", { preferWeb: true });
+      setNotice(copy.value.notices.sessionsCleared(Number(payload?.deleted || 0)), "success");
+      void loadDataSettings();
+    } catch (error) {
+      setNotice(error?.message || copy.value.notices.sessionDeleteFailed, "warning");
+    }
+  }
+
   function saveConnectionSettings() {
     const nextWsUrl = settingsForm.wsUrl.trim() || DEFAULT_WS_URL;
     const nextAccessToken = settingsForm.accessToken.trim();
@@ -4420,6 +4499,8 @@ export function useChatClient() {
     connectSocket,
     resizeComposer,
     createNewChat,
+    deleteSession,
+    clearWebSessions,
     cancelRun,
     revertRunFileChange,
     cleanupWorktreeSandbox,

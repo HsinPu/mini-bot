@@ -593,6 +593,32 @@ button:disabled {
   font-weight: 650;
 }
 
+.sidebar__section-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sidebar__clear-button,
+.session-tile__delete {
+  border: 1px solid var(--border-soft);
+  color: var(--text-muted);
+  background: var(--surface-subtle);
+  font-size: 0.7rem;
+  font-weight: 650;
+}
+
+.sidebar__clear-button {
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+}
+
+.sidebar__clear-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .session-filter {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -624,6 +650,17 @@ button:disabled {
   padding-right: 2px;
 }
 
+.session-tile-wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  border-radius: var(--radius-sm);
+}
+
+.session-tile-wrap:hover {
+  background: var(--surface-hover);
+}
+
 .session-tile {
   display: grid;
   width: 100%;
@@ -634,6 +671,20 @@ button:disabled {
   color: var(--text);
   text-align: left;
   background: transparent;
+}
+
+.session-tile__delete {
+  width: 26px;
+  height: 26px;
+  margin-right: 6px;
+  border-radius: 999px;
+  line-height: 1;
+}
+
+.session-tile__delete:hover,
+.sidebar__clear-button:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-active);
 }
 
 .session-tile__initial {
@@ -869,6 +920,7 @@ button:disabled {
   .app-shell--sidebar-collapsed .session-filter,
   .app-shell--sidebar-collapsed .session-tile__heading,
   .app-shell--sidebar-collapsed .session-tile__id,
+  .app-shell--sidebar-collapsed .session-tile__delete,
   .app-shell--sidebar-collapsed .background-process-sidebar__summary,
   .app-shell--sidebar-collapsed .background-process-sidebar__notice,
   .app-shell--sidebar-collapsed .background-process-sidebar__list,
@@ -898,6 +950,10 @@ button:disabled {
   .app-shell--sidebar-collapsed .session-list {
     gap: 6px;
     padding-right: 0;
+  }
+
+  .app-shell--sidebar-collapsed .session-tile-wrap {
+    grid-template-columns: 1fr;
   }
 
   .app-shell--sidebar-collapsed .session-tile {

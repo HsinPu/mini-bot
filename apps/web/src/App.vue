@@ -21,6 +21,8 @@
       :get-session-display-id="getSessionDisplayId"
       :get-session-title="getSessionTitle"
       @create-new-chat="createNewChat"
+      @delete-session="deleteSession"
+      @clear-web-sessions="clearWebSessions"
       @set-active-session="setActiveSession"
       @set-session-channel-filter="setSessionChannelFilter"
       @select-background-process="selectBackgroundProcess"
@@ -281,6 +283,8 @@ const {
   connectSocket,
   resizeComposer,
   createNewChat,
+  deleteSession,
+  clearWebSessions,
   cancelRun,
   resolvePermissionRequest,
   revertRunFileChange,

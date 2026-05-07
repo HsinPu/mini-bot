@@ -42,6 +42,7 @@ const [
   chatPanel,
   chatComposer,
   toastStack,
+  sidebarNav,
   curatorSettingsPage,
   app,
   settingsModal,
@@ -62,6 +63,7 @@ const [
   read("src/components/ChatPanel.vue"),
   read("src/components/ChatComposer.vue"),
   read("src/components/ToastStack.vue"),
+  read("src/components/SidebarNav.vue"),
   read("src/components/CuratorSettingsPage.vue"),
   read("src/App.vue"),
   read("src/components/SettingsModal.vue"),
@@ -97,9 +99,15 @@ assertIncludes(chatPanel, ":show-run-history=\"showRunHistory\"", "run history p
 assertIncludes(chatComposer, "composer__commands", "slash command hints rendering");
 assertIncludes(toastStack, "toast-stack", "toast stack rendering");
 assertIncludes(toastStack, "dismiss-toast", "toast dismiss event");
+assertIncludes(sidebarNav, "delete-session", "sidebar session delete event");
+assertIncludes(sidebarNav, "clear-web-sessions", "sidebar clear web sessions event");
+assertIncludes(sidebarNav, "session-tile__delete", "sidebar session delete button");
 assertIncludes(app, "state.authRequired", "auth gate visibility");
 assertIncludes(app, "submitAccessToken", "auth gate submit wiring");
+assertIncludes(app, "deleteSession", "conversation delete app wiring");
+assertIncludes(app, "clearWebSessions", "web conversation clear app wiring");
 assertIncludes(styles, ".auth-gate", "auth gate styling");
+assertIncludes(styles, ".session-tile__delete", "sidebar session delete styling");
 assertIncludes(curatorSettingsPage, "settings-card", "curator settings card layout");
 assertIncludes(curatorSettingsPage, "provider-row", "curator settings history layout");
 assertIncludes(settingsModal, "CuratorSettingsPage", "curator settings placement");
@@ -151,6 +159,8 @@ assertIncludes(copy, "timelineColumns", "data timeline table copy");
 assertNotIncludes(settingsModal, "props.copy.settings.general.update.branch", "update description hides branch");
 assertOrder(settingsModal, "section === 'providers'", "copy.settings.providers.copilotAuth.title", "Copilot auth provider placement");
 assertIncludes(chatClient, "/api/commands", "command catalog fetch");
+assertIncludes(chatClient, "buildSessionDeletePath", "conversation delete API path");
+assertIncludes(chatClient, "buildSessionsClearPath", "web conversation clear API path");
 assertIncludes(settingsLogic, "/api/settings/media", "media model settings fetch");
 assertIncludes(chatClient, "/api/curator/status", "curator status fetch");
 assertIncludes(chatClient, "/api/curator/history", "curator history fetch");
@@ -190,6 +200,13 @@ for (const key of [
   "taskCompletionLiveEvalFailed",
   "taskCompletionHistoryLoadFailed",
   "taskCompletionHistoryDeleteFailed",
+  "deleteChat",
+  "clearWebChats",
+  "confirmDeleteChat",
+  "confirmClearWebChats",
+  "sessionDeleted",
+  "sessionDeleteFailed",
+  "sessionsCleared",
   "clearHistory",
   "deleteHistoryItem",
   "confirmClearHistory",

@@ -1690,6 +1690,48 @@ async def _run_web_sessions_api():
             "paths": ["apps/web/src/App.vue"],
             "actions": {"modify": 1},
         }
+
+        async with ClientSession() as session:
+            async with session.delete(
+                f"http://127.0.0.1:{port}/api/sessions",
+                params={"session_id": "web:browser-old"},
+            ) as resp:
+                assert resp.status == 200
+                delete_payload = await resp.json()
+
+            async with session.get(
+                f"http://127.0.0.1:{port}/api/sessions",
+                params={"channel": "all", "limit": "5", "messages": "1"},
+            ) as resp:
+                assert resp.status == 200
+                after_delete_payload = await resp.json()
+
+            async with session.delete(
+                f"http://127.0.0.1:{port}/api/sessions",
+                params={"session_id": "web:missing"},
+            ) as resp:
+                assert resp.status == 404
+
+            async with session.delete(
+                f"http://127.0.0.1:{port}/api/sessions",
+                params={"channel": "web"},
+            ) as resp:
+                assert resp.status == 200
+                clear_payload = await resp.json()
+
+            async with session.get(
+                f"http://127.0.0.1:{port}/api/sessions",
+                params={"channel": "all", "limit": "5", "messages": "1"},
+            ) as resp:
+                assert resp.status == 200
+                after_clear_payload = await resp.json()
+
+        assert delete_payload == {"ok": True, "session_id": "web:browser-old", "deleted": 1}
+        assert [item["session_id"] for item in after_delete_payload["sessions"]] == ["telegram:123", "web:browser-new"]
+        assert clear_payload == {"ok": True, "channel": "web", "deleted": 2}
+        assert [item["session_id"] for item in after_clear_payload["sessions"]] == ["telegram:123"]
+        assert await storage.get_messages("web:browser-new") == []
+        assert await storage.get_messages("web:browser-new:subagent:task_abc12345") == []
     finally:
         adapter_task.cancel()
         try:

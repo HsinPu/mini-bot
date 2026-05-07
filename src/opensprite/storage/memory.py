@@ -83,8 +83,7 @@ class MemoryStorage(StorageProvider):
         """
         清除歷史
         """
-        if session_id in self._messages:
-            self._messages[session_id].clear()
+        self._messages.pop(session_id, None)
         self._consolidated_index.pop(session_id, None)
         for run_id, run in list(self._runs.items()):
             if run.session_id == session_id:
