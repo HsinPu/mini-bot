@@ -24,19 +24,12 @@ export function useModelSettingsActions({ settingsState, requestSettingsJson, co
       settingsState.llm = {
         pass_decoding_params: Boolean(llm?.llm?.pass_decoding_params),
       };
-      if (
-        !settingsState.selectedTextProviderId ||
-        !(settingsState.models.providers || []).some((provider) => provider.id === settingsState.selectedTextProviderId)
-      ) {
-        const activeProvider = (settingsState.models.providers || []).find((provider) => provider.is_default);
-        settingsState.selectedTextProviderId = activeProvider?.id || settingsState.models.providers?.[0]?.id || "";
-      }
+      const activeProvider = (settingsState.models.providers || []).find((provider) => provider.is_default);
+      settingsState.selectedTextProviderId = activeProvider?.id || settingsState.models.providers?.[0]?.id || "";
       for (const provider of settingsState.models.providers || []) {
         const selectedModel = provider.selected_model || provider.models?.[0] || "";
         settingsState.modelSelections[provider.id] = selectedModel;
-        if (!Object.prototype.hasOwnProperty.call(settingsState.customModels, provider.id)) {
-          settingsState.customModels[provider.id] = "";
-        }
+        settingsState.customModels[provider.id] = "";
         if (provider.provider === "openrouter") {
           settingsState.openRouterOptions[provider.id] = normalizeOpenRouterOptions(provider.options || {});
         }
@@ -48,9 +41,7 @@ export function useModelSettingsActions({ settingsState, requestSettingsJson, co
           providerId: section.provider_id || settingsState.media.providers?.[0]?.id || "",
           model: section.model || "",
         };
-        if (!Object.prototype.hasOwnProperty.call(settingsState.mediaCustomModels, category)) {
-          settingsState.mediaCustomModels[category] = "";
-        }
+        settingsState.mediaCustomModels[category] = "";
       }
     } catch (error) {
       settingsState.modelsError = error?.message || copy.value.notices.modelLoadFailed;
