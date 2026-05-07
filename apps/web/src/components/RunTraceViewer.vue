@@ -29,6 +29,7 @@
         <span>{{ artifactCount }} {{ copy.trace.artifacts }}</span>
         <span>{{ parts.length }} {{ copy.trace.parts }}</span>
         <span>{{ toolEventCount }} {{ copy.trace.tool }}</span>
+        <span>{{ processEventCount }} {{ copy.trace.filters.process }}</span>
         <span>{{ verificationEventCount }} {{ copy.trace.verification }}</span>
       </div>
 
@@ -165,6 +166,27 @@
                   </dl>
                   <pre v-if="structuredSubagentPreview(artifact)" class="run-trace__structured-preview">{{ structuredSubagentPreview(artifact) }}</pre>
                   <p v-else class="run-trace__tool-empty">{{ copy.trace.structuredOutputEmpty }}</p>
+                </details>
+
+                <details
+                  v-else-if="isProcessArtifact(artifact)"
+                  class="run-trace__artifact-card run-trace__artifact-card--details"
+                  :data-kind="artifact.kind"
+                  :data-status="artifact.status"
+                >
+                  <summary class="run-trace__artifact-summary">
+                    <span class="run-trace__artifact-status">{{ artifact.status }}</span>
+                    <strong>{{ artifactTitle(artifact) }}</strong>
+                    <small v-if="artifactSubtitle(artifact)">{{ artifactSubtitle(artifact) }}</small>
+                    <span v-if="artifactDetail(artifact)" class="run-trace__artifact-detail">{{ artifactDetail(artifact) }}</span>
+                  </summary>
+                  <dl v-if="processDetailRows(artifact).length" class="run-trace__tool-details">
+                    <div v-for="row in processDetailRows(artifact)" :key="row.label" :data-tone="row.tone || 'neutral'">
+                      <dt>{{ row.label }}</dt>
+                      <dd>{{ row.value }}</dd>
+                    </div>
+                  </dl>
+                  <p v-else class="run-trace__tool-empty">{{ copy.trace.noToolDetails }}</p>
                 </details>
 
                 <article
@@ -333,6 +355,7 @@ const filteredEvents = computed(() => {
 });
 
 const toolEventCount = computed(() => countEventsByCategory("tool"));
+const processEventCount = computed(() => countEventsByCategory("process"));
 const verificationEventCount = computed(() => countEventsByCategory("verification"));
 const permissionEventCount = computed(() => countEventsByCategory("permission"));
 const textEventCount = computed(() => countEventsByCategory("text"));
@@ -417,6 +440,7 @@ const artifactGroups = computed(() => {
   const verificationArtifacts = artifacts.value.filter((artifact) => artifact.kind === "verification");
   const permissionArtifacts = artifacts.value.filter((artifact) => artifact.kind === "permission");
   const taskArtifacts = artifacts.value.filter((artifact) => artifact.kind === "task");
+  const processArtifacts = artifacts.value.filter((artifact) => artifact.kind === "process");
   const workArtifacts = artifacts.value.filter((artifact) => artifact.kind === "work" && !groupedParallelArtifactIds.value.has(artifact.artifactId));
   const groupedParallelArtifacts = artifacts.value.filter((artifact) => groupedParallelArtifactIds.value.has(artifact.artifactId));
   const grouped = new Set([
@@ -425,6 +449,7 @@ const artifactGroups = computed(() => {
     ...verificationArtifacts,
     ...permissionArtifacts,
     ...taskArtifacts,
+    ...processArtifacts,
     ...workArtifacts,
     ...groupedParallelArtifacts,
   ]);
@@ -457,6 +482,11 @@ const artifactGroups = computed(() => {
       items: taskArtifacts,
     },
     {
+      kind: "process",
+      label: props.copy.trace.artifactSections.process,
+      items: processArtifacts,
+    },
+    {
       kind: "work",
       label: props.copy.trace.artifactSections.work,
       items: workArtifacts,
@@ -481,6 +511,7 @@ const filterOptions = computed(() => [
   { value: "tool", label: props.copy.trace.filters.tool, count: toolEventCount.value },
   { value: "verification", label: props.copy.trace.filters.verification, count: verificationEventCount.value },
   { value: "permission", label: props.copy.trace.filters.permission, count: permissionEventCount.value },
+  { value: "process", label: props.copy.trace.filters.process, count: processEventCount.value },
   { value: "text", label: props.copy.trace.filters.text, count: textEventCount.value },
   { value: "system", label: props.copy.trace.filters.system, count: countEventsByCategory("system") },
   { value: "work", label: props.copy.trace.filters.work, count: countEventsByCategory("work") },
@@ -493,7 +524,7 @@ function countEventsByCategory(category) {
 
 function eventCategory(eventType) {
   const event = typeof eventType === "object" ? eventType : null;
-  if (["run", "llm", "tool", "verification", "permission", "text", "system", "work"].includes(event?.kind)) {
+  if (["run", "llm", "tool", "verification", "permission", "process", "text", "system", "work"].includes(event?.kind)) {
     return event.kind;
   }
   if (event?.kind) {
@@ -520,6 +551,9 @@ function eventCategory(eventType) {
   }
   if (eventType === "run_part_delta" || eventType === "message_part_delta") {
     return "text";
+  }
+  if (eventType.startsWith("background_process.")) {
+    return "process";
   }
   return "other";
 }
@@ -746,6 +780,10 @@ function artifactSubtitle(artifact) {
     const metadata = artifact.metadata || {};
     return [metadata.task_id || metadata.taskId, metadata.child_run_id || metadata.childRunId].filter(Boolean).join(" · ");
   }
+  if (isProcessArtifact(artifact)) {
+    const metadata = artifact.metadata || {};
+    return [metadata.process_session_id || metadata.processSessionId, artifact.phase].filter(Boolean).join(" · ");
+  }
   return artifact.artifactType || "";
 }
 
@@ -769,6 +807,10 @@ function isFileArtifact(artifact) {
 
 function isStructuredSubagentArtifact(artifact) {
   return artifact?.artifactType === "subagent_task" && structuredSubagentOutput(artifact) !== null;
+}
+
+function isProcessArtifact(artifact) {
+  return artifact?.kind === "process" || artifact?.artifactType === "background_process";
 }
 
 function structuredSubagentOutput(artifact) {
@@ -822,6 +864,23 @@ function subagentDetailRows(artifact) {
     { label: labels.structuredQuestions, value: structured.question_count ?? structured.questionCount },
     { label: labels.structuredResidualRisks, value: structured.residual_risk_count ?? structured.residualRiskCount },
     { label: labels.structuredSources, value: structured.source_count ?? structured.sourceCount },
+  ];
+  return rows.filter((row) => row.value !== "" && row.value !== null && row.value !== undefined);
+}
+
+function processDetailRows(artifact) {
+  const labels = props.copy.trace.detailLabels;
+  const metadata = artifact.metadata || {};
+  const rows = [
+    { label: labels.processSessionId, value: metadata.process_session_id || metadata.processSessionId || artifact.sourceId },
+    { label: labels.command, value: metadata.command || artifact.title },
+    { label: labels.cwd, value: metadata.cwd },
+    { label: labels.pid, value: metadata.pid },
+    { label: labels.state, value: metadata.state || artifact.status },
+    { label: labels.termination, value: metadata.termination_reason || metadata.terminationReason },
+    { label: labels.exitCode, value: metadata.exit_code ?? metadata.exitCode, tone: Number(metadata.exit_code ?? metadata.exitCode ?? 0) === 0 ? "neutral" : "error" },
+    { label: labels.notifyMode, value: metadata.notify_mode || metadata.notifyMode },
+    { label: labels.outputTail, value: metadata.output_tail || metadata.outputTail },
   ];
   return rows.filter((row) => row.value !== "" && row.value !== null && row.value !== undefined);
 }

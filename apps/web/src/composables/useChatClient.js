@@ -49,7 +49,7 @@ const CURATOR_POLL_INTERVAL_MS = 2500;
 const TERMINAL_RUN_STATUSES = new Set(["completed", "failed", "cancelled"]);
 const TERMINAL_PART_STATES = new Set(["completed", "failed", "cancelled", "error"]);
 const CURATOR_BUSY_STATES = new Set(["queued", "running"]);
-const RUN_EVENT_KINDS = new Set(["run", "llm", "tool", "verification", "permission", "work", "completion", "file", "text", "system", "other"]);
+const RUN_EVENT_KINDS = new Set(["run", "llm", "tool", "verification", "permission", "work", "completion", "file", "process", "text", "system", "other"]);
 const TIMELINE_EVENT_TYPES = new Set([
   "run_started",
   "llm_status",
@@ -80,6 +80,9 @@ const TIMELINE_EVENT_TYPES = new Set([
   "auto_continue.scheduled",
   "auto_continue.completed",
   "auto_continue.skipped",
+  "background_process.started",
+  "background_process.completed",
+  "background_process.lost",
   "run_finished",
   "run_failed",
   "run_cancelled",
@@ -307,6 +310,9 @@ function inferRunEventKind(eventType) {
   if (normalized === "completion_gate.evaluated") {
     return "completion";
   }
+  if (normalized.startsWith("background_process.")) {
+    return "process";
+  }
   return "other";
 }
 
@@ -330,6 +336,15 @@ function inferRunEventStatus(eventType, payload = {}) {
   }
   if (normalized === "run_cancel_requested") {
     return "cancelling";
+  }
+  if (normalized === "background_process.started") {
+    return "running";
+  }
+  if (normalized === "background_process.lost") {
+    return "lost";
+  }
+  if (normalized === "background_process.completed") {
+    return Number(payload.exit_code ?? payload.exitCode ?? 0) === 0 ? "completed" : "failed";
   }
   if (payload.ok === false) {
     return inferRunEventKind(normalized) === "verification" ? "failed" : "error";
@@ -436,6 +451,74 @@ function normalizeRunArtifact(artifact, fallback = {}) {
     },
     metadata: artifact.metadata && typeof artifact.metadata === "object" ? artifact.metadata : {},
   };
+}
+
+function normalizeBackgroundProcessArtifact(eventType, payload, fallback = {}) {
+  if (!String(eventType || "").startsWith("background_process.")) {
+    return null;
+  }
+  const processSessionId = String(payload.process_session_id || payload.processSessionId || fallback.sourceId || "").trim();
+  const command = String(payload.command || "").trim();
+  if (!processSessionId && !command) {
+    return null;
+  }
+  const normalizedEventType = String(eventType || "").trim();
+  const state = normalizedEventType === "background_process.started"
+    ? "running"
+    : normalizedEventType === "background_process.lost"
+      ? "lost"
+      : normalizedEventType === "background_process.completed"
+        ? (Number(payload.exit_code ?? payload.exitCode ?? 0) === 0 ? "completed" : "failed")
+        : String(payload.state || fallback.status || inferRunEventStatus(eventType, payload)).trim() || "completed";
+  const title = command ? previewText(command) : processSessionId;
+  const exitCode = payload.exit_code ?? payload.exitCode;
+  const termination = String(payload.termination_reason || payload.terminationReason || "").trim();
+  const detailParts = [];
+  if (processSessionId) {
+    detailParts.push(processSessionId);
+  }
+  if (termination) {
+    detailParts.push(termination);
+  }
+  if (exitCode !== null && exitCode !== undefined) {
+    detailParts.push(`exit ${exitCode}`);
+  }
+  return {
+    artifactId: `process:${processSessionId || fallback.sourceId || fallback.createdAt}`,
+    artifactType: "background_process",
+    kind: "process",
+    status: state,
+    phase: normalizedEventType.replace("background_process.", ""),
+    title,
+    detail: detailParts.join(" · "),
+    source: "event",
+    sourceId: processSessionId || String(fallback.sourceId || ""),
+    createdAt: normalizeEventTimestamp(fallback.createdAt),
+    toolName: "",
+    toolCallId: "",
+    iteration: "",
+    path: "",
+    action: "",
+    diffLen: 0,
+    diffPreview: "",
+    snapshotsAvailable: { before: false, after: false },
+    metadata: {
+      process_session_id: processSessionId,
+      command,
+      cwd: String(payload.cwd || "").trim(),
+      pid: payload.pid ?? null,
+      state,
+      termination_reason: termination,
+      exit_code: exitCode ?? null,
+      notify_mode: String(payload.notify_mode || payload.notifyMode || "").trim(),
+      output_tail: String(payload.output_tail || payload.outputTail || "").trim(),
+    },
+  };
+}
+
+function normalizeTraceEventArtifact(eventType, payload, artifact, fallback = {}) {
+  return normalizeRunArtifact(artifact, fallback)
+    || normalizeBackgroundProcessArtifact(eventType, payload, fallback);
 }
 
 function normalizeDiffSummary(payload) {
@@ -1272,6 +1355,33 @@ function describeRunEvent(eventType, payload, copy) {
     };
   }
 
+  if (eventType === "background_process.started") {
+    return {
+      label: copy.run.backgroundProcessStarted || "Background process started",
+      detail: payload.command || payload.process_session_id || "",
+      tone: "running",
+    };
+  }
+
+  if (eventType === "background_process.completed") {
+    const exitCode = payload.exit_code ?? payload.exitCode;
+    return {
+      label: Number(exitCode ?? 0) === 0
+        ? (copy.run.backgroundProcessCompleted || "Background process completed")
+        : (copy.run.backgroundProcessFailed || "Background process failed"),
+      detail: [payload.command, exitCode !== undefined && exitCode !== null ? `exit ${exitCode}` : ""].filter(Boolean).join(" · "),
+      tone: Number(exitCode ?? 0) === 0 ? "success" : "error",
+    };
+  }
+
+  if (eventType === "background_process.lost") {
+    return {
+      label: copy.run.backgroundProcessLost || "Background process lost",
+      detail: payload.command || payload.process_session_id || "runtime restart",
+      tone: "warning",
+    };
+  }
+
   if (eventType === "run_finished") {
     return {
       label: payload.had_tool_error ? copy.run.completedWithWarnings : copy.run.completed,
@@ -2017,7 +2127,7 @@ export function useChatClient() {
     const eventKind = normalizeRunKind(payload.kind, inferRunEventKind(eventType));
     const eventStatus = String(payload.status || inferRunEventStatus(eventType, eventPayload)).trim();
     const createdAt = normalizeEventTimestamp(payload.created_at);
-    const eventArtifact = normalizeRunArtifact(payload.artifact, {
+    const eventArtifact = normalizeTraceEventArtifact(eventType, eventPayload, payload.artifact, {
       kind: eventKind,
       status: eventStatus,
       source: "event",
@@ -2572,7 +2682,7 @@ export function useChatClient() {
       status,
       createdAt,
       payload: eventPayload,
-      artifact: normalizeRunArtifact(event?.artifact, {
+      artifact: normalizeTraceEventArtifact(eventType, eventPayload, event?.artifact, {
         kind,
         status,
         source: "event",
