@@ -1,6 +1,7 @@
 import asyncio
 
 import opensprite.channels as channels_module
+from opensprite.channels.registry import default_channel_instances
 
 
 class FakeAdapter:
@@ -38,3 +39,9 @@ def test_start_channels_only_runs_enabled_registered_channels(monkeypatch):
     )
 
     assert started == ["telegram_work"]
+
+
+def test_web_channel_defaults_expose_auth_token():
+    instances = default_channel_instances()
+
+    assert instances["web"]["auth_token"] == ""

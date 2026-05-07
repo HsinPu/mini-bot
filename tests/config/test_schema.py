@@ -192,6 +192,9 @@ def test_config_load_creates_default_config_and_split_files(monkeypatch, tmp_pat
     assert (app_home / "mcp_servers.json").exists()
     assert (app_home / "llm.providers.json").exists()
 
+    channels = json.loads((app_home / "channels.json").read_text(encoding="utf-8"))
+    assert channels["instances"]["web"]["auth_token"] == ""
+
 
 def test_llm_context_window_falls_back_to_top_level_setting():
     llm = LLMsConfig(

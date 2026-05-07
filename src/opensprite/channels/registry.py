@@ -80,6 +80,7 @@ CHANNEL_TYPES: dict[str, ChannelTypeSpec] = {
             "frontend_auto_install": True,
             "frontend_build_timeout": 120,
             "frontend_install_timeout": 300,
+            "auth_token": "",
         },
     ),
 }
