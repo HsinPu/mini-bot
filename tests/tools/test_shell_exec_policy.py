@@ -84,6 +84,27 @@ def test_exec_tool_blocks_dangerous_command(tmp_path):
     assert result == "Error: Command blocked by safety guard (dangerous pattern detected)"
 
 
+def test_exec_tool_accepts_notify_on_complete_alias(tmp_path):
+    from opensprite.tools.shell import ExecTool
+
+    tool = ExecTool(workspace=Path(tmp_path))
+
+    async def run():
+        result = await tool.execute(
+            command=_python_shell_command("print('done', flush=True)"),
+            background=True,
+            notify_on_complete=False,
+        )
+        sessions = await tool.process_manager.list_sessions()
+        return result, sessions
+
+    result, sessions = asyncio.run(run())
+
+    assert "Background session started." in result
+    assert len(sessions) == 1
+    assert sessions[0].notify_on_exit is False
+
+
 def test_exec_tool_preserves_stdout_stderr_order(tmp_path):
     from opensprite.tools.shell import ExecTool
 
