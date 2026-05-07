@@ -151,6 +151,7 @@
     @run-eval-smoke="runEvalSmokeCheck"
     @run-task-completion-smoke="runTaskCompletionEvalSmoke"
     @run-task-completion-live="runTaskCompletionLiveEval"
+    @refresh-task-completion-history="loadTaskCompletionHistory"
     @load-data-session-timeline="loadDataSessionTimeline"
     @begin-cron-job-create="beginCronJobCreate"
     @save-cron-job="saveCronJob"
@@ -263,6 +264,7 @@ const {
   runEvalSmokeCheck,
   runTaskCompletionEvalSmoke,
   runTaskCompletionLiveEval,
+  loadTaskCompletionHistory,
   loadBackgroundProcesses,
   loadDataSessionTimeline,
   beginCronJobCreate,

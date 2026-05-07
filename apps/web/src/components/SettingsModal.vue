@@ -1345,6 +1345,37 @@
             </div>
           </div>
 
+          <h3>{{ copy.settings.eval.historyTitle }}</h3>
+          <div class="settings-card">
+            <div class="settings-row">
+              <div>
+                <strong>{{ copy.settings.eval.historyRecentTitle }}</strong>
+                <span>{{ copy.settings.eval.historyDescription }}</span>
+              </div>
+              <button class="secondary-button" type="button" :disabled="settingsState.taskCompletionHistoryLoading" @click="$emit('refresh-task-completion-history')">
+                {{ copy.settings.eval.refreshHistory }}
+              </button>
+            </div>
+            <p v-if="settingsState.taskCompletionHistoryLoading" class="settings-inline-status">{{ copy.settings.eval.historyLoading }}</p>
+            <p v-if="settingsState.taskCompletionHistoryError" class="settings-inline-status settings-inline-status--error">
+              {{ settingsState.taskCompletionHistoryError }}
+            </p>
+            <div v-if="!settingsState.taskCompletionHistory.length && !settingsState.taskCompletionHistoryLoading" class="provider-row provider-row--empty">
+              <div>
+                <strong>{{ copy.settings.eval.noHistoryTitle }}</strong>
+                <span>{{ copy.settings.eval.noHistoryDescription }}</span>
+              </div>
+            </div>
+            <div v-for="item in settingsState.taskCompletionHistory" :key="item.eval_id" class="settings-row">
+              <div>
+                <strong>{{ item.case_id || copy.settings.eval.none }}</strong>
+                <span>{{ copy.settings.eval.historyMeta(formatTimestamp(item.created_at), item.completion_status || copy.settings.eval.none, item.run_id || copy.settings.eval.none) }}</span>
+                <span>{{ item.response_preview }}</span>
+              </div>
+              <span class="provider-row__badge">{{ item.ok ? copy.settings.eval.pass : copy.settings.eval.fail }}</span>
+            </div>
+          </div>
+
           <h3>{{ copy.settings.eval.metricsTitle }}</h3>
           <div class="settings-card eval-chip-list">
             <span v-for="metric in settingsState.evalStatus.recommended_metrics" :key="metric.id" class="provider-row__badge">
@@ -2541,6 +2572,7 @@ const emit = defineEmits([
   "run-eval-smoke",
   "run-task-completion-smoke",
   "run-task-completion-live",
+  "refresh-task-completion-history",
   "load-data-session-timeline",
   "refresh-curator",
   "run-curator-action",

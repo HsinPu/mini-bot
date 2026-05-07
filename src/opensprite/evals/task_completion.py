@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 from collections.abc import Mapping, Sequence
 from typing import Any
 from uuid import uuid4
 
 from ..bus.message import UserMessage
+from ..storage.base import StoredEvalRun
 
 
 _RESPONSE_PREVIEW_CHARS = 240
@@ -88,6 +90,9 @@ async def run_live_task_completion_eval(
                 timeout_seconds=timeout_seconds,
             )
         )
+        stored = await _persist_eval_case(storage, cases[-1])
+        if stored is not None:
+            cases[-1]["eval_id"] = stored.eval_id
     return _summarize_cases(cases, live=True)
 
 
@@ -107,6 +112,36 @@ def _summarize_cases(cases: list[dict[str, Any]], *, live: bool) -> dict[str, An
             "total_checks": total_checks,
         },
     }
+
+
+async def _persist_eval_case(storage: Any, evaluated_case: Mapping[str, Any]) -> StoredEvalRun | None:
+    add_eval_run = getattr(storage, "add_eval_run", None)
+    if not callable(add_eval_run):
+        return None
+    stored = StoredEvalRun(
+        eval_id=f"eval_{uuid4().hex}",
+        kind="task_completion",
+        case_id=_string(evaluated_case.get("id")),
+        ok=_bool(evaluated_case.get("ok")),
+        summary={
+            "text": _string(evaluated_case.get("summary")),
+            "score": dict(evaluated_case.get("score") or {}),
+        },
+        checks=[dict(check) for check in evaluated_case.get("checks", []) if isinstance(check, Mapping)],
+        prompt=_string(evaluated_case.get("prompt")),
+        response_preview=_string(evaluated_case.get("response_preview")),
+        session_id=_string(evaluated_case.get("session_id")),
+        run_id=_string(evaluated_case.get("run_id")),
+        completion_status=_string(evaluated_case.get("completion_status")),
+        had_tool_error=_bool(evaluated_case.get("had_tool_error")),
+        metadata={
+            "live": _bool(evaluated_case.get("live")),
+            "run_status": _string(evaluated_case.get("run_status")),
+            "error": _string(evaluated_case.get("error")),
+        },
+        created_at=time.time(),
+    )
+    return await add_eval_run(stored)
 
 
 def evaluate_task_completion_case(case: Mapping[str, Any], result: Mapping[str, Any] | None) -> dict[str, Any]:

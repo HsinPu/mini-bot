@@ -3445,10 +3445,24 @@ export function useChatClient() {
       settingsState.evalNotice = payload?.ok
         ? copy.value.settings.eval.taskCompletionLivePassed
         : copy.value.settings.eval.taskCompletionLiveFailed;
+      await loadTaskCompletionHistory();
     } catch (error) {
       settingsState.evalError = error?.message || copy.value.notices.taskCompletionLiveEvalFailed;
     } finally {
       settingsState.taskCompletionLiveRunning = false;
+    }
+  }
+
+  async function loadTaskCompletionHistory() {
+    settingsState.taskCompletionHistoryLoading = true;
+    settingsState.taskCompletionHistoryError = "";
+    try {
+      const payload = await requestSettingsJson("/api/evals/task-completion/history?limit=20");
+      settingsState.taskCompletionHistory = Array.isArray(payload?.history) ? payload.history : [];
+    } catch (error) {
+      settingsState.taskCompletionHistoryError = error?.message || copy.value.notices.taskCompletionHistoryLoadFailed;
+    } finally {
+      settingsState.taskCompletionHistoryLoading = false;
     }
   }
 
@@ -3490,6 +3504,7 @@ export function useChatClient() {
     }
     if (sectionName === "eval") {
       loadEvalStatus();
+      loadTaskCompletionHistory();
       return;
     }
     if (sectionName === "curator") {
@@ -4312,6 +4327,7 @@ export function useChatClient() {
     runEvalSmokeCheck,
     runTaskCompletionEvalSmoke,
     runTaskCompletionLiveEval,
+    loadTaskCompletionHistory,
     loadBackgroundProcesses,
     loadDataSessionTimeline,
     loadMcpSettings,

@@ -265,6 +265,13 @@ class WebApiHandlers:
         )
         return web.json_response(payload)
 
+    async def handle_task_completion_eval_history(self, request: web.Request) -> web.Response:
+        adapter = self.adapter
+        storage = adapter._require_storage()
+        limit = adapter._coerce_limit(request.query.get("limit"), default=20, maximum=100)
+        history = await storage.list_eval_runs(kind="task_completion", limit=limit)
+        return web.json_response({"ok": True, "history": [item.to_payload() for item in history]})
+
     async def handle_sessions(self, request: web.Request) -> web.Response:
         adapter = self.adapter
         storage = adapter._require_storage()

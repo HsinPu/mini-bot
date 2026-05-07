@@ -1288,11 +1288,19 @@ async def _run_web_task_completion_live_eval_api():
                 assert resp.status == 200
                 payload = await resp.json()
 
+            async with session.get(f"http://127.0.0.1:{port}/api/evals/task-completion/history") as resp:
+                assert resp.status == 200
+                history_payload = await resp.json()
+
         assert payload["ok"] is True
         assert payload["live"] is True
         assert payload["summary"]["passed_cases"] == 1
         assert payload["cases"][0]["run_id"] == "run-live"
+        assert payload["cases"][0]["eval_id"].startswith("eval_")
         assert payload["cases"][0]["completion_status"] == "complete"
+        assert history_payload["history"][0]["eval_id"] == payload["cases"][0]["eval_id"]
+        assert history_payload["history"][0]["case_id"] == "literal_instruction"
+        assert history_payload["history"][0]["response_preview"] == "alpha beta gamma"
         assert agent.seen_messages[0].channel == "web"
         assert agent.seen_messages[0].external_chat_id.startswith("eval-task-completion-literal_instruction-")
     finally:

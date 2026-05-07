@@ -130,5 +130,12 @@ async def _run_live_task_completion_eval_scores_agent_result():
     [case] = payload["cases"]
     assert case["id"] == "literal_instruction"
     assert case["run_id"] == "run-live"
+    assert case["eval_id"].startswith("eval_")
     assert case["completion_status"] == "complete"
     assert case["response_preview"] == "alpha beta gamma"
+    history = await storage.list_eval_runs(kind="task_completion", limit=10)
+    assert len(history) == 1
+    assert history[0].eval_id == case["eval_id"]
+    assert history[0].case_id == "literal_instruction"
+    assert history[0].summary["text"] == case["summary"]
+    assert history[0].response_preview == "alpha beta gamma"
