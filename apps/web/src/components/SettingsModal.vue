@@ -1323,6 +1323,7 @@
               <div>
                 <strong>{{ evalCase.label }}</strong>
                 <span>{{ evalCase.summary }} {{ evalCase.response_preview }}</span>
+                <span v-if="failedEvalChecks(evalCase).length">{{ failedEvalChecksSummary(evalCase) }}</span>
               </div>
               <span class="provider-row__badge">{{ evalCase.ok ? copy.settings.eval.pass : copy.settings.eval.fail }}</span>
             </div>
@@ -1340,6 +1341,7 @@
               <div>
                 <strong>{{ evalCase.label }}</strong>
                 <span>{{ evalCase.summary }} {{ evalCase.run_id ? copy.settings.eval.evalRun(evalCase.run_id) : "" }} {{ evalCase.response_preview }}</span>
+                <span v-if="failedEvalChecks(evalCase).length">{{ failedEvalChecksSummary(evalCase) }}</span>
               </div>
               <span class="provider-row__badge">{{ evalCase.ok ? copy.settings.eval.pass : copy.settings.eval.fail }}</span>
             </div>
@@ -1371,6 +1373,7 @@
                 <strong>{{ item.case_id || copy.settings.eval.none }}</strong>
                 <span>{{ copy.settings.eval.historyMeta(formatTimestamp(item.created_at), item.completion_status || copy.settings.eval.none, item.run_id || copy.settings.eval.none) }}</span>
                 <span>{{ item.response_preview }}</span>
+                <span v-if="failedEvalChecks(item).length">{{ failedEvalChecksSummary(item) }}</span>
               </div>
               <span class="provider-row__badge">{{ item.ok ? copy.settings.eval.pass : copy.settings.eval.fail }}</span>
             </div>
@@ -2087,6 +2090,22 @@ function formatTimestamp(value) {
     return props.copy.settings.data.never;
   }
   return new Date(numeric * 1000).toLocaleString();
+}
+
+function failedEvalChecks(entry) {
+  return Array.isArray(entry?.checks) ? entry.checks.filter((check) => check?.ok === false) : [];
+}
+
+function failedEvalCheckText(check) {
+  const id = String(check?.id || props.copy.settings.eval.none).trim();
+  const label = String(check?.label || "").trim();
+  const detail = String(check?.detail || "").trim();
+  return [id, label, detail].filter(Boolean).join(" - ");
+}
+
+function failedEvalChecksSummary(entry) {
+  const failed = failedEvalChecks(entry);
+  return props.copy.settings.eval.failedChecks(failed.length, failed.map(failedEvalCheckText).join("; "));
 }
 
 function previewMessage(content) {

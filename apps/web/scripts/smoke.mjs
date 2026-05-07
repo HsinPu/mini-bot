@@ -121,6 +121,8 @@ assertIncludes(settingsModal, "form.accessToken", "gateway access token setting"
 assertIncludes(settingsModal, "run-task-completion-smoke", "task completion eval action");
 assertIncludes(settingsModal, "run-task-completion-live", "live task completion eval action");
 assertIncludes(settingsModal, "refresh-task-completion-history", "task completion history refresh action");
+assertIncludes(settingsModal, "failedEvalChecksSummary", "task completion failed-check summary rendering");
+assertIncludes(settingsModal, "failedEvalCheckText", "task completion failed-check detail rendering");
 assertIncludes(chatClient, "STORAGE_KEYS.accessToken", "access token preference persistence");
 assertIncludes(chatClient, "authorizedHeaders", "authorized API requests");
 assertIncludes(chatClient, "access_token", "authorized websocket connection");
@@ -182,6 +184,7 @@ for (const key of [
   "taskCompletionLivePassed",
   "taskCompletionLiveEvalFailed",
   "taskCompletionHistoryLoadFailed",
+  "failedChecks",
 ]) {
   assertRegex(copy, new RegExp(`${key}\\s*:`), `copy key ${key}`);
 }
