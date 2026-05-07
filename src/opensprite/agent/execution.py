@@ -18,6 +18,7 @@ from ..tools.verify import classify_verification_result
 from ..utils import count_messages_tokens, count_text_tokens
 from ..utils.log import logger
 from .run_state import RunCancelledError
+from .tool_guardrails import ToolLoopGuardrail, append_toolguard_guidance, build_toolguard_synthetic_result
 
 
 @dataclass
@@ -997,6 +998,7 @@ Output exactly these sections when applicable:
             logger.info(f"[{log_id}] tools.enabled | names={', '.join(active_tools.tool_names)}")
 
         tool_results_history: list[str] = []
+        tool_loop_guardrail = ToolLoopGuardrail()
         empty_response_retried = False
         repeated_tool_error_key: tuple[str, str] | None = None
         repeated_tool_error_count = 0
@@ -1345,6 +1347,7 @@ Output exactly these sections when applicable:
                     args_preview = self.format_log_preview(json.dumps(display_tool_args, ensure_ascii=False), max_chars=200)
                     logger.info(f"[{log_id}] tool.run | id={tc.id} name={tool_name} args={args_preview}")
                     tool_started = False
+                    before_guardrail = tool_loop_guardrail.before_call(tool_name, display_tool_args)
 
                     async def _notify_tool_before_execute(name: str, args: dict[str, Any]) -> None:
                         nonlocal tool_started
@@ -1390,18 +1393,41 @@ Output exactly these sections when applicable:
                                 f"[{log_id}] tool.cancel-hook.error | name={tool_name}"
                             )
 
-                    try:
-                        result = await active_tools.execute(
-                            tool_name,
-                            tool_args,
-                            on_before_execute=_notify_tool_before_execute,
+                    if not before_guardrail.allows_execution:
+                        logger.warning(
+                            f"[{log_id}] tool.guardrail-block | name={tool_name} "
+                            f"code={before_guardrail.code} count={before_guardrail.count}"
                         )
-                        self._raise_if_cancel_requested(should_cancel)
-                    except RunCancelledError:
-                        await _notify_tool_cancelled()
-                        raise
-                    executed_tool_calls += 1
-                    if self._tool_result_looks_like_failure(result):
+                        result = build_toolguard_synthetic_result(before_guardrail)
+                    else:
+                        try:
+                            result = await active_tools.execute(
+                                tool_name,
+                                tool_args,
+                                on_before_execute=_notify_tool_before_execute,
+                            )
+                            self._raise_if_cancel_requested(should_cancel)
+                        except RunCancelledError:
+                            await _notify_tool_cancelled()
+                            raise
+                        executed_tool_calls += 1
+                    raw_result_for_repeated_error = result
+                    tool_failed = (not before_guardrail.allows_execution) or self._tool_result_looks_like_failure(result)
+                    if before_guardrail.allows_execution:
+                        after_guardrail = tool_loop_guardrail.after_call(
+                            tool_name,
+                            display_tool_args,
+                            result,
+                            failed=tool_failed,
+                        )
+                        if after_guardrail.action == "warn":
+                            logger.warning(
+                                f"[{log_id}] tool.guardrail-warning | name={tool_name} "
+                                f"code={after_guardrail.code} count={after_guardrail.count}"
+                            )
+                            result = append_toolguard_guidance(result, after_guardrail)
+                            tool_failed = self._tool_result_looks_like_failure(result)
+                    if tool_failed:
                         had_tool_error = True
                     if tool_name == "verify":
                         verification_outcome = classify_verification_result(result)
@@ -1448,7 +1474,7 @@ Output exactly these sections when applicable:
                             )
                     result_for_context = self._summarize_tool_result_for_context(tool_name, result)
 
-                    repeated_error_marker = self._classify_tool_result(result)
+                    repeated_error_marker = self._classify_tool_result(raw_result_for_repeated_error)
                     if repeated_error_marker is not None:
                         current_error_key = (tool_name, repeated_error_marker)
                         if repeated_tool_error_key == current_error_key:

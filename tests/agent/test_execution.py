@@ -25,6 +25,48 @@ class DummyTool(Tool):
         return f"tool:{value}"
 
 
+class FailingTool(Tool):
+    def __init__(self):
+        self.calls = 0
+
+    @property
+    def name(self) -> str:
+        return "failing_tool"
+
+    @property
+    def description(self) -> str:
+        return "Always fails"
+
+    @property
+    def parameters(self) -> dict:
+        return {"type": "object", "properties": {"value": {"type": "string"}}}
+
+    async def _execute(self, value: str, **kwargs) -> str:
+        self.calls += 1
+        return "Error: still broken"
+
+
+class RepeatingReadFileTool(Tool):
+    def __init__(self):
+        self.calls = 0
+
+    @property
+    def name(self) -> str:
+        return "read_file"
+
+    @property
+    def description(self) -> str:
+        return "Read a file"
+
+    @property
+    def parameters(self) -> dict:
+        return {"type": "object", "properties": {"path": {"type": "string"}}}
+
+    async def _execute(self, path: str, **kwargs) -> str:
+        self.calls += 1
+        return "same file content"
+
+
 class FakeProvider:
     def __init__(self, responses):
         self.responses = list(responses)
@@ -193,6 +235,63 @@ def test_execution_engine_runs_tool_loop_and_persists_tool_result():
     ]
     assert [message.role for message in messages] == ["user", "assistant", "tool"]
     assert messages[1].tool_calls[0]["function"]["name"] == "demo_tool"
+
+
+def test_execution_engine_blocks_repeated_identical_tool_failures():
+    tool = FailingTool()
+    registry = ToolRegistry()
+    registry.register(tool)
+    provider = FakeProvider(
+        [
+            LLMResponse(
+                content="try failing",
+                model="fake-model",
+                tool_calls=[ToolCall(id=f"tc{i}", name="failing_tool", arguments={"value": "abc"})],
+            )
+            for i in range(4)
+        ]
+        + [LLMResponse(content="done", model="fake-model")]
+    )
+    engine = _make_engine(provider, registry, [], tools_config=ToolsConfig(max_tool_iterations=5))
+    messages = [ChatMessage(role="user", content="hi")]
+
+    result = asyncio.run(engine.execute_messages("chat-1", messages, allow_tools=True))
+
+    assert result.content == "done"
+    assert result.executed_tool_calls == 3
+    assert result.had_tool_error is True
+    assert tool.calls == 3
+    assert "repeated_failure_block" in messages[-1].content
+    assert "Blocked failing_tool" in messages[-1].content
+
+
+def test_execution_engine_warns_then_blocks_repeated_read_only_results():
+    tool = RepeatingReadFileTool()
+    registry = ToolRegistry()
+    registry.register(tool)
+    provider = FakeProvider(
+        [
+            LLMResponse(
+                content="read again",
+                model="fake-model",
+                tool_calls=[ToolCall(id=f"tc{i}", name="read_file", arguments={"path": "README.md"})],
+            )
+            for i in range(4)
+        ]
+        + [LLMResponse(content="done", model="fake-model")]
+    )
+    engine = _make_engine(provider, registry, [], tools_config=ToolsConfig(max_tool_iterations=5))
+    messages = [ChatMessage(role="user", content="hi")]
+
+    result = asyncio.run(engine.execute_messages("chat-1", messages, allow_tools=True))
+
+    assert result.content == "done"
+    assert result.executed_tool_calls == 3
+    assert tool.calls == 3
+    tool_messages = [message.content for message in messages if message.role == "tool"]
+    assert any("same_result_warning" in content for content in tool_messages)
+    assert "same_result_block" in tool_messages[-1]
+    assert "Blocked read_file" in tool_messages[-1]
 
 
 def test_execution_engine_records_llm_step_usage_metadata():
