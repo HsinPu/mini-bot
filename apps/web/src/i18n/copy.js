@@ -510,6 +510,14 @@ export const DISPLAY_COPY = {
             en: "English",
           },
         },
+        workState: {
+          title: "顯示目前任務",
+          description: "顯示目前 session 的任務狀態、下一步與驗證資訊。",
+        },
+        runHistory: {
+          title: "顯示 Run 歷程",
+          description: "顯示可切換的最近 run 清單。",
+        },
         runTimeline: {
           title: "顯示 Run 進度",
           description: "在對話下方顯示目前執行狀態摘要。",
@@ -1550,6 +1558,14 @@ export const DISPLAY_COPY = {
             zhTW: "繁體中文",
             en: "English",
           },
+        },
+        workState: {
+          title: "Show current task",
+          description: "Show the current session task state, next step, and verification details.",
+        },
+        runHistory: {
+          title: "Show run history",
+          description: "Show the recent run selector.",
         },
         runTimeline: {
           title: "Show run progress",

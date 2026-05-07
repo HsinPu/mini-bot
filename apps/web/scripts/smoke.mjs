@@ -39,6 +39,7 @@ const [
   runSummaryCard,
   runTraceViewer,
   runDetailsPanel,
+  chatPanel,
   chatComposer,
   toastStack,
   curatorSettingsPage,
@@ -56,6 +57,7 @@ const [
   read("src/components/RunSummaryCard.vue"),
   read("src/components/RunTraceViewer.vue"),
   read("src/components/RunDetailsPanel.vue"),
+  read("src/components/ChatPanel.vue"),
   read("src/components/ChatComposer.vue"),
   read("src/components/ToastStack.vue"),
   read("src/components/CuratorSettingsPage.vue"),
@@ -79,7 +81,10 @@ assertIncludes(runSummaryCard, "cleanup-worktree", "worktree cleanup action");
 assertIncludes(runTraceViewer, "codeNavigationResults", "code navigation trace rendering");
 assertIncludes(runTraceViewer, "showRetentionSummary", "trace retention summary");
 assertIncludes(runDetailsPanel, "RunHistorySelector", "run details history selector");
+assertIncludes(runDetailsPanel, "showRunHistory", "run history visibility toggle");
 assertIncludes(runDetailsPanel, "RunFileChangeDrawer", "run details file drawer");
+assertIncludes(chatPanel, "showWorkState && workState", "work state visibility toggle");
+assertIncludes(chatPanel, ":show-run-history=\"showRunHistory\"", "run history prop wiring");
 assertIncludes(chatComposer, "composer__commands", "slash command hints rendering");
 assertIncludes(toastStack, "toast-stack", "toast stack rendering");
 assertIncludes(toastStack, "dismiss-toast", "toast dismiss event");
@@ -97,6 +102,8 @@ assertIncludes(settingsModal, "settingsState.selectedTextProviderId, settingsSta
 assertIncludes(settingsModal, "settingsState.copilotAuth.userCode", "Copilot auth code rendering");
 assertIncludes(settingsModal, "showCodexAuthCard", "conditional Codex auth card");
 assertIncludes(settingsModal, "showCopilotAuthCard", "conditional Copilot auth card");
+assertIncludes(settingsModal, "form.showWorkState", "work state settings switch");
+assertIncludes(settingsModal, "form.showRunHistory", "run history settings switch");
 assertIncludes(settingsModal, "hasConnectedProvider", "OAuth auth card connected-provider visibility");
 assertIncludes(settingsModal, "providerCredentials", "credential picker rendering");
 assertIncludes(settingsModal, "providerEffectiveCredentialId", "effective credential selection");
@@ -120,6 +127,8 @@ assertIncludes(chatClient, "/api/curator/history", "curator history fetch");
 assertIncludes(chatClient, "/api/curator/", "curator action fetch");
 assertIncludes(chatClient, 'params.set("scope", scope)', "curator scoped action fetch");
 assertIncludes(chatClient, "CURATOR_POLL_INTERVAL_MS", "curator polling interval");
+assertIncludes(chatClient, "STORAGE_KEYS.showWorkState", "work state preference persistence");
+assertIncludes(chatClient, "STORAGE_KEYS.showRunHistory", "run history preference persistence");
 assertIncludes(chatClient, "scheduleCuratorPoll", "curator polling scheduler");
 assertIncludes(chatClient, "curator.completed", "curator event refresh");
 assertIncludes(chatClient, "viewExternalChatIdForPayload", "external session realtime keying");

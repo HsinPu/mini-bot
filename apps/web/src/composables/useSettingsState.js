@@ -3,6 +3,8 @@ export function createSettingsForm(state) {
     wsUrl: state.wsUrl,
     displayName: state.displayName,
     externalChatId: state.activeExternalChatId,
+    showWorkState: state.showWorkState,
+    showRunHistory: state.showRunHistory,
     showRunTimeline: state.showRunTimeline,
     showRunSummary: state.showRunSummary,
     showRunTrace: state.showRunTrace,

@@ -15,6 +15,8 @@ const STORAGE_KEYS = {
   wsUrl: "opensprite:web:wsUrl",
   displayName: "opensprite:web:displayName",
   activeExternalChatId: "opensprite:web:activeExternalChatId",
+  showWorkState: "opensprite:web:showWorkState",
+  showRunHistory: "opensprite:web:showRunHistory",
   showRunTimeline: "opensprite:web:showRunTimeline",
   showRunSummary: "opensprite:web:showRunSummary",
   showRunTrace: "opensprite:web:showRunTrace",
@@ -1330,6 +1332,8 @@ export function useChatClient() {
   const state = reactive({
     wsUrl: readStoredValue(STORAGE_KEYS.wsUrl, DEFAULT_WS_URL),
     displayName: readStoredValue(STORAGE_KEYS.displayName, "Local browser"),
+    showWorkState: readStoredBoolean(STORAGE_KEYS.showWorkState, true),
+    showRunHistory: readStoredBoolean(STORAGE_KEYS.showRunHistory, true),
     showRunTimeline: readStoredBoolean(STORAGE_KEYS.showRunTimeline, true),
     showRunSummary: readStoredBoolean(STORAGE_KEYS.showRunSummary, true),
     showRunTrace: readStoredBoolean(STORAGE_KEYS.showRunTrace, true),
@@ -1564,10 +1568,14 @@ export function useChatClient() {
     messageText.value = value;
   }
 
-  function saveRunPanelVisibilitySettings(showRunTimeline, showRunSummary, showRunTrace) {
+  function saveRunPanelVisibilitySettings(showWorkState, showRunHistory, showRunTimeline, showRunSummary, showRunTrace) {
+    state.showWorkState = Boolean(showWorkState);
+    state.showRunHistory = Boolean(showRunHistory);
     state.showRunTimeline = Boolean(showRunTimeline);
     state.showRunSummary = Boolean(showRunSummary);
     state.showRunTrace = Boolean(showRunTrace);
+    writeStoredValue(STORAGE_KEYS.showWorkState, String(state.showWorkState));
+    writeStoredValue(STORAGE_KEYS.showRunHistory, String(state.showRunHistory));
     writeStoredValue(STORAGE_KEYS.showRunTimeline, String(state.showRunTimeline));
     writeStoredValue(STORAGE_KEYS.showRunSummary, String(state.showRunSummary));
     writeStoredValue(STORAGE_KEYS.showRunTrace, String(state.showRunTrace));
@@ -1675,9 +1683,15 @@ export function useChatClient() {
   });
 
   watch(
-    () => [settingsForm.showRunTimeline, settingsForm.showRunSummary, settingsForm.showRunTrace],
-    ([showRunTimeline, showRunSummary, showRunTrace]) => {
-      saveRunPanelVisibilitySettings(showRunTimeline, showRunSummary, showRunTrace);
+    () => [
+      settingsForm.showWorkState,
+      settingsForm.showRunHistory,
+      settingsForm.showRunTimeline,
+      settingsForm.showRunSummary,
+      settingsForm.showRunTrace,
+    ],
+    ([showWorkState, showRunHistory, showRunTimeline, showRunSummary, showRunTrace]) => {
+      saveRunPanelVisibilitySettings(showWorkState, showRunHistory, showRunTimeline, showRunSummary, showRunTrace);
     },
   );
 
@@ -2264,6 +2278,8 @@ export function useChatClient() {
     settingsForm.wsUrl = state.wsUrl;
     settingsForm.displayName = state.displayName;
     settingsForm.externalChatId = currentSession.value?.externalChatId || "";
+    settingsForm.showWorkState = state.showWorkState;
+    settingsForm.showRunHistory = state.showRunHistory;
     settingsForm.showRunTimeline = state.showRunTimeline;
     settingsForm.showRunSummary = state.showRunSummary;
     settingsForm.showRunTrace = state.showRunTrace;
@@ -3572,7 +3588,13 @@ export function useChatClient() {
 
     state.wsUrl = nextWsUrl;
     state.displayName = settingsForm.displayName.trim() || "Local browser";
-    saveRunPanelVisibilitySettings(settingsForm.showRunTimeline, settingsForm.showRunSummary, settingsForm.showRunTrace);
+    saveRunPanelVisibilitySettings(
+      settingsForm.showWorkState,
+      settingsForm.showRunHistory,
+      settingsForm.showRunTimeline,
+      settingsForm.showRunSummary,
+      settingsForm.showRunTrace,
+    );
 
     const requestedExternalChatId = settingsForm.externalChatId.trim();
     if (requestedExternalChatId) {

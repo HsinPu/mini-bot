@@ -136,6 +136,22 @@
 
             <label class="settings-row">
               <div>
+                <strong>{{ copy.settings.general.workState.title }}</strong>
+                <span>{{ copy.settings.general.workState.description }}</span>
+              </div>
+              <input v-model="form.showWorkState" class="switch" type="checkbox" />
+            </label>
+
+            <label class="settings-row">
+              <div>
+                <strong>{{ copy.settings.general.runHistory.title }}</strong>
+                <span>{{ copy.settings.general.runHistory.description }}</span>
+              </div>
+              <input v-model="form.showRunHistory" class="switch" type="checkbox" />
+            </label>
+
+            <label class="settings-row">
+              <div>
                 <strong>{{ copy.settings.general.runTimeline.title }}</strong>
                 <span>{{ copy.settings.general.runTimeline.description }}</span>
               </div>

@@ -39,6 +39,8 @@
       :run-summary="currentRunSummary"
       :permission-state="permissionState"
       :permission-requests="currentPermissionRequests"
+      :show-work-state="state.showWorkState"
+      :show-run-history="state.showRunHistory"
       :show-run-timeline="state.showRunTimeline"
       :show-run-summary="state.showRunSummary"
       :show-run-trace="state.showRunTrace"

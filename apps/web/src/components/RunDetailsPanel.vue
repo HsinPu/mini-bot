@@ -1,5 +1,6 @@
 <template>
   <RunHistorySelector
+    v-if="showRunHistory"
     :copy="copy"
     :runs="runs"
     :loading="runsLoading"
@@ -79,6 +80,10 @@ const props = defineProps({
   runSummary: {
     type: Object,
     default: null,
+  },
+  showRunHistory: {
+    type: Boolean,
+    required: true,
   },
   showRunTimeline: {
     type: Boolean,

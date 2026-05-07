@@ -41,7 +41,7 @@
         <MessageList :copy="copy" :entries="entries" :messages="messages" :display-name="displayName" />
 
         <WorkStateCard
-          v-if="workState"
+          v-if="showWorkState && workState"
           :copy="copy"
           :work-state="workState"
           @resume-follow-up="$emit('resume-follow-up', $event)"
@@ -63,6 +63,7 @@
           :current-run="currentRun"
           :run-timeline="runTimeline"
           :run-summary="runSummary"
+          :show-run-history="showRunHistory"
           :show-run-timeline="showRunTimeline"
           :show-run-summary="showRunSummary"
           :show-run-trace="showRunTrace"
@@ -152,6 +153,14 @@ const props = defineProps({
   },
   permissionRequests: {
     type: Array,
+    required: true,
+  },
+  showWorkState: {
+    type: Boolean,
+    required: true,
+  },
+  showRunHistory: {
+    type: Boolean,
     required: true,
   },
   showRunTimeline: {
