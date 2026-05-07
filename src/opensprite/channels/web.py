@@ -238,6 +238,8 @@ class WebAdapter(MessageAdapter):
             capture_output=True,
             check=False,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
         )
 

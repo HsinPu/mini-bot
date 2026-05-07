@@ -1,5 +1,6 @@
 import asyncio
 import json
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -281,6 +282,23 @@ async def _run_web_auth_token_guard():
 
 def test_web_adapter_auth_token_guard():
     asyncio.run(_run_web_auth_token_guard())
+
+
+def test_web_frontend_command_decodes_utf8_output(monkeypatch, tmp_path):
+    captured = {}
+
+    def fake_run(*args, **kwargs):
+        captured.update(kwargs)
+        return subprocess.CompletedProcess(args[0], 0, stdout="✓ built", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    adapter = WebAdapter(mq=MessageQueue(EchoAgent()), config={"frontend_auto_build": False})
+
+    result = adapter._run_frontend_command(tmp_path, ["npm.cmd", "run", "build"], 10)
+
+    assert result.stdout == "✓ built"
+    assert captured["encoding"] == "utf-8"
+    assert captured["errors"] == "replace"
 
 
 async def _run_web_command_catalog_api():
