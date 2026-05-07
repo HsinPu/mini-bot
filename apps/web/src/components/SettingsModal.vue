@@ -248,6 +248,26 @@
             </div>
           </div>
 
+          <h3>{{ copy.settings.general.conversationsTitle }}</h3>
+          <div class="settings-card">
+            <div class="settings-row settings-row--update">
+              <div>
+                <strong>{{ copy.settings.general.clearWebChats.title }}</strong>
+                <span>{{ copy.settings.general.clearWebChats.description(webSessionCount) }}</span>
+              </div>
+              <div class="settings-row__actions">
+                <button
+                  class="secondary-button secondary-button--danger"
+                  type="button"
+                  :disabled="webSessionCount === 0"
+                  @click="$emit('clear-web-sessions')"
+                >
+                  {{ copy.settings.general.clearWebChats.action }}
+                </button>
+              </div>
+            </div>
+          </div>
+
           <h3>{{ copy.settings.general.update.title }}</h3>
           <p v-if="settingsState.updateNotice" class="settings-inline-status">{{ settingsState.updateNotice }}</p>
           <p v-if="settingsState.updateError" class="settings-inline-status settings-inline-status--error">
@@ -1990,6 +2010,10 @@ const props = defineProps({
     type: Object,
     required: true,
   },
+  webSessionCount: {
+    type: Number,
+    required: true,
+  },
   connectionState: {
     type: String,
     required: true,
@@ -2621,6 +2645,7 @@ const emit = defineEmits([
   "refresh-task-completion-history",
   "delete-task-completion-history-item",
   "clear-task-completion-history",
+  "clear-web-sessions",
   "load-data-session-timeline",
   "refresh-curator",
   "run-curator-action",

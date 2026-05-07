@@ -29,15 +29,31 @@
           <span>{{ copy.sidebar.chats }}</span>
           <span class="sidebar__section-meta">
             <small>{{ sessions.length }}/{{ state.sessions.length }}</small>
-            <button
-              class="sidebar__clear-button"
-              type="button"
-              :disabled="!hasWebSessions(sessions)"
-              :title="copy.sidebar.clearWebChats"
-              @click="$emit('clear-web-sessions')"
-            >
-              {{ copy.sidebar.clearWebChatsShort }}
-            </button>
+            <span class="sidebar__section-actions">
+              <button
+                v-if="!deleteMode"
+                class="sidebar__manage-button"
+                type="button"
+                :disabled="sessions.length === 0"
+                :title="copy.sidebar.deleteChat"
+                @click="beginDeleteMode"
+              >
+                {{ copy.sidebar.deleteChat }}
+              </button>
+              <template v-else>
+                <button class="sidebar__manage-button" type="button" @click="cancelDeleteMode">
+                  {{ copy.sidebar.cancelDelete }}
+                </button>
+                <button
+                  class="sidebar__manage-button sidebar__manage-button--danger"
+                  type="button"
+                  :disabled="selectedSessions.length === 0"
+                  @click="deleteSelectedSessions"
+                >
+                  {{ copy.sidebar.deleteSelectedChats(selectedSessions.length) }}
+                </button>
+              </template>
+            </span>
           </span>
         </div>
         <div class="session-filter" role="group" :aria-label="copy.sidebar.chats">
@@ -61,8 +77,20 @@
             v-for="session in sessions"
             :key="session.externalChatId"
             class="session-tile-wrap"
-            :class="{ 'session-tile--active': session.externalChatId === state.activeExternalChatId }"
+            :class="{
+              'session-tile--active': session.externalChatId === state.activeExternalChatId,
+              'session-tile-wrap--selecting': deleteMode,
+            }"
           >
+            <label v-if="deleteMode" class="session-tile__select" @click.stop>
+              <input
+                type="checkbox"
+                :aria-label="copy.sidebar.selectChat(getSessionTitle(session))"
+                :checked="selectedSessionIds.has(sessionSelectionKey(session))"
+                @change="toggleSessionSelection(session, $event.target.checked)"
+              />
+              <span aria-hidden="true"></span>
+            </label>
             <button
               class="session-tile"
               type="button"
@@ -77,15 +105,6 @@
                 </span>
               </span>
               <span class="session-tile__id">{{ getSessionDisplayId(session) }}</span>
-            </button>
-            <button
-              class="session-tile__delete"
-              type="button"
-              :title="copy.sidebar.deleteChat"
-              :aria-label="copy.sidebar.deleteChat"
-              @click.stop="$emit('delete-session', session)"
-            >
-              ×
             </button>
           </div>
         </div>
@@ -118,9 +137,10 @@
 </template>
 
 <script setup>
+import { computed, ref, watch } from "vue";
 import BackgroundProcessSidebar from "./BackgroundProcessSidebar.vue";
 
-defineProps({
+const props = defineProps({
   copy: {
     type: Object,
     required: true,
@@ -159,14 +179,9 @@ defineProps({
   },
 });
 
-function hasWebSessions(sessions) {
-  return sessions.some((session) => !session.channel || session.channel === "web");
-}
-
-defineEmits([
+const emit = defineEmits([
   "create-new-chat",
-  "delete-session",
-  "clear-web-sessions",
+  "delete-sessions",
   "set-active-session",
   "set-session-channel-filter",
   "select-background-process",
@@ -174,4 +189,61 @@ defineEmits([
   "toggle-sidebar-collapsed",
   "open-settings",
 ]);
+
+const deleteMode = ref(false);
+const selectedSessionIds = ref(new Set());
+
+const selectedSessions = computed(() => {
+  return props.sessions.filter((session) => selectedSessionIds.value.has(sessionSelectionKey(session)));
+});
+
+watch(
+  () => props.sessions.map((session) => sessionSelectionKey(session)).join("\n"),
+  () => {
+    const availableIds = new Set(props.sessions.map((session) => sessionSelectionKey(session)));
+    selectedSessionIds.value = new Set([...selectedSessionIds.value].filter((id) => availableIds.has(id)));
+    if (deleteMode.value && props.sessions.length === 0) {
+      cancelDeleteMode();
+    }
+  },
+);
+
+function sessionSelectionKey(session) {
+  return session?.externalChatId || session?.sessionId || "";
+}
+
+function beginDeleteMode() {
+  if (props.sessions.length === 0) {
+    return;
+  }
+  selectedSessionIds.value = new Set();
+  deleteMode.value = true;
+}
+
+function cancelDeleteMode() {
+  selectedSessionIds.value = new Set();
+  deleteMode.value = false;
+}
+
+function toggleSessionSelection(session, checked) {
+  const nextIds = new Set(selectedSessionIds.value);
+  const key = sessionSelectionKey(session);
+  if (!key) {
+    return;
+  }
+  if (checked) {
+    nextIds.add(key);
+  } else {
+    nextIds.delete(key);
+  }
+  selectedSessionIds.value = nextIds;
+}
+
+function deleteSelectedSessions() {
+  if (selectedSessions.value.length === 0) {
+    return;
+  }
+  emit("delete-sessions", selectedSessions.value);
+  cancelDeleteMode();
+}
 </script>

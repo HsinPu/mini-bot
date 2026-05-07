@@ -1607,6 +1607,8 @@ export function useChatClient() {
     return state.sessions;
   });
 
+  const webSessionCount = computed(() => state.sessions.filter((session) => !session.channel || session.channel === "web").length);
+
   const currentWorkState = computed(() => currentSession.value?.workState || null);
 
   const currentMessages = computed(() => currentSession.value?.messages || []);
@@ -4031,32 +4033,58 @@ export function useChatClient() {
     return removed.length;
   }
 
-  async function deleteSession(session) {
-    if (!session) {
+  async function deleteSessions(sessions) {
+    const targets = Array.isArray(sessions) ? sessions.filter(Boolean) : [];
+    if (targets.length === 0) {
       return;
     }
-    const title = getSessionTitle(session);
-    if (typeof window !== "undefined" && !window.confirm(copy.value.sidebar.confirmDeleteChat(title))) {
+    const confirmMessage = targets.length === 1
+      ? copy.value.sidebar.confirmDeleteChat(getSessionTitle(targets[0]))
+      : copy.value.sidebar.confirmDeleteChats(targets.length);
+    if (typeof window !== "undefined" && !window.confirm(confirmMessage)) {
       return;
     }
-    const sessionId = getCuratorSessionId(session);
-    if (!sessionId) {
-      removeSessionsFromState((candidate) => candidate.externalChatId === session.externalChatId, { preferWeb: true });
-      setNotice(copy.value.notices.sessionDeleted, "success");
-      return;
+
+    const deletedExternalChatIds = new Set();
+    let failureCount = 0;
+    let lastError = "";
+    for (const session of targets) {
+      const sessionId = session.sessionId ? getCuratorSessionId(session) : "";
+      if (!sessionId) {
+        deletedExternalChatIds.add(session.externalChatId);
+        continue;
+      }
+      try {
+        await requestSettingsJson(buildSessionDeletePath(sessionId), { method: "DELETE" });
+        deletedExternalChatIds.add(session.externalChatId);
+      } catch (error) {
+        failureCount += 1;
+        lastError = error?.message || copy.value.notices.sessionDeleteFailed;
+      }
     }
-    try {
-      await requestSettingsJson(buildSessionDeletePath(sessionId), { method: "DELETE" });
-      removeSessionsFromState((candidate) => candidate.externalChatId === session.externalChatId, { preferWeb: true });
-      setNotice(copy.value.notices.sessionDeleted, "success");
+
+    if (deletedExternalChatIds.size > 0) {
+      removeSessionsFromState((candidate) => deletedExternalChatIds.has(candidate.externalChatId), { preferWeb: true });
       void loadDataSettings();
-    } catch (error) {
-      setNotice(error?.message || copy.value.notices.sessionDeleteFailed, "warning");
     }
+
+    if (failureCount > 0) {
+      const message = deletedExternalChatIds.size > 0
+        ? copy.value.notices.sessionsDeletedWithFailures(deletedExternalChatIds.size, failureCount)
+        : lastError;
+      setNotice(message || copy.value.notices.sessionDeleteFailed, "warning");
+      return;
+    }
+
+    setNotice(copy.value.notices.sessionsDeleted(deletedExternalChatIds.size), "success");
+  }
+
+  async function deleteSession(session) {
+    await deleteSessions(session ? [session] : []);
   }
 
   async function clearWebSessions() {
-    if (typeof window !== "undefined" && !window.confirm(copy.value.sidebar.confirmClearWebChats)) {
+    if (typeof window !== "undefined" && !window.confirm(copy.value.settings.general.clearWebChats.confirm)) {
       return;
     }
     try {
@@ -4384,6 +4412,7 @@ export function useChatClient() {
     prompts,
     state,
     sidebarSessions,
+    webSessionCount,
     sessionChannelFilter,
     messageText,
     messageInput,
@@ -4499,6 +4528,7 @@ export function useChatClient() {
     connectSocket,
     resizeComposer,
     createNewChat,
+    deleteSessions,
     deleteSession,
     clearWebSessions,
     cancelRun,

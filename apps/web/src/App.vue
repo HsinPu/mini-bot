@@ -21,8 +21,7 @@
       :get-session-display-id="getSessionDisplayId"
       :get-session-title="getSessionTitle"
       @create-new-chat="createNewChat"
-      @delete-session="deleteSession"
-      @clear-web-sessions="clearWebSessions"
+      @delete-sessions="deleteSessions"
       @set-active-session="setActiveSession"
       @set-session-channel-filter="setSessionChannelFilter"
       @select-background-process="selectBackgroundProcess"
@@ -105,6 +104,7 @@
     :title="settingsTitle"
     :form="settingsForm"
     :settings-state="settingsState"
+    :web-session-count="webSessionCount"
     :connection-state="state.connectionState"
     :curator-state="curatorState"
     :curator-status="currentCuratorStatus"
@@ -156,6 +156,7 @@
     @refresh-task-completion-history="loadTaskCompletionHistory"
     @delete-task-completion-history-item="deleteTaskCompletionHistoryItem"
     @clear-task-completion-history="clearTaskCompletionHistory"
+    @clear-web-sessions="clearWebSessions"
     @load-data-session-timeline="loadDataSessionTimeline"
     @begin-cron-job-create="beginCronJobCreate"
     @save-cron-job="saveCronJob"
@@ -181,6 +182,7 @@ const {
   prompts,
   state,
   sidebarSessions,
+  webSessionCount,
   sessionChannelFilter,
   messageText,
   sidebarOpen,
@@ -283,7 +285,7 @@ const {
   connectSocket,
   resizeComposer,
   createNewChat,
-  deleteSession,
+  deleteSessions,
   clearWebSessions,
   cancelRun,
   resolvePermissionRequest,

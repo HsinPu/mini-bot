@@ -599,22 +599,28 @@ button:disabled {
   gap: 6px;
 }
 
-.sidebar__clear-button,
-.session-tile__delete {
+.sidebar__section-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sidebar__manage-button {
   border: 1px solid var(--border-soft);
+  border-radius: 999px;
   color: var(--text-muted);
   background: var(--surface-subtle);
   font-size: 0.7rem;
   font-weight: 650;
-}
-
-.sidebar__clear-button {
   min-height: 24px;
   padding: 0 8px;
-  border-radius: 999px;
 }
 
-.sidebar__clear-button:disabled {
+.sidebar__manage-button--danger {
+  color: var(--danger);
+}
+
+.sidebar__manage-button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
@@ -652,9 +658,13 @@ button:disabled {
 
 .session-tile-wrap {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
   border-radius: var(--radius-sm);
+}
+
+.session-tile-wrap--selecting {
+  grid-template-columns: auto minmax(0, 1fr);
 }
 
 .session-tile-wrap:hover {
@@ -673,18 +683,60 @@ button:disabled {
   background: transparent;
 }
 
-.session-tile__delete {
-  width: 26px;
-  height: 26px;
-  margin-right: 6px;
-  border-radius: 999px;
-  line-height: 1;
+.session-tile__select {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  min-height: 44px;
+  cursor: pointer;
 }
 
-.session-tile__delete:hover,
-.sidebar__clear-button:hover:not(:disabled) {
+.session-tile__select input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.session-tile__select span {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+}
+
+.session-tile__select input:checked + span {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.session-tile__select input:checked + span::after {
+  content: "";
+  width: 8px;
+  height: 4px;
+  border-bottom: 2px solid #ffffff;
+  border-left: 2px solid #ffffff;
+  transform: rotate(-45deg) translate(1px, -1px);
+}
+
+.session-tile__select input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.sidebar__manage-button:hover:not(:disabled) {
   color: var(--text);
   background: var(--surface-active);
+}
+
+.sidebar__manage-button--danger:hover:not(:disabled) {
+  color: var(--danger);
 }
 
 .session-tile__initial {
@@ -917,10 +969,11 @@ button:disabled {
   .app-shell--sidebar-collapsed .brand-row__copy,
   .app-shell--sidebar-collapsed .new-chat-button__label,
   .app-shell--sidebar-collapsed .sidebar__section-head,
+  .app-shell--sidebar-collapsed .sidebar__section-actions,
   .app-shell--sidebar-collapsed .session-filter,
+  .app-shell--sidebar-collapsed .session-tile__select,
   .app-shell--sidebar-collapsed .session-tile__heading,
   .app-shell--sidebar-collapsed .session-tile__id,
-  .app-shell--sidebar-collapsed .session-tile__delete,
   .app-shell--sidebar-collapsed .background-process-sidebar__summary,
   .app-shell--sidebar-collapsed .background-process-sidebar__notice,
   .app-shell--sidebar-collapsed .background-process-sidebar__list,
@@ -4635,6 +4688,15 @@ button:disabled {
   padding: 0 15px;
   border: 1px solid var(--border);
   background: var(--surface);
+}
+
+.secondary-button--danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 34%, var(--border));
+}
+
+.secondary-button--danger:not(:disabled):hover {
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
 }
 
 .settings-row {

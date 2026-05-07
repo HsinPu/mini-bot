@@ -99,15 +99,18 @@ assertIncludes(chatPanel, ":show-run-history=\"showRunHistory\"", "run history p
 assertIncludes(chatComposer, "composer__commands", "slash command hints rendering");
 assertIncludes(toastStack, "toast-stack", "toast stack rendering");
 assertIncludes(toastStack, "dismiss-toast", "toast dismiss event");
-assertIncludes(sidebarNav, "delete-session", "sidebar session delete event");
-assertIncludes(sidebarNav, "clear-web-sessions", "sidebar clear web sessions event");
-assertIncludes(sidebarNav, "session-tile__delete", "sidebar session delete button");
+assertIncludes(sidebarNav, "delete-sessions", "sidebar batch session delete event");
+assertIncludes(sidebarNav, "deleteMode", "sidebar session delete mode");
+assertIncludes(sidebarNav, "session-tile__select", "sidebar session selection checkbox");
+assertNotIncludes(sidebarNav, "session-tile__delete", "sidebar row delete button removed");
 assertIncludes(app, "state.authRequired", "auth gate visibility");
 assertIncludes(app, "submitAccessToken", "auth gate submit wiring");
-assertIncludes(app, "deleteSession", "conversation delete app wiring");
+assertIncludes(app, "deleteSessions", "conversation batch delete app wiring");
 assertIncludes(app, "clearWebSessions", "web conversation clear app wiring");
+assertIncludes(settingsModal, "clear-web-sessions", "settings clear web sessions event");
 assertIncludes(styles, ".auth-gate", "auth gate styling");
-assertIncludes(styles, ".session-tile__delete", "sidebar session delete styling");
+assertIncludes(styles, ".session-tile__select", "sidebar session select styling");
+assertIncludes(styles, ".secondary-button--danger", "settings destructive action styling");
 assertIncludes(curatorSettingsPage, "settings-card", "curator settings card layout");
 assertIncludes(curatorSettingsPage, "provider-row", "curator settings history layout");
 assertIncludes(settingsModal, "CuratorSettingsPage", "curator settings placement");
@@ -201,10 +204,14 @@ for (const key of [
   "taskCompletionHistoryLoadFailed",
   "taskCompletionHistoryDeleteFailed",
   "deleteChat",
+  "cancelDelete",
   "clearWebChats",
   "confirmDeleteChat",
-  "confirmClearWebChats",
+  "confirmDeleteChats",
+  "conversationsTitle",
   "sessionDeleted",
+  "sessionsDeleted",
+  "sessionsDeletedWithFailures",
   "sessionDeleteFailed",
   "sessionsCleared",
   "clearHistory",
