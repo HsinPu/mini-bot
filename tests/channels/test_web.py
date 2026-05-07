@@ -1312,6 +1312,7 @@ async def _run_web_task_completion_live_eval_api():
         assert payload["ok"] is True
         assert payload["live"] is True
         assert payload["model"] == agent.eval_model_info
+        assert payload["batch_id"].startswith("eval_batch_")
         assert payload["summary"]["passed_cases"] == 4
         cases_by_id = {case["id"]: case for case in payload["cases"]}
         assert set(cases_by_id) == {
@@ -1322,6 +1323,7 @@ async def _run_web_task_completion_live_eval_api():
         }
         assert cases_by_id["literal_instruction"]["run_id"] == "run-literal_instruction"
         assert cases_by_id["literal_instruction"]["eval_id"].startswith("eval_")
+        assert {case["batch_id"] for case in cases_by_id.values()} == {payload["batch_id"]}
         assert cases_by_id["literal_instruction"]["completion_status"] == "complete"
         assert cases_by_id["literal_instruction"]["model"] == agent.eval_model_info
         assert cases_by_id["multi_step_completion"]["run_id"] == "run-multi_step_completion"
@@ -1331,6 +1333,7 @@ async def _run_web_task_completion_live_eval_api():
         assert history_by_case["literal_instruction"]["eval_id"] == cases_by_id["literal_instruction"]["eval_id"]
         assert history_by_case["literal_instruction"]["response_preview"] == "alpha beta gamma"
         assert history_by_case["literal_instruction"]["model"] == agent.eval_model_info
+        assert {item["batch_id"] for item in history_payload["history"]} == {payload["batch_id"]}
         assert history_by_case["multi_step_completion"]["eval_id"] == cases_by_id["multi_step_completion"]["eval_id"]
 
         async with ClientSession() as session:
@@ -1362,6 +1365,7 @@ async def _run_web_task_completion_live_eval_api():
         assert clear_payload == {"ok": True, "deleted": 3}
         assert history_after_clear["history"] == []
         assert agent.seen_messages[0].channel == "web"
+        assert {message.metadata["eval_batch_id"] for message in agent.seen_messages} == {payload["batch_id"]}
         assert agent.seen_messages[0].external_chat_id.startswith("eval-task-completion-literal_instruction-")
         assert agent.seen_messages[1].external_chat_id.startswith("eval-task-completion-multi_step_completion-")
         assert agent.seen_messages[2].external_chat_id.startswith("eval-task-completion-exact_two_line_output-")

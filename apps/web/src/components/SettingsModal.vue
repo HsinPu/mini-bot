@@ -1408,6 +1408,7 @@
                 <span class="eval-history-group__main">
                   <strong>{{ copy.settings.eval.historyGroupTitle(formatTimestamp(group.createdAt)) }}</strong>
                   <span>{{ copy.settings.eval.historyGroupMeta(group.total, group.passed, group.failed) }}</span>
+                  <span v-if="group.batchId">{{ copy.settings.eval.historyBatchLabel(group.batchId) }}</span>
                   <span v-if="group.modelLabel">{{ group.modelLabel }}</span>
                 </span>
                 <span class="provider-row__badge">{{ group.ok ? copy.settings.eval.pass : copy.settings.eval.fail }}</span>
@@ -2153,12 +2154,36 @@ const dataCounts = computed(() => props.settingsState.dataStatus?.counts || {});
 const dataTimelineEntries = computed(() => props.settingsState.dataTimeline?.entries || []);
 const taskCompletionHistoryGroups = computed(() => {
   const groups = [];
+  const groupsByBatchId = new Map();
   for (const item of props.settingsState.taskCompletionHistory || []) {
     const createdAt = Number(item?.created_at || 0);
+    const batchId = evalHistoryBatchId(item);
     const modelKey = evalHistoryModelKey(item);
+    if (batchId) {
+      let group = groupsByBatchId.get(batchId);
+      if (!group) {
+        group = {
+          key: `batch:${batchId}`,
+          batchId,
+          createdAt,
+          oldestCreatedAt: createdAt,
+          modelKey,
+          modelLabel: evalModelLabel(item),
+          items: [],
+        };
+        groupsByBatchId.set(batchId, group);
+        groups.push(group);
+      }
+      group.items.push(item);
+      group.oldestCreatedAt = Math.min(Number(group.oldestCreatedAt || createdAt), createdAt);
+      group.createdAt = Math.max(Number(group.createdAt || createdAt), createdAt);
+      continue;
+    }
+
     const previous = groups.at(-1);
     const previousOldest = Number(previous?.oldestCreatedAt || previous?.createdAt || 0);
     const shouldStartGroup = !previous
+      || previous.batchId
       || previous.modelKey !== modelKey
       || Math.abs(previousOldest - createdAt) > EVAL_HISTORY_GROUP_WINDOW_SECONDS;
 
@@ -2231,6 +2256,10 @@ function evalModelLabel(entry) {
 function evalHistoryModelKey(entry) {
   const modelInfo = evalModelInfo(entry);
   return [modelInfo.provider_id || modelInfo.provider || "", modelInfo.model || ""].map((value) => String(value || "").trim()).join("/");
+}
+
+function evalHistoryBatchId(entry) {
+  return String(entry?.batch_id || entry?.metadata?.batch_id || "").trim();
 }
 
 function isEvalHistoryGroupExpanded(groupKey) {

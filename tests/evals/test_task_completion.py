@@ -201,16 +201,19 @@ async def _run_live_task_completion_eval_scores_agent_result():
     assert payload["ok"] is True
     assert payload["live"] is True
     assert payload["model"] == model_info
+    assert payload["batch_id"].startswith("eval_batch_")
     assert payload["summary"]["passed_cases"] == payload["summary"]["total_cases"] == 4
     assert payload["summary"]["passed_checks"] == payload["summary"]["total_checks"]
     assert agent.seen_messages[0].metadata == {
         "eval_kind": "task_completion",
         "eval_case_id": "literal_instruction",
+        "eval_batch_id": payload["batch_id"],
         "eval_model": model_info,
     }
     assert agent.seen_messages[1].metadata == {
         "eval_kind": "task_completion",
         "eval_case_id": "multi_step_completion",
+        "eval_batch_id": payload["batch_id"],
         "eval_model": model_info,
     }
     cases_by_id = {case["id"]: case for case in payload["cases"]}
@@ -222,6 +225,7 @@ async def _run_live_task_completion_eval_scores_agent_result():
     }
     assert cases_by_id["literal_instruction"]["run_id"] == "run-literal_instruction"
     assert cases_by_id["literal_instruction"]["eval_id"].startswith("eval_")
+    assert {case["batch_id"] for case in cases_by_id.values()} == {payload["batch_id"]}
     assert cases_by_id["literal_instruction"]["completion_status"] == "complete"
     assert cases_by_id["literal_instruction"]["response_preview"] == "alpha beta gamma"
     assert cases_by_id["literal_instruction"]["model"] == model_info
@@ -231,6 +235,7 @@ async def _run_live_task_completion_eval_scores_agent_result():
     assert cases_by_id["exact_json_output"]["response_preview"] == '{"status":"complete","items":["alpha","beta"]}'
     history = await storage.list_eval_runs(kind="task_completion", limit=10)
     assert len(history) == 4
+    assert {item.metadata["batch_id"] for item in history} == {payload["batch_id"]}
     history_by_case = {item.case_id: item for item in history}
     assert history_by_case["literal_instruction"].eval_id == cases_by_id["literal_instruction"]["eval_id"]
     assert history_by_case["literal_instruction"].summary["text"] == cases_by_id["literal_instruction"]["summary"]

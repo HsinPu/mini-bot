@@ -129,6 +129,7 @@ async def run_live_task_completion_eval(
     """Run fixed task-completion cases against the active agent."""
     cases = []
     model = _model_info_payload(model_info)
+    batch_id = f"eval_batch_{uuid4().hex}"
     for case in TASK_COMPLETION_LIVE_CASES:
         cases.append(
             await _run_live_task_completion_case(
@@ -138,12 +139,13 @@ async def run_live_task_completion_eval(
                 channel=channel,
                 timeout_seconds=timeout_seconds,
                 model_info=model,
+                batch_id=batch_id,
             )
         )
         stored = await _persist_eval_case(storage, cases[-1])
         if stored is not None:
             cases[-1]["eval_id"] = stored.eval_id
-    return _summarize_cases(cases, live=True, model_info=model)
+    return _summarize_cases(cases, live=True, model_info=model, batch_id=batch_id)
 
 
 def _summarize_cases(
@@ -151,6 +153,7 @@ def _summarize_cases(
     *,
     live: bool,
     model_info: Mapping[str, Any] | None = None,
+    batch_id: str = "",
 ) -> dict[str, Any]:
     total_checks = sum(len(case["checks"]) for case in cases)
     passed_checks = sum(1 for case in cases for check in case["checks"] if check["ok"])
@@ -160,6 +163,7 @@ def _summarize_cases(
         "ok": all(case["ok"] for case in cases),
         "live": live,
         "model": _model_info_payload(model_info),
+        "batch_id": _string(batch_id),
         "cases": cases,
         "summary": {
             "passed_cases": passed_cases,
@@ -195,6 +199,7 @@ async def _persist_eval_case(storage: Any, evaluated_case: Mapping[str, Any]) ->
             "run_status": _string(evaluated_case.get("run_status")),
             "error": _string(evaluated_case.get("error")),
             "model": _model_info_payload(evaluated_case.get("model")),
+            "batch_id": _string(evaluated_case.get("batch_id")),
         },
         created_at=time.time(),
     )
@@ -350,6 +355,7 @@ async def _run_live_task_completion_case(
     channel: str,
     timeout_seconds: float,
     model_info: Mapping[str, Any],
+    batch_id: str,
 ) -> dict[str, Any]:
     case_id = _string(case.get("id"), default="case")
     external_chat_id = f"eval-task-completion-{case_id}-{uuid4().hex[:12]}"
@@ -370,6 +376,7 @@ async def _run_live_task_completion_case(
                     metadata={
                         "eval_kind": "task_completion",
                         "eval_case_id": case_id,
+                        "eval_batch_id": batch_id,
                         "eval_model": dict(model_info),
                     },
                 )
@@ -391,6 +398,7 @@ async def _run_live_task_completion_case(
     )
     evaluated = evaluate_task_completion_case(case, result)
     evaluated["live"] = True
+    evaluated["batch_id"] = batch_id
     return evaluated
 
 

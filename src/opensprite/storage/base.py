@@ -131,6 +131,7 @@ class StoredEvalRun:
             "had_tool_error": bool(self.had_tool_error),
             "metadata": metadata,
             "model": dict(metadata.get("model") or {}),
+            "batch_id": str(metadata.get("batch_id") or ""),
             "created_at": self.created_at,
         }
 
