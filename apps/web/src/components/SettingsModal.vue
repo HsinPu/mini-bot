@@ -1395,28 +1395,48 @@
                 <span>{{ copy.settings.eval.noHistoryDescription }}</span>
               </div>
             </div>
-            <div v-for="item in settingsState.taskCompletionHistory" :key="item.eval_id" class="settings-row eval-history-row">
-              <div>
-                <span class="eval-history-row__title">
-                  <strong>{{ item.case_id || copy.settings.eval.none }}</strong>
-                  <span class="provider-row__badge">{{ item.ok ? copy.settings.eval.pass : copy.settings.eval.fail }}</span>
+            <div v-for="group in taskCompletionHistoryGroups" :key="group.key" class="eval-history-group">
+              <button
+                class="eval-history-group__toggle"
+                type="button"
+                :aria-expanded="String(isEvalHistoryGroupExpanded(group.key))"
+                @click="toggleEvalHistoryGroup(group.key)"
+              >
+                <span class="eval-history-group__chevron" aria-hidden="true">
+                  {{ isEvalHistoryGroupExpanded(group.key) ? '⌄' : '›' }}
                 </span>
-                <span>{{ copy.settings.eval.historyMeta(formatTimestamp(item.created_at), item.completion_status || copy.settings.eval.none, item.run_id || copy.settings.eval.none) }}</span>
-                <span v-if="evalModelLabel(item)">{{ evalModelLabel(item) }}</span>
-                <span>{{ item.response_preview }}</span>
-              </div>
-              <div class="settings-row__actions eval-history-row__actions">
-                <button class="secondary-button" type="button" :disabled="settingsState.taskCompletionHistoryLoading" @click="$emit('delete-task-completion-history-item', item.eval_id)">
-                  {{ copy.settings.eval.deleteHistoryItem }}
-                </button>
-              </div>
-              <div v-if="failedEvalChecks(item).length" class="eval-history-row__failures">
-                <strong>{{ copy.settings.eval.failedChecksTitle }}</strong>
-                <ul>
-                  <li v-for="(check, index) in failedEvalChecks(item)" :key="`${item.eval_id}:${check.id || index}`">
-                    {{ failedEvalCheckText(check) }}
-                  </li>
-                </ul>
+                <span class="eval-history-group__main">
+                  <strong>{{ copy.settings.eval.historyGroupTitle(formatTimestamp(group.createdAt)) }}</strong>
+                  <span>{{ copy.settings.eval.historyGroupMeta(group.total, group.passed, group.failed) }}</span>
+                  <span v-if="group.modelLabel">{{ group.modelLabel }}</span>
+                </span>
+                <span class="provider-row__badge">{{ group.ok ? copy.settings.eval.pass : copy.settings.eval.fail }}</span>
+              </button>
+
+              <div v-if="isEvalHistoryGroupExpanded(group.key)" class="eval-history-group__items">
+                <div v-for="item in group.items" :key="item.eval_id" class="settings-row eval-history-row">
+                  <div>
+                    <span class="eval-history-row__title">
+                      <strong>{{ item.case_id || copy.settings.eval.none }}</strong>
+                      <span class="provider-row__badge">{{ item.ok ? copy.settings.eval.pass : copy.settings.eval.fail }}</span>
+                    </span>
+                    <span>{{ copy.settings.eval.historyMeta(formatTimestamp(item.created_at), item.completion_status || copy.settings.eval.none, item.run_id || copy.settings.eval.none) }}</span>
+                    <span>{{ item.response_preview }}</span>
+                  </div>
+                  <div class="settings-row__actions eval-history-row__actions">
+                    <button class="secondary-button" type="button" :disabled="settingsState.taskCompletionHistoryLoading" @click="$emit('delete-task-completion-history-item', item.eval_id)">
+                      {{ copy.settings.eval.deleteHistoryItem }}
+                    </button>
+                  </div>
+                  <div v-if="failedEvalChecks(item).length" class="eval-history-row__failures">
+                    <strong>{{ copy.settings.eval.failedChecksTitle }}</strong>
+                    <ul>
+                      <li v-for="(check, index) in failedEvalChecks(item)" :key="`${item.eval_id}:${check.id || index}`">
+                        {{ failedEvalCheckText(check) }}
+                      </li>
+                    </ul>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -2039,7 +2059,9 @@ const props = defineProps({
 
 const selectedDataSession = ref(null);
 const expandedTimelineEntryKeys = ref(new Set());
+const expandedEvalHistoryGroupKeys = ref(new Set());
 const openRouterOptionsExpanded = ref(false);
+const EVAL_HISTORY_GROUP_WINDOW_SECONDS = 10 * 60;
 
 function openDataSessionDialog(session) {
   selectedDataSession.value = session;
@@ -2129,6 +2151,44 @@ const scheduleTimezoneOptions = computed(() => {
 const dataStorage = computed(() => props.settingsState.dataStatus?.storage || {});
 const dataCounts = computed(() => props.settingsState.dataStatus?.counts || {});
 const dataTimelineEntries = computed(() => props.settingsState.dataTimeline?.entries || []);
+const taskCompletionHistoryGroups = computed(() => {
+  const groups = [];
+  for (const item of props.settingsState.taskCompletionHistory || []) {
+    const createdAt = Number(item?.created_at || 0);
+    const modelKey = evalHistoryModelKey(item);
+    const previous = groups.at(-1);
+    const previousOldest = Number(previous?.oldestCreatedAt || previous?.createdAt || 0);
+    const shouldStartGroup = !previous
+      || previous.modelKey !== modelKey
+      || Math.abs(previousOldest - createdAt) > EVAL_HISTORY_GROUP_WINDOW_SECONDS;
+
+    if (shouldStartGroup) {
+      groups.push({
+        key: item?.eval_id || `${createdAt}:${groups.length}`,
+        createdAt,
+        oldestCreatedAt: createdAt,
+        modelKey,
+        modelLabel: evalModelLabel(item),
+        items: [item],
+      });
+    } else {
+      previous.items.push(item);
+      previous.oldestCreatedAt = createdAt;
+    }
+  }
+
+  return groups.map((group) => {
+    const passed = group.items.filter((item) => item?.ok).length;
+    const total = group.items.length;
+    return {
+      ...group,
+      total,
+      passed,
+      failed: total - passed,
+      ok: passed === total,
+    };
+  });
+});
 
 function formatTimestamp(value) {
   const numeric = Number(value || 0);
@@ -2166,6 +2226,25 @@ function evalModelLabel(entry) {
     return "";
   }
   return props.copy.settings.eval.modelLabel(provider || props.copy.settings.eval.none, model || props.copy.settings.eval.none);
+}
+
+function evalHistoryModelKey(entry) {
+  const modelInfo = evalModelInfo(entry);
+  return [modelInfo.provider_id || modelInfo.provider || "", modelInfo.model || ""].map((value) => String(value || "").trim()).join("/");
+}
+
+function isEvalHistoryGroupExpanded(groupKey) {
+  return expandedEvalHistoryGroupKeys.value.has(groupKey);
+}
+
+function toggleEvalHistoryGroup(groupKey) {
+  const nextKeys = new Set(expandedEvalHistoryGroupKeys.value);
+  if (nextKeys.has(groupKey)) {
+    nextKeys.delete(groupKey);
+  } else {
+    nextKeys.add(groupKey);
+  }
+  expandedEvalHistoryGroupKeys.value = nextKeys;
 }
 
 function previewMessage(content) {
