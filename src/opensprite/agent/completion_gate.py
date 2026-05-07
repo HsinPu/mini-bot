@@ -60,6 +60,21 @@ _PROGRESS_ONLY_MARKERS = (
     "let me search",
     "let me look",
 )
+_DIRECT_REPLY_INSTRUCTION_MARKERS = (
+    "only reply",
+    "reply only",
+    "only respond",
+    "respond only",
+    "answer only",
+    "say exactly",
+    "return exactly",
+    "output exactly",
+    "只回覆",
+    "只回答",
+    "只要回覆",
+    "只需回覆",
+    "不要加入其他文字",
+)
 
 
 @dataclass(frozen=True)
@@ -346,6 +361,24 @@ class CompletionGateService:
                 review_finding_count=review["finding_count"],
             )
 
+        is_direct_reply = _looks_like_direct_reply_instruction(task_intent.objective)
+        if is_direct_reply and response_text.strip() and not _looks_incomplete(response_text):
+            return CompletionGateResult(
+                status="complete",
+                reason="direct reply instruction received a response",
+                active_task_status="done" if task_intent.should_seed_active_task else None,
+                should_update_active_task=task_intent.should_seed_active_task,
+                verification_required=verification_required,
+                verification_attempted=verification_attempted,
+                verification_passed=verification_passed,
+                review_required=review_required,
+                review_attempted=review["attempted"],
+                review_passed=review["passed"],
+                review_summary=review["summary"],
+                review_prompt_types=review["prompt_types"],
+                review_finding_count=review["finding_count"],
+            )
+
         if task_intent.kind in {"conversation", "question", "command", "media_upload"}:
             return CompletionGateResult(
                 status="complete" if response_text.strip() else "incomplete",
@@ -452,6 +485,11 @@ def _looks_like_progress_only(response_text: str) -> bool:
     if len(normalized) > 220:
         return False
     return any(marker in normalized for marker in _PROGRESS_ONLY_MARKERS)
+
+
+def _looks_like_direct_reply_instruction(objective: str) -> bool:
+    normalized = re.sub(r"\s+", " ", (objective or "").strip().lower())
+    return any(marker in normalized for marker in _DIRECT_REPLY_INSTRUCTION_MARKERS)
 
 
 def _looks_like_missing_requested_items(task_intent: TaskIntent, response_text: str) -> bool:

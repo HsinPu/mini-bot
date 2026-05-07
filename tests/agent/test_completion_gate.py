@@ -123,6 +123,20 @@ def test_completion_gate_marks_progress_only_fetch_response_incomplete():
     assert result.reason == "assistant did not provide the requested itemized result"
 
 
+def test_completion_gate_marks_direct_reply_instruction_complete_without_marker():
+    intent = TaskIntentService().classify("請只回覆這三個英文詞，且不要加入其他文字：alpha beta gamma")
+
+    result = CompletionGateService().evaluate(
+        task_intent=intent,
+        response_text="alpha beta gamma",
+        execution_result=ExecutionResult(content="alpha beta gamma"),
+    )
+
+    assert intent.kind == "task"
+    assert result.status == "complete"
+    assert result.reason == "direct reply instruction received a response"
+
+
 def test_auto_continue_allows_first_retry_after_progress_only_response():
     intent = TaskIntentService().classify("那幫我找找有沒有可以在reddit 搜尋的")
     completion = CompletionGateService().evaluate(
