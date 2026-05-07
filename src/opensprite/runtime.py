@@ -313,6 +313,9 @@ async def run(config_path: str | Path | None = None) -> None:
     # 建立 Agent + MessageQueue
     agent, mq, cron_manager = await create_agent(config)
     search_queue_worker = start_search_queue_worker(getattr(agent, "search_store", None))
+    background_process_manager = getattr(agent, "background_process_manager", None)
+    if background_process_manager is not None:
+        await background_process_manager.mark_lost_persisted_sessions()
 
     # 啟動前先連 MCP，讓外部 tools 在服務運行時就緒
     await agent.connect_mcp()

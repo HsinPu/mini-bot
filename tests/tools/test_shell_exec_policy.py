@@ -152,6 +152,57 @@ def test_exec_tool_persists_background_session_lifecycle(tmp_path):
     assert "persisted background" in stored.output_tail
 
 
+def test_background_process_manager_marks_persisted_running_sessions_lost(tmp_path):
+    from opensprite.storage.base import StoredBackgroundProcess
+    from opensprite.storage.sqlite import SQLiteStorage
+    from opensprite.tools.process_runtime import BackgroundProcessManager
+
+    storage = SQLiteStorage(Path(tmp_path) / "sessions.db")
+    manager = BackgroundProcessManager(storage=storage)
+
+    async def run():
+        await storage.upsert_background_process(
+            StoredBackgroundProcess(
+                process_session_id="proc-running",
+                owner_session_id="chat-1",
+                command="npm run dev",
+                state="running",
+                pid=1234,
+                output_tail="server started",
+                metadata={"source": "test"},
+                started_at=10.0,
+                updated_at=11.0,
+            )
+        )
+        await storage.upsert_background_process(
+            StoredBackgroundProcess(
+                process_session_id="proc-exited",
+                owner_session_id="chat-1",
+                command="python -m pytest",
+                state="exited",
+                started_at=12.0,
+                updated_at=13.0,
+                finished_at=14.0,
+            )
+        )
+        marked = await manager.mark_lost_persisted_sessions()
+        lost = await storage.get_background_process("proc-running")
+        exited = await storage.get_background_process("proc-exited")
+        return marked, lost, exited
+
+    marked, lost, exited = asyncio.run(run())
+
+    assert marked == 1
+    assert lost is not None
+    assert lost.state == "lost"
+    assert lost.termination_reason == "runtime_restart"
+    assert lost.finished_at is not None
+    assert lost.output_tail == "server started"
+    assert lost.metadata == {"source": "test", "recovery_reason": "runtime_restart"}
+    assert exited is not None
+    assert exited.state == "exited"
+
+
 def test_exec_tool_preserves_stdout_stderr_order(tmp_path):
     from opensprite.tools.shell import ExecTool
 

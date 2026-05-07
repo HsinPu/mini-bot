@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Awaitable, Callable
 
 from ..storage.base import StorageProvider, StoredBackgroundProcess
@@ -170,6 +170,31 @@ class BackgroundProcessManager:
         if self.storage is None or session.owner_session_id is None:
             return
         asyncio.create_task(self._persist_session(session))
+
+    async def mark_lost_persisted_sessions(self) -> int:
+        """Mark persisted running sessions as lost after a runtime restart."""
+        if self.storage is None:
+            return 0
+        now = time.time()
+        running_processes = await self.storage.list_background_processes(states=("running",))
+        marked = 0
+        for process in running_processes:
+            metadata = dict(process.metadata or {})
+            metadata["recovery_reason"] = "runtime_restart"
+            updated = replace(
+                process,
+                state="lost",
+                termination_reason="runtime_restart",
+                updated_at=now,
+                finished_at=now,
+                metadata=metadata,
+            )
+            stored = await self.storage.upsert_background_process(updated)
+            if stored is not None:
+                marked += 1
+        if marked:
+            logger.info("background.process.recovered-lost | count={}", marked)
+        return marked
 
     @staticmethod
     def _session_owned_by(
