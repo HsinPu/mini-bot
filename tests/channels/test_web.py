@@ -1224,6 +1224,89 @@ def test_web_adapter_exposes_run_events_api():
     asyncio.run(_run_web_run_events_api())
 
 
+async def _run_web_task_completion_live_eval_api():
+    storage = MemoryStorage()
+
+    class LiveEvalAgent:
+        def __init__(self):
+            self.storage = storage
+            self.seen_messages = []
+
+        async def process(self, user_message):
+            self.seen_messages.append(user_message)
+            run_id = "run-live"
+            await storage.create_run(user_message.session_id, run_id, status="running", created_at=1.0)
+            await storage.add_run_event(
+                user_message.session_id,
+                run_id,
+                "completion_gate.evaluated",
+                payload={"status": "complete", "reason": "test"},
+                created_at=2.0,
+            )
+            await storage.add_run_event(
+                user_message.session_id,
+                run_id,
+                "run_finished",
+                payload={"status": "completed", "had_tool_error": False},
+                created_at=3.0,
+            )
+            await storage.update_run_status(
+                user_message.session_id,
+                run_id,
+                "completed",
+                metadata={"had_tool_error": False},
+                finished_at=3.0,
+            )
+            return AssistantMessage(
+                text="alpha beta gamma",
+                channel="web",
+                external_chat_id=user_message.external_chat_id,
+                session_id=user_message.session_id,
+                metadata={"source": "live-eval-test"},
+            )
+
+    agent = LiveEvalAgent()
+    adapter = WebAdapter(
+        mq=MessageQueue(agent),
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "path": "/ws",
+            "health_path": "/healthz",
+            "frontend_auto_build": False,
+        },
+    )
+    adapter_task = asyncio.create_task(adapter.run())
+
+    try:
+        await adapter.wait_until_started()
+        port = adapter.bound_port
+        assert port is not None
+
+        async with ClientSession() as session:
+            async with session.post(f"http://127.0.0.1:{port}/api/evals/task-completion/run") as resp:
+                assert resp.status == 200
+                payload = await resp.json()
+
+        assert payload["ok"] is True
+        assert payload["live"] is True
+        assert payload["summary"]["passed_cases"] == 1
+        assert payload["cases"][0]["run_id"] == "run-live"
+        assert payload["cases"][0]["completion_status"] == "complete"
+        assert agent.seen_messages[0].channel == "web"
+        assert agent.seen_messages[0].external_chat_id.startswith("eval-task-completion-literal_instruction-")
+    finally:
+        adapter_task.cancel()
+        try:
+            await adapter_task
+        except asyncio.CancelledError:
+            pass
+
+
+def test_web_adapter_exposes_task_completion_live_eval_api():
+    asyncio.run(_run_web_task_completion_live_eval_api())
+
+
 async def _run_web_sessions_api():
     storage = MemoryStorage()
     await storage.add_message(

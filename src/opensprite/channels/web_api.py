@@ -8,7 +8,7 @@ from aiohttp import web
 
 from ..bus.session_commands import session_command_catalog
 from ..config import Config
-from ..evals.task_completion import run_task_completion_smoke
+from ..evals.task_completion import run_live_task_completion_eval, run_task_completion_smoke
 from ..runs.schema import (
     serialize_file_change,
     serialize_run_artifacts,
@@ -247,6 +247,23 @@ class WebApiHandlers:
 
     async def handle_task_completion_eval_smoke(self, request: web.Request) -> web.Response:
         return web.json_response(run_task_completion_smoke())
+
+    async def handle_task_completion_eval_run(self, request: web.Request) -> web.Response:
+        adapter = self.adapter
+        agent = adapter._get_agent()
+        storage = adapter._get_storage()
+        if agent is None:
+            raise web.HTTPServiceUnavailable(text="Agent is not available")
+        if storage is None:
+            raise web.HTTPServiceUnavailable(text="Run trace storage is not available")
+        timeout_seconds = adapter._coerce_limit(request.query.get("timeout"), default=45, maximum=120)
+        payload = await run_live_task_completion_eval(
+            agent=agent,
+            storage=storage,
+            channel=adapter.channel_instance_id,
+            timeout_seconds=float(timeout_seconds),
+        )
+        return web.json_response(payload)
 
     async def handle_sessions(self, request: web.Request) -> web.Response:
         adapter = self.adapter

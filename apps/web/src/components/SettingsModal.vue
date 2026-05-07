@@ -1272,6 +1272,16 @@
                 {{ settingsState.taskCompletionRunning ? copy.settings.eval.running : copy.settings.eval.runTaskCompletionSmoke }}
               </button>
             </div>
+
+            <div class="settings-row">
+              <div>
+                <strong>{{ copy.settings.eval.liveTaskCompletionTitle }}</strong>
+                <span>{{ copy.settings.eval.liveTaskCompletionDescription }}</span>
+              </div>
+              <button class="secondary-button" type="button" :disabled="settingsState.taskCompletionLiveRunning" @click="$emit('run-task-completion-live')">
+                {{ settingsState.taskCompletionLiveRunning ? copy.settings.eval.running : copy.settings.eval.runLiveTaskCompletion }}
+              </button>
+            </div>
           </div>
 
           <h3>{{ copy.settings.eval.processCountsTitle }}</h3>
@@ -1313,6 +1323,23 @@
               <div>
                 <strong>{{ evalCase.label }}</strong>
                 <span>{{ evalCase.summary }} {{ evalCase.response_preview }}</span>
+              </div>
+              <span class="provider-row__badge">{{ evalCase.ok ? copy.settings.eval.pass : copy.settings.eval.fail }}</span>
+            </div>
+          </div>
+
+          <h3>{{ copy.settings.eval.liveTaskCompletionResultsTitle }}</h3>
+          <div class="settings-card">
+            <div v-if="!settingsState.taskCompletionLive.cases.length" class="provider-row provider-row--empty">
+              <div>
+                <strong>{{ copy.settings.eval.noLiveTaskCompletionTitle }}</strong>
+                <span>{{ copy.settings.eval.noLiveTaskCompletionDescription }}</span>
+              </div>
+            </div>
+            <div v-for="evalCase in settingsState.taskCompletionLive.cases" :key="evalCase.id" class="settings-row">
+              <div>
+                <strong>{{ evalCase.label }}</strong>
+                <span>{{ evalCase.summary }} {{ evalCase.run_id ? copy.settings.eval.evalRun(evalCase.run_id) : "" }} {{ evalCase.response_preview }}</span>
               </div>
               <span class="provider-row__badge">{{ evalCase.ok ? copy.settings.eval.pass : copy.settings.eval.fail }}</span>
             </div>
@@ -2513,6 +2540,7 @@ const emit = defineEmits([
   "refresh-eval-status",
   "run-eval-smoke",
   "run-task-completion-smoke",
+  "run-task-completion-live",
   "load-data-session-timeline",
   "refresh-curator",
   "run-curator-action",

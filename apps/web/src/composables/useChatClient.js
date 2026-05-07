@@ -3426,6 +3426,32 @@ export function useChatClient() {
     }
   }
 
+  async function runTaskCompletionLiveEval() {
+    settingsState.taskCompletionLiveRunning = true;
+    settingsState.evalError = "";
+    settingsState.evalNotice = "";
+    try {
+      const payload = await requestSettingsJson("/api/evals/task-completion/run", { method: "POST" });
+      settingsState.taskCompletionLive = {
+        ok: Boolean(payload?.ok),
+        cases: Array.isArray(payload?.cases) ? payload.cases : [],
+        summary: payload?.summary || {
+          passed_cases: 0,
+          total_cases: 0,
+          passed_checks: 0,
+          total_checks: 0,
+        },
+      };
+      settingsState.evalNotice = payload?.ok
+        ? copy.value.settings.eval.taskCompletionLivePassed
+        : copy.value.settings.eval.taskCompletionLiveFailed;
+    } catch (error) {
+      settingsState.evalError = error?.message || copy.value.notices.taskCompletionLiveEvalFailed;
+    } finally {
+      settingsState.taskCompletionLiveRunning = false;
+    }
+  }
+
   function loadSettingsSection(sectionName) {
     if (sectionName === "general") {
       loadUpdateStatus();
@@ -4285,6 +4311,7 @@ export function useChatClient() {
     loadEvalStatus,
     runEvalSmokeCheck,
     runTaskCompletionEvalSmoke,
+    runTaskCompletionLiveEval,
     loadBackgroundProcesses,
     loadDataSessionTimeline,
     loadMcpSettings,

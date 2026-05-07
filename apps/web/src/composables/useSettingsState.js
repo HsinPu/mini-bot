@@ -197,6 +197,17 @@ export function createSettingsState() {
         total_checks: 0,
       },
     },
+    taskCompletionLiveRunning: false,
+    taskCompletionLive: {
+      ok: false,
+      cases: [],
+      summary: {
+        passed_cases: 0,
+        total_cases: 0,
+        passed_checks: 0,
+        total_checks: 0,
+      },
+    },
     cronJobsLoading: false,
     cronJobsError: "",
     cronJobsNotice: "",
