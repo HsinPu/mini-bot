@@ -136,6 +136,7 @@ assertIncludes(settingsModal, "delete-task-completion-history-item", "task compl
 assertIncludes(settingsModal, "clear-task-completion-history", "task completion history clear action");
 assertIncludes(settingsModal, "failedEvalChecksSummary", "task completion failed-check summary rendering");
 assertIncludes(settingsModal, "failedEvalCheckText", "task completion failed-check detail rendering");
+assertIncludes(settingsModal, "evalHistoryCaseLabel", "task completion history case labels");
 assertIncludes(settingsModal, "taskCompletionHistoryGroups", "task completion history grouping");
 assertIncludes(settingsModal, "toggleEvalHistoryGroup", "task completion history group toggle");
 assertIncludes(settingsModal, "evalHistoryBatchId", "task completion history batch grouping");
@@ -227,6 +228,7 @@ for (const key of [
   "historyGroupMeta",
   "historyBatchLabel",
   "failedChecksTitle",
+  "failedChecksForCase",
   "failedChecks",
   "modelLabel",
 ]) {

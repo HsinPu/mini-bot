@@ -1418,9 +1418,10 @@
                 <div v-for="item in group.items" :key="item.eval_id" class="settings-row eval-history-row">
                   <div>
                     <span class="eval-history-row__title">
-                      <strong>{{ item.case_id || copy.settings.eval.none }}</strong>
+                      <strong>{{ evalHistoryCaseLabel(item) }}</strong>
                       <span class="provider-row__badge">{{ item.ok ? copy.settings.eval.pass : copy.settings.eval.fail }}</span>
                     </span>
+                    <span v-if="item.case_id && item.case_id !== evalHistoryCaseLabel(item)">{{ item.case_id }}</span>
                     <span>{{ copy.settings.eval.historyMeta(formatTimestamp(item.created_at), item.completion_status || copy.settings.eval.none, item.run_id || copy.settings.eval.none) }}</span>
                     <span>{{ item.response_preview }}</span>
                   </div>
@@ -1430,7 +1431,7 @@
                     </button>
                   </div>
                   <div v-if="failedEvalChecks(item).length" class="eval-history-row__failures">
-                    <strong>{{ copy.settings.eval.failedChecksTitle }}</strong>
+                    <strong>{{ copy.settings.eval.failedChecksForCase(evalHistoryCaseLabel(item)) }}</strong>
                     <ul>
                       <li v-for="(check, index) in failedEvalChecks(item)" :key="`${item.eval_id}:${check.id || index}`">
                         {{ failedEvalCheckText(check) }}
@@ -2232,6 +2233,10 @@ function failedEvalCheckText(check) {
   const label = String(check?.label || "").trim();
   const detail = String(check?.detail || "").trim();
   return [id, label, detail].filter(Boolean).join(" - ");
+}
+
+function evalHistoryCaseLabel(entry) {
+  return String(entry?.case_label || entry?.metadata?.case_label || entry?.case_id || props.copy.settings.eval.none).trim();
 }
 
 function failedEvalChecksSummary(entry) {

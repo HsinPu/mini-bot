@@ -196,6 +196,7 @@ async def _persist_eval_case(storage: Any, evaluated_case: Mapping[str, Any]) ->
         had_tool_error=_bool(evaluated_case.get("had_tool_error")),
         metadata={
             "live": _bool(evaluated_case.get("live")),
+            "case_label": _string(evaluated_case.get("label")),
             "run_status": _string(evaluated_case.get("run_status")),
             "error": _string(evaluated_case.get("error")),
             "model": _model_info_payload(evaluated_case.get("model")),

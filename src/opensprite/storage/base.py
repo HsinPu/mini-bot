@@ -120,6 +120,7 @@ class StoredEvalRun:
             "eval_id": self.eval_id,
             "kind": self.kind,
             "case_id": self.case_id,
+            "case_label": str(metadata.get("case_label") or self.case_id),
             "ok": bool(self.ok),
             "summary": dict(self.summary or {}),
             "checks": list(self.checks or []),

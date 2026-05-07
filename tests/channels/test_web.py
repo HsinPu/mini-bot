@@ -1331,6 +1331,7 @@ async def _run_web_task_completion_live_eval_api():
         assert cases_by_id["exact_json_output"]["run_id"] == "run-exact_json_output"
         history_by_case = {item["case_id"]: item for item in history_payload["history"]}
         assert history_by_case["literal_instruction"]["eval_id"] == cases_by_id["literal_instruction"]["eval_id"]
+        assert history_by_case["literal_instruction"]["case_label"] == "Literal instruction answer"
         assert history_by_case["literal_instruction"]["response_preview"] == "alpha beta gamma"
         assert history_by_case["literal_instruction"]["model"] == agent.eval_model_info
         assert {item["batch_id"] for item in history_payload["history"]} == {payload["batch_id"]}
