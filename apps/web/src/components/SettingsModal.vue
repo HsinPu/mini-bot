@@ -224,7 +224,6 @@
             <div class="settings-row settings-row--update">
               <div>
                 <strong>{{ updateStatusLabel }}</strong>
-                <span>{{ updateStatusDescription }}</span>
               </div>
               <div class="settings-row__actions">
                 <button
@@ -1810,21 +1809,6 @@ const updateStatusLabel = computed(() => {
     return props.copy.settings.general.update.available(status.commits_behind || 0);
   }
   return props.copy.settings.general.update.current;
-});
-
-const updateStatusDescription = computed(() => {
-  const status = props.settingsState.updateStatus || {};
-  if (!status.supported && status.error) {
-    return status.error;
-  }
-  const parts = [];
-  if (status.current_rev_short) {
-    parts.push(`${props.copy.settings.general.update.commit}: ${status.current_rev_short}`);
-  }
-  if (status.project_root) {
-    parts.push(status.project_root);
-  }
-  return parts.join(" · ") || props.copy.settings.general.update.description;
 });
 
 const scheduleTimezoneOptions = computed(() => {
