@@ -365,8 +365,14 @@
 }
 
 :root[data-color-scheme="dark"] .provider-row__badge,
+:root[data-color-scheme="dark"] .provider-connect-dialog__body::-webkit-scrollbar-track,
+:root[data-color-scheme="dark"] .provider-connect-dialog__body::-webkit-scrollbar-thumb,
 :root[data-color-scheme="dark"] .provider-row__action:disabled {
   background: var(--surface-muted);
+}
+
+:root[data-color-scheme="dark"] .provider-connect-dialog__body::-webkit-scrollbar-thumb {
+  border-color: var(--surface-muted);
 }
 
 :root[data-color-scheme="dark"] .switch {
@@ -3793,13 +3799,31 @@ button:disabled {
   display: grid;
   align-content: start;
   gap: 24px;
+  height: 100%;
+  max-height: calc(100dvh - 104px);
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 14px 36px 44px;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
+}
+
+.provider-connect-dialog__body::-webkit-scrollbar {
+  width: 10px;
+}
+
+.provider-connect-dialog__body::-webkit-scrollbar-track {
+  background: #eeeeee;
+}
+
+.provider-connect-dialog__body::-webkit-scrollbar-thumb {
+  border: 2px solid #eeeeee;
+  border-radius: 999px;
+  background: #b8b8b8;
 }
 
 .provider-connect-dialog__title {
