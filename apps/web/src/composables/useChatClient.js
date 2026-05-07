@@ -4,6 +4,7 @@ import { useChannelSettingsActions } from "./useChannelSettingsActions";
 import { useModelSettingsActions } from "./useModelSettingsActions";
 import { useNetworkSettingsActions } from "./useNetworkSettingsActions";
 import { useProviderSettingsActions } from "./useProviderSettingsActions";
+import { useScheduleSettingsActions } from "./useScheduleSettingsActions";
 import { useUpdateSettingsActions } from "./useUpdateSettingsActions";
 import { buildHttpApiUrl, requestSettingsJson as requestSettingsJsonFromApi } from "./settingsApi";
 import {
@@ -2132,6 +2133,13 @@ export function useChatClient() {
     setSettingsSuccess,
   });
 
+  const { loadScheduleSettings, saveScheduleSettings } = useScheduleSettingsActions({
+    settingsState,
+    requestSettingsJson,
+    copy,
+    setSettingsSuccess,
+  });
+
   const {
     loadProviderSettings,
     loadCodexAuthStatus,
@@ -3202,23 +3210,6 @@ export function useChatClient() {
     }
   }
 
-  async function loadScheduleSettings() {
-    settingsState.scheduleLoading = true;
-    settingsState.scheduleError = "";
-    try {
-      const payload = await requestSettingsJson("/api/settings/schedule");
-      settingsState.schedule = payload;
-      settingsState.scheduleForm.defaultTimezone = payload.default_timezone || "UTC";
-      if (!settingsState.cronJobForm.timezone || !settingsState.cronJobForm.jobId) {
-        settingsState.cronJobForm.timezone = settingsState.scheduleForm.defaultTimezone;
-      }
-    } catch (error) {
-      settingsState.scheduleError = error?.message || copy.value.notices.scheduleLoadFailed;
-    } finally {
-      settingsState.scheduleLoading = false;
-    }
-  }
-
   async function loadCronJobs() {
     settingsState.cronJobsLoading = true;
     settingsState.cronJobsError = "";
@@ -3705,31 +3696,6 @@ export function useChatClient() {
       settingsState.mcpError = error?.message || copy.value.notices.mcpReloadFailed;
     } finally {
       settingsState.mcpLoading = false;
-    }
-  }
-
-  async function saveScheduleSettings() {
-    const defaultTimezone = String(settingsState.scheduleForm.defaultTimezone || "").trim() || "UTC";
-    settingsState.scheduleLoading = true;
-    settingsState.scheduleError = "";
-    settingsState.scheduleNotice = "";
-    try {
-      const payload = await requestSettingsJson("/api/settings/schedule", {
-        method: "PUT",
-        body: JSON.stringify({ default_timezone: defaultTimezone }),
-      });
-      settingsState.schedule = payload;
-      settingsState.scheduleForm.defaultTimezone = payload.default_timezone || defaultTimezone;
-      setSettingsSuccess(
-        "scheduleNotice",
-        payload.restart_required
-          ? copy.value.notices.scheduleRestartRequired
-          : copy.value.notices.scheduleSaved(settingsState.scheduleForm.defaultTimezone),
-      );
-    } catch (error) {
-      settingsState.scheduleError = error?.message || copy.value.notices.scheduleSaveFailed;
-    } finally {
-      settingsState.scheduleLoading = false;
     }
   }
 

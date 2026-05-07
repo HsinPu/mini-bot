@@ -41,6 +41,7 @@ const [
   modelSettingsActions,
   networkSettingsActions,
   providerSettingsActions,
+  scheduleSettingsActions,
   copy,
 ] = await Promise.all([
   read("src/components/MessageList.vue"),
@@ -55,10 +56,11 @@ const [
   read("src/composables/useModelSettingsActions.js"),
   read("src/composables/useNetworkSettingsActions.js"),
   read("src/composables/useProviderSettingsActions.js"),
+  read("src/composables/useScheduleSettingsActions.js"),
   read("src/i18n/copy.js"),
 ]);
 
-const settingsLogic = `${chatClient}\n${modelSettingsActions}\n${networkSettingsActions}\n${providerSettingsActions}`;
+const settingsLogic = `${chatClient}\n${modelSettingsActions}\n${networkSettingsActions}\n${providerSettingsActions}\n${scheduleSettingsActions}`;
 
 assertIncludes(messageList, "artifactTypeLabel", "session entry artifact labels");
 assertIncludes(messageList, "message__artifact-status", "session entry artifact status");
