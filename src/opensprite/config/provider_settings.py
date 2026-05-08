@@ -23,6 +23,7 @@ from .schema import Config
 OPENROUTER_REASONING_EFFORTS = {"minimal", "low", "medium", "high", "xhigh"}
 OPENROUTER_PROVIDER_SORTS = {"price", "throughput", "latency"}
 MODEL_DISCOVERY_TIMEOUT_SECONDS = 8.0
+_OPENROUTER_MODEL_METADATA_CACHE: dict[str, dict[str, Any]] = {}
 
 
 class ProviderSettingsError(Exception):
@@ -127,6 +128,42 @@ def _models_from_openai_compatible_payload(payload: dict[str, Any] | None) -> li
     return _dedupe_models([str(item.get("id") or "") for item in data if isinstance(item, dict)])
 
 
+def _positive_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, float):
+        return int(value) if value > 0 else None
+    if isinstance(value, str):
+        normalized = value.strip()
+        if normalized.isdigit():
+            parsed = int(normalized)
+            return parsed if parsed > 0 else None
+    return None
+
+
+def _openrouter_model_metadata(item: dict[str, Any]) -> dict[str, Any]:
+    context_length = _positive_int(item.get("context_length"))
+    if context_length is None:
+        top_provider = item.get("top_provider")
+        if isinstance(top_provider, dict):
+            context_length = _positive_int(top_provider.get("context_length"))
+    return {"context_length": context_length} if context_length else {}
+
+
+def cached_openrouter_model_metadata(models: list[str] | tuple[str, ...] | None = None) -> dict[str, dict[str, Any]]:
+    """Return metadata captured during the last OpenRouter model discovery."""
+    if models is None:
+        return {model: dict(metadata) for model, metadata in _OPENROUTER_MODEL_METADATA_CACHE.items()}
+    allowed = {str(model or "").strip() for model in models if str(model or "").strip()}
+    return {
+        model: dict(metadata)
+        for model, metadata in _OPENROUTER_MODEL_METADATA_CACHE.items()
+        if model in allowed and metadata
+    }
+
+
 def fetch_openai_compatible_models(api_key: str, base_url: str) -> list[str]:
     normalized = str(base_url or "").strip().rstrip("/")
     if not normalized:
@@ -147,11 +184,14 @@ def fetch_openai_compatible_models(api_key: str, base_url: str) -> list[str]:
 
 
 def fetch_openrouter_models() -> list[str]:
+    global _OPENROUTER_MODEL_METADATA_CACHE
+    _OPENROUTER_MODEL_METADATA_CACHE = {}
     payload = _read_json_url("https://openrouter.ai/api/v1/models", headers={"Accept": "application/json"})
     data = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(data, list):
         return []
     out: list[str] = []
+    metadata_by_model: dict[str, dict[str, Any]] = {}
     for item in data:
         if not isinstance(item, dict):
             continue
@@ -162,6 +202,10 @@ def fetch_openrouter_models() -> list[str]:
         if isinstance(params, list) and params and "tools" not in {str(param) for param in params}:
             continue
         out.append(model_id)
+        metadata = _openrouter_model_metadata(item)
+        if metadata and model_id not in metadata_by_model:
+            metadata_by_model[model_id] = metadata
+    _OPENROUTER_MODEL_METADATA_CACHE = metadata_by_model
     return _dedupe_models(out)
 
 
@@ -230,7 +274,7 @@ def discover_provider_models(
     preset: ProviderPreset | None,
     *,
     app_home: str | Path | None = None,
-) -> tuple[list[str], str]:
+) -> tuple[list[str], str, dict[str, dict[str, Any]]]:
     fallback = list(preset.model_choices if preset else ())
     preset_id = str(provider.get("provider") or provider_id or "").strip()
     credential_api_key = ""
@@ -244,6 +288,7 @@ def discover_provider_models(
         except CredentialNotFoundError:
             credential_api_key = ""
     live: list[str] = []
+    model_metadata: dict[str, dict[str, Any]] = {}
     if preset_id == "openai-codex":
         live = fetch_codex_models(app_home)
     elif preset_id == "copilot":
@@ -258,6 +303,7 @@ def discover_provider_models(
         live = fetch_copilot_provider_models(api_key) if api_key else []
     elif preset_id == "openrouter":
         live = fetch_openrouter_models()
+        model_metadata = cached_openrouter_model_metadata(live)
     elif provider.get("api_mode") != "anthropic_messages" and (
         preset_id in {"openai", "minimax"} or str(provider.get("base_url") or "").strip()
     ):
@@ -266,8 +312,9 @@ def discover_provider_models(
             str(provider.get("base_url") or (preset.default_base_url if preset else "")).strip(),
         )
     if live:
-        return _dedupe_models(live + fallback), "live"
-    return fallback, "preset"
+        models = _dedupe_models(live + fallback)
+        return models, "live", cached_openrouter_model_metadata(models) if preset_id == "openrouter" else {}
+    return fallback, "preset", {}
 
 
 def prune_llm_providers(llm: dict[str, Any]) -> None:
@@ -800,7 +847,7 @@ class ProviderSettingsService:
             preset = presets.providers.get(preset_id) if preset_id else None
             if not is_provider_connected(provider, preset):
                 continue
-            discovered_models, model_source = discover_provider_models(
+            discovered_models, model_source, model_metadata = discover_provider_models(
                 provider_id,
                 provider,
                 preset,
@@ -821,6 +868,11 @@ class ProviderSettingsService:
                     "selected_model": provider.get("model") or "",
                     "models": choices,
                     "model_source": model_source,
+                    "model_metadata": {
+                        model: dict(metadata)
+                        for model, metadata in model_metadata.items()
+                        if model in choices and metadata
+                    },
                     "model_capabilities": (preset.model_capabilities or {}) if preset else {},
                     "options": public_openrouter_options(provider) if preset_id == "openrouter" else {},
                     "supports_custom_model": True,

@@ -686,13 +686,13 @@
                       :label="group.label"
                     >
                       <option v-for="model in group.models" :key="`${selectedTextProvider.id}:${model}`" :value="model">
-                        {{ model }}{{ selectedTextProvider.is_default && selectedTextProvider.selected_model === model ? ` (${copy.settings.models.active})` : '' }}
+                        {{ textModelOptionLabel(model) }}
                       </option>
                     </optgroup>
                   </template>
                   <template v-else>
                     <option v-for="model in textProviderModels" :key="`${selectedTextProvider.id}:${model}`" :value="model">
-                      {{ model }}{{ selectedTextProvider.is_default && selectedTextProvider.selected_model === model ? ` (${copy.settings.models.active})` : '' }}
+                      {{ textModelOptionLabel(model) }}
                     </option>
                   </template>
                 </select>
@@ -745,6 +745,9 @@
 
               <template v-if="openRouterOptionsExpanded">
                 <div class="openrouter-capabilities">
+                  <span v-if="selectedTextContextBadge" class="provider-row__badge">
+                    {{ selectedTextContextBadge }}
+                  </span>
                   <span v-for="capability in selectedTextCapabilityBadges" :key="capability" class="provider-row__badge">
                     {{ capability }}
                   </span>
@@ -2942,6 +2945,34 @@ const selectedTextProvider = computed(() => {
   return props.settingsState.models.providers.find((provider) => provider.id === providerId) || null;
 });
 
+function formatCompactTokenCount(value) {
+  const tokens = Number(value);
+  if (!Number.isFinite(tokens) || tokens <= 0) {
+    return "";
+  }
+  if (tokens >= 1_000_000) {
+    const millions = tokens / 1_000_000;
+    return `${Number(millions.toFixed(millions >= 10 ? 0 : 1))}M`;
+  }
+  if (tokens >= 1_000) {
+    return `${Math.round(tokens / 1_000)}K`;
+  }
+  return String(Math.round(tokens));
+}
+
+function modelContextLabel(provider, model) {
+  const contextLength = provider?.model_metadata?.[model]?.context_length;
+  const formatted = formatCompactTokenCount(contextLength);
+  return formatted ? props.copy.settings.models.openRouter.contextLength(formatted) : "";
+}
+
+function textModelOptionLabel(model) {
+  const provider = selectedTextProvider.value;
+  const context = provider?.provider === "openrouter" ? modelContextLabel(provider, model) : "";
+  const label = [model, context].filter(Boolean).join(" · ");
+  return provider?.is_default && provider.selected_model === model ? `${label} (${props.copy.settings.models.active})` : label;
+}
+
 function clearSelectedTextProviderModel() {
   const providerId = props.settingsState.selectedTextProviderId;
   if (providerId) {
@@ -3039,6 +3070,13 @@ const selectedTextCapabilities = computed(() => {
 });
 
 const selectedTextRecommendedOptions = computed(() => selectedTextCapabilities.value?.recommended_options || null);
+
+const selectedTextContextBadge = computed(() => {
+  if (selectedTextProvider.value?.provider !== "openrouter" || !selectedTextModel.value) {
+    return "";
+  }
+  return modelContextLabel(selectedTextProvider.value, selectedTextModel.value);
+});
 
 const selectedTextCapabilityBadges = computed(() => {
   const labels = props.copy.settings.models.openRouter.capabilities;

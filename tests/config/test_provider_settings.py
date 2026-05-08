@@ -13,6 +13,7 @@ from opensprite.config.provider_settings import (
 
 _ORIGINAL_FETCH_OPENAI_COMPATIBLE_MODELS = provider_settings.fetch_openai_compatible_models
 _ORIGINAL_FETCH_CODEX_MODELS = provider_settings.fetch_codex_models
+_ORIGINAL_FETCH_OPENROUTER_MODELS = provider_settings.fetch_openrouter_models
 _ORIGINAL_FETCH_OPENROUTER_IMAGE_MODELS = provider_settings.fetch_openrouter_image_models
 _ORIGINAL_FETCH_COPILOT_PROVIDER_MODELS = provider_settings.fetch_copilot_provider_models
 
@@ -271,6 +272,37 @@ def test_provider_settings_falls_back_to_preset_models(tmp_path, monkeypatch):
     provider = models["providers"][0]
     assert provider["model_source"] == "preset"
     assert "openai/gpt-5.5" in provider["models"]
+    assert provider["model_metadata"] == {}
+
+
+def test_provider_settings_includes_openrouter_context_metadata(tmp_path, monkeypatch):
+    def fake_read_json_url(url, *, headers=None):
+        return {
+            "data": [
+                {"id": "no-tools", "context_length": 4096, "supported_parameters": ["temperature"]},
+                {"id": "openai/live", "context_length": 128000, "supported_parameters": ["tools"]},
+                {"id": "anthropic/live", "context_length": "200000", "supported_parameters": ["tools"]},
+                {"id": "fallback-context", "top_provider": {"context_length": 32768}},
+            ]
+        }
+
+    config_path = _copy_config(tmp_path)
+    service = ProviderSettingsService(config_path)
+    monkeypatch.setattr(provider_settings, "fetch_openrouter_models", _ORIGINAL_FETCH_OPENROUTER_MODELS)
+    monkeypatch.setattr(provider_settings, "_read_json_url", fake_read_json_url)
+
+    service.connect_provider("openrouter", api_key="router-key")
+    models = service.list_models()
+
+    provider = models["providers"][0]
+    assert provider["model_source"] == "live"
+    assert provider["models"][:3] == ["openai/live", "anthropic/live", "fallback-context"]
+    assert "no-tools" not in provider["models"]
+    assert provider["model_metadata"] == {
+        "openai/live": {"context_length": 128000},
+        "anthropic/live": {"context_length": 200000},
+        "fallback-context": {"context_length": 32768},
+    }
 
 
 def test_provider_settings_uses_discovered_codex_models(tmp_path, monkeypatch):

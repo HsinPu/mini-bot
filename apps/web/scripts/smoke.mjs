@@ -129,6 +129,8 @@ assertIncludes(settingsModal, "save-media-model", "media model settings action")
 assertIncludes(settingsModal, "textProviderModelGroups", "OpenRouter model grouping");
 assertIncludes(settingsModal, "mediaProviderModelGroups", "OpenRouter media model grouping");
 assertIncludes(settingsModal, "openRouterModelGroups", "shared OpenRouter model grouping");
+assertIncludes(settingsModal, "model_metadata", "OpenRouter model metadata rendering");
+assertIncludes(settingsModal, "textModelOptionLabel", "OpenRouter model context option labels");
 assertIncludes(settingsModal, "<optgroup", "grouped model select rendering");
 assertIncludes(settingsModal, "@click=\"$emit('select-model', selectedTextProvider.id, settingsState.modelSelections[selectedTextProvider.id])\"", "model selection applies on explicit action");
 assertNotIncludes(settingsModal, "@change=\"$emit('select-model', settingsState.selectedTextProviderId", "provider selection does not auto-apply model");
