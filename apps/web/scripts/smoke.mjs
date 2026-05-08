@@ -143,6 +143,9 @@ assertIncludes(settingsModal, "failedEvalChecksSummary", "task completion failed
 assertIncludes(settingsModal, "failedEvalCheckText", "task completion failed-check detail rendering");
 assertIncludes(settingsModal, "failedEvalCheckItem", "task completion failed-check item labels");
 assertIncludes(settingsModal, "failedEvalCheckHint", "task completion failed-check diagnosis hints");
+assertIncludes(settingsModal, "evalResultMeta", "task completion result meta rendering");
+assertIncludes(settingsModal, "evalChecksSummary", "task completion result check-count summary");
+assertIncludes(settingsModal, "eval-result-row__title", "task completion result status title layout");
 assertIncludes(settingsModal, "evalHistoryCaseLabel", "task completion history case labels");
 assertIncludes(settingsModal, "evalExpectedSummary", "task completion expected answer display");
 assertIncludes(settingsModal, "evalActualResponse", "task completion actual answer display");
@@ -252,6 +255,7 @@ for (const key of [
   "historyBatchLabel",
   "failedChecksTitle",
   "failedChecksForCase",
+  "checksSummary",
   "expectedAnswerTitle",
   "actualAnswerTitle",
   "copyDebug",

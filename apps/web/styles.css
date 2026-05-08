@@ -4005,6 +4005,7 @@ button:disabled {
   align-items: start;
 }
 
+.settings-row .eval-result-row__title,
 .settings-row .eval-history-row__title {
   display: flex;
   flex-wrap: wrap;
@@ -4013,10 +4014,12 @@ button:disabled {
   margin-bottom: 4px;
 }
 
+.settings-row .eval-result-row__title strong,
 .settings-row .eval-history-row__title strong {
   margin-bottom: 0;
 }
 
+.settings-row .eval-result-row__title .provider-row__badge,
 .settings-row .eval-history-row__title .provider-row__badge {
   display: inline-flex;
   flex: 0 0 auto;

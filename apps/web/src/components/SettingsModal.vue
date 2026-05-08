@@ -1352,10 +1352,13 @@
                 {{ evalCopyButtonLabel('task-completion-smoke:all', copy.settings.eval.copyAllSmokeDebug) }}
               </button>
             </div>
-            <div v-for="evalCase in settingsState.taskCompletionSmoke.cases" :key="evalCase.id" class="settings-row">
+            <div v-for="evalCase in settingsState.taskCompletionSmoke.cases" :key="evalCase.id" class="settings-row eval-result-row">
               <div>
-                <strong>{{ evalCase.label }}</strong>
-                <span>{{ evalCase.summary }} {{ evalCase.response_preview }}</span>
+                <span class="eval-result-row__title">
+                  <strong>{{ evalCase.label }}</strong>
+                  <span class="provider-row__badge">{{ evalCase.ok ? copy.settings.eval.pass : copy.settings.eval.fail }}</span>
+                </span>
+                <span>{{ evalResultMeta(evalCase) }}</span>
                 <span v-if="evalModelLabel(evalCase)">{{ evalModelLabel(evalCase) }}</span>
                 <span v-if="failedEvalChecks(evalCase).length">{{ failedEvalChecksSummary(evalCase) }}</span>
               </div>
@@ -1367,7 +1370,6 @@
                 >
                   {{ evalCopyButtonLabel(`task-completion-smoke:${evalCase.id}`, copy.settings.eval.copyDebug) }}
                 </button>
-                <span class="provider-row__badge">{{ evalCase.ok ? copy.settings.eval.pass : copy.settings.eval.fail }}</span>
               </div>
             </div>
           </div>
@@ -1393,10 +1395,13 @@
                 {{ evalCopyButtonLabel('task-completion-live:all', copy.settings.eval.copyAllLiveDebug) }}
               </button>
             </div>
-            <div v-for="evalCase in settingsState.taskCompletionLive.cases" :key="evalCase.id" class="settings-row">
+            <div v-for="evalCase in settingsState.taskCompletionLive.cases" :key="evalCase.id" class="settings-row eval-result-row">
               <div>
-                <strong>{{ evalCase.label }}</strong>
-                <span>{{ evalCase.summary }} {{ evalCase.run_id ? copy.settings.eval.evalRun(evalCase.run_id) : "" }} {{ evalCase.response_preview }}</span>
+                <span class="eval-result-row__title">
+                  <strong>{{ evalCase.label }}</strong>
+                  <span class="provider-row__badge">{{ evalCase.ok ? copy.settings.eval.pass : copy.settings.eval.fail }}</span>
+                </span>
+                <span>{{ evalResultMeta(evalCase, true) }}</span>
                 <span v-if="evalModelLabel(evalCase)">{{ evalModelLabel(evalCase) }}</span>
                 <span v-if="failedEvalChecks(evalCase).length">{{ failedEvalChecksSummary(evalCase) }}</span>
               </div>
@@ -1408,7 +1413,6 @@
                 >
                   {{ evalCopyButtonLabel(`task-completion-live:${evalCase.id}`, copy.settings.eval.copyDebug) }}
                 </button>
-                <span class="provider-row__badge">{{ evalCase.ok ? copy.settings.eval.pass : copy.settings.eval.fail }}</span>
               </div>
             </div>
           </div>
@@ -2461,6 +2465,34 @@ function failedEvalCheckHint(checkId) {
 function failedEvalChecksSummary(entry) {
   const failed = failedEvalChecks(entry);
   return props.copy.settings.eval.failedChecks(failed.length, failed.map(failedEvalCheckText).join("; "));
+}
+
+function evalResultMeta(entry, includeRun = false) {
+  const parts = [evalChecksSummary(entry)];
+  if (includeRun && entry?.run_id) {
+    parts.push(props.copy.settings.eval.evalRun(entry.run_id));
+  }
+  if (entry?.response_preview) {
+    parts.push(String(entry.response_preview).trim());
+  }
+  return parts.filter(Boolean).join(" ");
+}
+
+function evalChecksSummary(entry) {
+  const score = entry?.score || entry?.summary?.score || {};
+  const passed = Number(score.passed);
+  const total = Number(score.total);
+  if (Number.isFinite(passed) && Number.isFinite(total) && total > 0) {
+    return props.copy.settings.eval.checksSummary(passed, total);
+  }
+  const checks = Array.isArray(entry?.checks) ? entry.checks : [];
+  if (checks.length) {
+    return props.copy.settings.eval.checksSummary(
+      checks.filter((check) => check?.ok).length,
+      checks.length,
+    );
+  }
+  return evalEntrySummary(entry);
 }
 
 function evalModelInfo(entry) {
