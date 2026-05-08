@@ -159,6 +159,7 @@ class AutoContinueService:
                 "assistant only reported progress without performing requested work",
                 "assistant did not provide the requested itemized result",
                 "assistant only emitted internal control text",
+                "required task evidence was not produced",
             }
         ):
             return self._skip(

@@ -38,6 +38,9 @@ _REQUEST_MARKERS = (
     "i want you to",
     "let's",
     "幫我",
+    "你把",
+    "你幫",
+    "給我",
     "請",
     "麻煩",
 )
@@ -145,9 +148,9 @@ _KIND_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("refactor", ("refactor", "cleanup", "clean up", "重構", "整理程式", "整理代碼")),
     ("debug", ("debug", "bug", "error", "exception", "traceback", "failed", "failure", "fix", "修正", "修復", "除錯", "錯誤", "失敗")),
     ("review", ("review", "audit", "code review", "檢視", "審查")),
-    ("analysis", ("analyze", "analyse", "investigate", "inspect", "check", "look into", "分析", "調查", "檢查", "看一下")),
+    ("analysis", ("analyze", "analyse", "investigate", "inspect", "check", "look into", "extract", "分析", "調查", "檢查", "看一下", "抓出", "取出", "提取", "擷取", "讀取")),
     ("implementation", ("implement", "add", "build", "create", "update", "change", "write code", "實作", "新增", "建立", "更新", "修改")),
-    ("writing", ("write", "draft", "summarize", "summary", "rewrite", "撰寫", "草擬", "摘要", "總結", "重寫")),
+    ("writing", ("write", "draft", "summarize", "summary", "rewrite", "撰寫", "草擬", "摘要", "總結", "重寫", "整理", "整合")),
     ("planning", ("plan", "organize", "design", "規劃", "設計")),
 )
 

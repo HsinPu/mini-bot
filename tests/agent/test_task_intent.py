@@ -41,3 +41,13 @@ def test_task_intent_debug_diagnosis_does_not_require_code_change():
     assert intent.kind == "debug"
     assert intent.expects_code_change is False
     assert intent.expects_verification is False
+
+
+def test_task_intent_classifier_marks_chinese_extract_and_merge_request_as_task():
+    intent = TaskIntentService().classify(
+        "你把全部的prompt 都先抓出來 後 整合成一份 給我 有重疊部分 你看著處理"
+    )
+
+    assert intent.kind == "analysis"
+    assert intent.should_seed_active_task is True
+    assert intent.expects_code_change is False

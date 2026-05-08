@@ -10,6 +10,7 @@ from .planning_mode import resolve_planning_mode
 from ..tools import ToolRegistry
 from ..utils.log import logger
 from .execution import ExecutionResult
+from .task_contract import TaskContractService
 from .task_intent import TaskIntent
 
 
@@ -177,6 +178,21 @@ class LlmCallService:
         )
         if proactive_retrieval_context:
             history_dicts = [{"role": "system", "content": proactive_retrieval_context}, *history_dicts]
+        task_contract = None
+        if task_intent is not None:
+            task_contract = TaskContractService.build(
+                task_intent=task_intent,
+                current_message=prompt_message,
+                history=history_dicts,
+                current_image_files=user_image_files,
+                current_audio_files=user_audio_files,
+                current_video_files=user_video_files,
+            )
+            logger.info(
+                f"[{session_id}] task.contract | type={task_contract.task_type} "
+                f"requirements={len(task_contract.requirements)} resources={len(task_contract.selected_resources)} "
+                f"allow_no_tool_final={task_contract.allow_no_tool_final}"
+            )
         effective_context_budget = self._effective_context_token_budget()
         logger.info(
             f"[{session_id}] prompt.tokens | budget={effective_context_budget} "
@@ -272,7 +288,9 @@ class LlmCallService:
         if on_tool_after_execute is not None:
             execute_kwargs["on_tool_after_execute"] = on_tool_after_execute
         try:
-            return await self._execute_messages(session_id, chat_messages, **execute_kwargs)
+            result = await self._execute_messages(session_id, chat_messages, **execute_kwargs)
+            result.task_contract = task_contract
+            return result
         except TypeError as exc:
             message = str(exc)
             if (
@@ -288,4 +306,6 @@ class LlmCallService:
             execute_kwargs.pop("on_response_delta", None)
             execute_kwargs.pop("on_tool_input_delta", None)
             execute_kwargs.pop("on_reasoning_delta", None)
-            return await self._execute_messages(session_id, chat_messages, **execute_kwargs)
+            result = await self._execute_messages(session_id, chat_messages, **execute_kwargs)
+            result.task_contract = task_contract
+            return result

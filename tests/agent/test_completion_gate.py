@@ -1,6 +1,7 @@
 from opensprite.agent.completion_gate import CompletionGateService
 from opensprite.agent.auto_continue import AutoContinueService
 from opensprite.agent.execution import ExecutionResult
+from opensprite.agent.task_contract import TaskContractService, ToolEvidence
 from opensprite.agent.task_intent import TaskIntentService
 from opensprite.storage.base import StoredDelegatedTask
 
@@ -97,7 +98,7 @@ def test_completion_gate_marks_waiting_when_response_asks_for_input():
     assert result.should_update_active_task is True
 
 
-def test_completion_gate_marks_progress_only_search_response_incomplete():
+def test_completion_gate_requires_web_evidence_for_external_search_task():
     intent = TaskIntentService().classify("那幫我找找有沒有可以在reddit 搜尋的")
 
     result = CompletionGateService().evaluate(
@@ -107,7 +108,8 @@ def test_completion_gate_marks_progress_only_search_response_incomplete():
     )
 
     assert result.status == "incomplete"
-    assert result.reason == "assistant only reported progress without performing requested work"
+    assert result.reason == "required task evidence was not produced"
+    assert result.missing_evidence
 
 
 def test_completion_gate_marks_progress_only_fetch_response_incomplete():
@@ -137,7 +139,7 @@ def test_completion_gate_marks_direct_reply_instruction_complete_without_marker(
     assert result.reason == "direct reply instruction received a response"
 
 
-def test_auto_continue_allows_first_retry_after_progress_only_response():
+def test_auto_continue_allows_first_retry_after_missing_web_evidence():
     intent = TaskIntentService().classify("那幫我找找有沒有可以在reddit 搜尋的")
     completion = CompletionGateService().evaluate(
         task_intent=intent,
@@ -156,6 +158,7 @@ def test_auto_continue_allows_first_retry_after_progress_only_response():
     assert decision.should_continue is True
     assert decision.reason == "completion_gate_incomplete"
     assert "Continue the current task" in (decision.prompt or "")
+    assert "Required follow-up" in (decision.prompt or "")
 
 
 def test_auto_continue_allows_first_retry_after_progress_only_fetch_response():
@@ -178,6 +181,115 @@ def test_auto_continue_allows_first_retry_after_progress_only_fetch_response():
     assert decision.should_continue is True
     assert decision.reason == "completion_gate_incomplete"
     assert "Continue the current task" in (decision.prompt or "")
+
+
+def test_completion_gate_marks_chinese_action_ack_response_incomplete():
+    intent = TaskIntentService().classify(
+        "你把全部的prompt 都先抓出來 後 整合成一份 給我 有重疊部分 你看著處理"
+    )
+    response = "好，我來分析全部 4 張圖片並整理 Prompt！"
+    contract = TaskContractService.build(
+        task_intent=intent,
+        current_message=intent.objective,
+        history=[
+            {"role": "user", "content": "[Media-only message saved to workspace]\nImages: images/a.jpg"},
+            {"role": "user", "content": "[Media-only message saved to workspace]\nImages: images/b.jpg"},
+            {"role": "user", "content": "[Media-only message saved to workspace]\nImages: images/c.jpg"},
+            {"role": "user", "content": "[Media-only message saved to workspace]\nImages: images/d.jpg"},
+        ],
+    )
+
+    completion = CompletionGateService().evaluate(
+        task_intent=intent,
+        response_text=response,
+        execution_result=ExecutionResult(content=response, task_contract=contract),
+    )
+
+    exec_result = ExecutionResult(content=response, task_contract=contract)
+    decision = AutoContinueService(max_auto_continues=1).decide(
+        task_intent=intent,
+        completion_result=completion,
+        execution_result=exec_result,
+        attempts_used=0,
+        previous_response=response,
+    )
+
+    assert completion.status == "incomplete"
+    assert completion.reason == "required task evidence was not produced"
+    assert "image:images/a.jpg" in "\n".join(completion.missing_evidence)
+    assert decision.should_continue is True
+    assert "Continue the current task" in (decision.prompt or "")
+
+
+def test_completion_gate_marks_generic_chinese_intent_to_act_response_incomplete():
+    intent = TaskIntentService().classify(
+        "你把全部的prompt 都先抓出來 後 整合成一份 給我 有重疊部分 你看著處理"
+    )
+    response = "好，我馬上處理這 4 張圖片。"
+    contract = TaskContractService.build(
+        task_intent=intent,
+        current_message=intent.objective,
+        history=[
+            {"role": "user", "content": "[Media-only message saved to workspace]\nImages: images/a.jpg"},
+            {"role": "user", "content": "[Media-only message saved to workspace]\nImages: images/b.jpg"},
+            {"role": "user", "content": "[Media-only message saved to workspace]\nImages: images/c.jpg"},
+            {"role": "user", "content": "[Media-only message saved to workspace]\nImages: images/d.jpg"},
+        ],
+    )
+
+    completion = CompletionGateService().evaluate(
+        task_intent=intent,
+        response_text=response,
+        execution_result=ExecutionResult(content=response, task_contract=contract),
+    )
+
+    assert completion.status == "incomplete"
+    assert completion.reason == "required task evidence was not produced"
+
+
+def test_completion_gate_completes_media_contract_when_all_images_have_evidence():
+    intent = TaskIntentService().classify(
+        "你把全部的prompt 都先抓出來 後 整合成一份 給我 有重疊部分 你看著處理"
+    )
+    contract = TaskContractService.build(
+        task_intent=intent,
+        current_message=intent.objective,
+        history=[
+            {"role": "user", "content": "[Media-only message saved to workspace]\nImages: images/a.jpg"},
+            {"role": "user", "content": "[Media-only message saved to workspace]\nImages: images/b.jpg"},
+        ],
+    )
+
+    completion = CompletionGateService().evaluate(
+        task_intent=intent,
+        response_text="Prompt 1: ...\n\n整合版：...",
+        execution_result=ExecutionResult(
+            content="Prompt 1: ...\n\n整合版：...",
+            task_contract=contract,
+            executed_tool_calls=2,
+            tool_evidence=(
+                ToolEvidence(name="ocr_image", resource_ids=("image:images/a.jpg",), ok=True),
+                ToolEvidence(name="analyze_image", resource_ids=("image:images/b.jpg",), ok=True),
+            ),
+        ),
+    )
+
+    assert completion.status == "complete"
+    assert completion.missing_evidence == ()
+
+
+def test_completion_gate_does_not_mark_short_answer_as_progress_only():
+    intent = TaskIntentService().classify("你建議哪個方案？")
+    response = "我建議用 RSS，因為不需要申請 API key。"
+
+    completion = CompletionGateService().evaluate(
+        task_intent=intent,
+        response_text=response,
+        execution_result=ExecutionResult(content=response),
+    )
+
+    assert completion.status == "complete"
+    assert completion.reason == "one-turn intent received a response"
 
 
 def test_completion_gate_marks_internal_only_response_incomplete():

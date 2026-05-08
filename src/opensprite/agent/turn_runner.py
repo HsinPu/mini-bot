@@ -588,6 +588,10 @@ class AgentTurnRunner:
         completion_metadata = completion_result.to_metadata()
         completion_metadata["auto_continue_attempts"] = auto_continue_attempts
         response_metadata["completion_gate"] = completion_metadata
+        if aggregate_result.task_contract is not None:
+            response_metadata["task_contract"] = aggregate_result.task_contract.to_metadata()
+        if aggregate_result.tool_evidence:
+            response_metadata["tool_evidence"] = [item.to_metadata() for item in aggregate_result.tool_evidence]
         status_metadata["completion_status"] = completion_result.status
         response_metadata["delegated_tasks"] = [task.to_payload() for task in aggregate_result.delegated_tasks]
         response_metadata["active_delegate_task_id"] = aggregate_result.active_delegate_task_id
@@ -886,6 +890,19 @@ class AgentTurnRunner:
                 None,
             ),
             assistant_internal_only_response=any(result.assistant_internal_only_response for result in results),
+            task_contract=next(
+                (
+                    result.task_contract
+                    for result in results
+                    if result.task_contract is not None
+                ),
+                None,
+            ),
+            tool_evidence=tuple(
+                evidence
+                for result in results
+                for evidence in result.tool_evidence
+            ),
         )
 
     @staticmethod

@@ -9,6 +9,7 @@ from typing import Any
 from ..documents.active_task import infer_immediate_task_transition
 from ..storage.base import StoredDelegatedTask
 from .execution import ExecutionResult
+from .task_contract import TaskContractService, missing_evidence
 from .task_intent import TaskIntent
 
 
@@ -48,18 +49,6 @@ _INCOMPLETE_MARKERS = (
     "還需要",
 )
 _REVIEW_PROMPT_TYPES = frozenset({"code-reviewer", "security-reviewer", "async-concurrency-reviewer"})
-_PROGRESS_ONLY_MARKERS = (
-    "正在",
-    "請稍候",
-    "稍候",
-    "幫你搜尋",
-    "幫你找",
-    "我會搜尋",
-    "searching",
-    "looking up",
-    "let me search",
-    "let me look",
-)
 _DIRECT_REPLY_INSTRUCTION_MARKERS = (
     "only reply",
     "reply only",
@@ -107,6 +96,7 @@ class CompletionGateResult:
     review_summary: str = ""
     review_prompt_types: tuple[str, ...] = ()
     review_finding_count: int = 0
+    missing_evidence: tuple[str, ...] = ()
 
     def to_metadata(self) -> dict[str, Any]:
         """Return a JSON-safe run event payload."""
@@ -124,6 +114,7 @@ class CompletionGateResult:
             "review_summary": self.review_summary,
             "review_prompt_types": list(self.review_prompt_types),
             "review_finding_count": self.review_finding_count,
+            "missing_evidence": list(self.missing_evidence),
         }
         if self.active_task_status:
             payload["active_task_status"] = self.active_task_status
@@ -333,10 +324,21 @@ class CompletionGateService:
                 review_finding_count=review["finding_count"],
             )
 
-        if execution_result.executed_tool_calls == 0 and _looks_like_progress_only(response_text):
+        task_contract = execution_result.task_contract or TaskContractService.build(
+            task_intent=task_intent,
+            current_message=task_intent.objective,
+        )
+        missing = missing_evidence(
+            task_contract,
+            tuple(execution_result.tool_evidence or ()),
+            file_change_count=execution_result.file_change_count,
+            verification_passed=verification_passed,
+        )
+        if missing:
             return CompletionGateResult(
                 status="incomplete",
-                reason="assistant only reported progress without performing requested work",
+                reason="required task evidence was not produced",
+                active_task_detail="\n".join(f"- {item}" for item in missing),
                 verification_required=verification_required,
                 verification_attempted=verification_attempted,
                 verification_passed=verification_passed,
@@ -346,6 +348,7 @@ class CompletionGateService:
                 review_summary=review["summary"],
                 review_prompt_types=review["prompt_types"],
                 review_finding_count=review["finding_count"],
+                missing_evidence=missing,
             )
 
         if execution_result.executed_tool_calls == 0 and _looks_like_missing_requested_items(
@@ -481,15 +484,6 @@ def _looks_complete(response_text: str) -> bool:
 def _looks_incomplete(response_text: str) -> bool:
     lowered = re.sub(r"\s+", " ", (response_text or "").strip().lower())
     return any(marker in lowered for marker in _INCOMPLETE_MARKERS)
-
-
-def _looks_like_progress_only(response_text: str) -> bool:
-    normalized = re.sub(r"\s+", " ", (response_text or "").strip().lower())
-    if not normalized:
-        return False
-    if len(normalized) > 220:
-        return False
-    return any(marker in normalized for marker in _PROGRESS_ONLY_MARKERS)
 
 
 def _looks_like_direct_reply_instruction(objective: str) -> bool:
