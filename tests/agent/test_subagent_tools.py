@@ -1059,6 +1059,79 @@ def test_run_subagent_uses_prompt_provider_override_when_present(tmp_path, monke
     assert routed_provider.calls[0]["model"] == "review-model"
 
 
+def test_run_subagent_uses_profile_defaults_for_provider_override(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    session_workspace = get_session_workspace("telegram:user-a", workspace_root=workspace)
+    prompt_dir = session_workspace / "subagent_prompts"
+    prompt_dir.mkdir(parents=True)
+    (prompt_dir / "custom-reviewer.md").write_text(
+        "---\n"
+        "name: custom-reviewer\n"
+        "description: Custom reviewer with provider override.\n"
+        "tool_profile: read-only\n"
+        "llm_provider: minimax\n"
+        "llm_model: MiniMax-M2.7\n"
+        "---\n"
+        "Review the requested task.\n",
+        encoding="utf-8",
+    )
+    base_provider = ModelRoutingProvider()
+    routed_provider = ModelRoutingProvider()
+    captured = {}
+
+    def fail_create_llm(*args, **kwargs):
+        raise AssertionError("profile-backed providers should resolve through runtime")
+
+    def fake_create_llm_from_runtime(runtime):
+        captured["runtime"] = runtime
+        return routed_provider
+
+    monkeypatch.setattr("opensprite.agent.subagents.create_llm", fail_create_llm)
+    monkeypatch.setattr("opensprite.agent.subagents.create_llm_from_runtime", fake_create_llm_from_runtime)
+
+    agent = AgentLoop(
+        config=Config.load_agent_template_config(),
+        provider=base_provider,
+        storage=MemoryStorage(),
+        context_builder=FakeContextBuilder(workspace),
+        tools=ToolRegistry(),
+        memory_config=MemoryConfig(**Config.load_template_data()["memory"]),
+        tools_config=ToolsConfig(max_tool_iterations=3),
+        log_config=LogConfig(),
+        search_config=SearchConfig(),
+        user_profile_config=UserProfileConfig(**{**Config.load_template_data()["user_profile"], "enabled": False}),
+        llm_config=LLMsConfig(
+            temperature=0.7,
+            max_tokens=2048,
+            top_p=1.0,
+            frequency_penalty=0.0,
+            presence_penalty=0.0,
+            pass_decoding_params=True,
+            providers={
+                "minimax": ProviderConfig(
+                    provider="minimax",
+                    api_key="minimax-key",
+                    model="MiniMax-M2.7",
+                    enabled=True,
+                )
+            },
+            default="minimax",
+        ),
+        **Config.packaged_agent_llm_chat_kwargs(),
+    )
+    agent._current_session_id.set("telegram:user-a")
+    agent.app_home = tmp_path / "opensprite-home"
+
+    asyncio.run(agent.run_subagent("review this task", prompt_type="custom-reviewer"))
+
+    runtime = captured["runtime"]
+    assert runtime.provider_name == "minimax"
+    assert runtime.api_mode == "anthropic_messages"
+    assert runtime.base_url == "https://api.minimax.io/anthropic"
+    assert base_provider.calls == []
+    assert routed_provider.calls[0]["model"] == "MiniMax-M2.7"
+
+
 def test_run_subagent_strips_trailing_json_and_persists_structured_output(tmp_path):
     async def scenario():
         storage = MemoryStorage()

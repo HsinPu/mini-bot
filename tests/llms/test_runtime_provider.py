@@ -9,7 +9,7 @@ from opensprite.llms.minimax import MiniMaxLLM
 from opensprite.llms.openai_responses import OpenAIResponsesLLM
 from opensprite.llms.openrouter import OpenRouterLLM
 from opensprite.llms.registry import create_llm
-from opensprite.llms.runtime_provider import ProviderRuntimeError, resolve_provider_runtime
+from opensprite.llms.runtime_provider import ProviderRuntimeError, create_llm_from_runtime, resolve_provider_runtime
 
 
 def test_resolve_api_key_provider_runtime_defaults_to_chat_completions():
@@ -84,10 +84,37 @@ def test_resolve_codex_oauth_runtime_reads_auth_store(tmp_path):
     assert runtime.base_url == "https://chatgpt.com/backend-api/codex"
 
 
+def test_resolve_codex_runtime_applies_profile_defaults(tmp_path):
+    token_path = tmp_path / "auth" / "openai-codex.json"
+    token_path.parent.mkdir()
+    token_path.write_text(json.dumps({"access_token": "codex-token"}), encoding="utf-8")
+
+    runtime = resolve_provider_runtime(
+        ProviderConfig(provider="openai-codex", model="gpt-5.1-codex", enabled=True),
+        provider_name="openai-codex",
+        app_home=tmp_path,
+    )
+
+    assert runtime.provider_name == "openai-codex"
+    assert runtime.auth_type == "openai_codex_oauth"
+    assert runtime.api_key == "codex-token"
+    assert runtime.api_mode == "responses"
+    assert runtime.base_url == "https://chatgpt.com/backend-api/codex"
+
+
 def test_resolve_codex_oauth_runtime_requires_token(tmp_path):
     with pytest.raises(ProviderRuntimeError, match="OpenAI Codex OAuth is selected"):
         resolve_provider_runtime(
             ProviderConfig(provider="openai-codex", auth_type="openai_codex_oauth", model="gpt-5.1-codex"),
+            provider_name="openai-codex",
+            app_home=tmp_path,
+        )
+
+
+def test_resolve_codex_profile_defaults_require_token(tmp_path):
+    with pytest.raises(ProviderRuntimeError, match="OpenAI Codex OAuth is selected"):
+        resolve_provider_runtime(
+            ProviderConfig(provider="openai-codex", model="gpt-5.1-codex"),
             provider_name="openai-codex",
             app_home=tmp_path,
         )
@@ -113,6 +140,19 @@ def test_resolve_provider_runtime_includes_profile_request_options():
     )
 
     assert runtime.request_options == ("reasoning", "provider_sort", "require_parameters")
+
+
+def test_resolve_runtime_applies_optional_api_key_profile_defaults():
+    runtime = resolve_provider_runtime(
+        ProviderConfig(provider="ollama", model="qwen3:14b", enabled=True),
+        provider_name="ollama",
+    )
+
+    assert runtime.provider_name == "ollama"
+    assert runtime.auth_type == "optional_api_key"
+    assert runtime.api_key == "no-key-required"
+    assert runtime.api_mode == "chat_completions"
+    assert runtime.base_url == "http://localhost:11434/v1"
 
 
 def test_create_llm_filters_request_options_by_profile():
@@ -173,6 +213,39 @@ def test_create_llm_uses_anthropic_messages_provider_for_minimax_mode():
     assert provider.reasoning_effort == "high"
 
 
+def test_resolve_runtime_applies_minimax_profile_defaults():
+    runtime = resolve_provider_runtime(
+        ProviderConfig(provider="minimax", api_key="minimax-key", model="MiniMax-M2.7", enabled=True),
+        provider_name="minimax",
+    )
+    provider = create_llm_from_runtime(runtime)
+
+    assert runtime.auth_type == "api_key"
+    assert runtime.api_mode == "anthropic_messages"
+    assert runtime.base_url == "https://api.minimax.io/anthropic"
+    assert isinstance(provider, AnthropicMessagesLLM)
+    assert provider.base_url == "https://api.minimax.io/anthropic"
+
+
+def test_resolve_runtime_preserves_minimax_chat_completions_default_url():
+    runtime = resolve_provider_runtime(
+        ProviderConfig(
+            provider="minimax",
+            api_key="minimax-key",
+            model="MiniMax-M2.7",
+            api_mode="chat_completions",
+            enabled=True,
+        ),
+        provider_name="minimax",
+    )
+    provider = create_llm_from_runtime(runtime)
+
+    assert runtime.api_mode == "chat_completions"
+    assert runtime.base_url == ""
+    assert isinstance(provider, MiniMaxLLM)
+    assert provider.base_url == "https://api.minimax.io/v1"
+
+
 def test_create_llm_uses_minimax_profile_base_url_for_anthropic_mode():
     provider = create_llm(
         api_key="minimax-key",
@@ -198,6 +271,7 @@ def test_resolve_copilot_runtime_exchanges_github_token(monkeypatch):
 
     assert runtime.provider_name == "copilot"
     assert runtime.api_key == "copilot-api-token"
+    assert runtime.auth_type == "github_copilot_oauth"
     assert runtime.base_url == "https://api.githubcopilot.com"
     assert runtime.api_mode == "chat_completions"
 
@@ -219,6 +293,26 @@ def test_resolve_copilot_oauth_runtime_reads_auth_store(tmp_path, monkeypatch):
 
     assert runtime.api_key == "copilot-api-token"
     assert runtime.auth_type == "github_copilot_oauth"
+
+
+def test_resolve_copilot_runtime_applies_profile_defaults_from_auth_store(tmp_path, monkeypatch):
+    token_path = tmp_path / "auth" / "github-copilot.json"
+    token_path.parent.mkdir()
+    token_path.write_text(json.dumps({"access_token": "gho_raw"}), encoding="utf-8")
+    monkeypatch.setattr(
+        "opensprite.llms.runtime_provider.get_copilot_api_token",
+        lambda api_key: "copilot-api-token",
+    )
+
+    runtime = resolve_provider_runtime(
+        ProviderConfig(provider="copilot", model="gpt-5.4", enabled=True),
+        provider_name="copilot",
+        app_home=tmp_path,
+    )
+
+    assert runtime.api_key == "copilot-api-token"
+    assert runtime.auth_type == "github_copilot_oauth"
+    assert runtime.base_url == "https://api.githubcopilot.com"
 
 
 def test_resolve_copilot_runtime_falls_back_to_raw_token_on_exchange_error(monkeypatch):

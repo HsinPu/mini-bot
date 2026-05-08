@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from ..channels.registry import coerce_channel_instances, default_channel_instances
+from .llm_presets import provider_auth_type
 
 
 class ProviderConfig(BaseModel):
@@ -1204,7 +1205,12 @@ class Config:
     def is_llm_configured(self) -> bool:
         if self.llm.providers and self.llm.default and self.llm.default in self.llm.providers:
             provider = self.llm.providers[self.llm.default]
-            if provider.auth_type == "openai_codex_oauth":
+            provider_id = str(provider.provider or self.llm.default or "").strip()
+            auth_type = provider.auth_type
+            profile_auth_type = provider_auth_type(provider_id)
+            if auth_type == "api_key" and profile_auth_type != "api_key":
+                auth_type = profile_auth_type
+            if auth_type == "openai_codex_oauth":
                 if not provider.model:
                     return False
                 try:
@@ -1214,7 +1220,7 @@ class Config:
                 except Exception:
                     return False
                 return status.configured and status.expired is not True
-            if provider.auth_type == "github_copilot_oauth":
+            if auth_type == "github_copilot_oauth":
                 if not provider.model:
                     return False
                 try:
@@ -1224,7 +1230,7 @@ class Config:
                 except Exception:
                     return False
                 return status.configured
-            if provider.auth_type == "optional_api_key":
+            if auth_type == "optional_api_key":
                 return bool(provider.model)
             return bool((provider.api_key or provider.credential_id) and provider.model)
         return bool(self.llm.api_key)
