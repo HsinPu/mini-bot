@@ -152,45 +152,45 @@
               </select>
             </div>
 
-            <label class="settings-row">
+            <div class="settings-row">
               <div>
                 <strong>{{ copy.settings.general.workState.title }}</strong>
                 <span>{{ copy.settings.general.workState.description }}</span>
               </div>
-              <input v-model="form.showWorkState" class="switch" type="checkbox" />
-            </label>
+              <input v-model="form.showWorkState" class="switch" type="checkbox" :aria-label="copy.settings.general.workState.title" />
+            </div>
 
-            <label class="settings-row">
+            <div class="settings-row">
               <div>
                 <strong>{{ copy.settings.general.runHistory.title }}</strong>
                 <span>{{ copy.settings.general.runHistory.description }}</span>
               </div>
-              <input v-model="form.showRunHistory" class="switch" type="checkbox" />
-            </label>
+              <input v-model="form.showRunHistory" class="switch" type="checkbox" :aria-label="copy.settings.general.runHistory.title" />
+            </div>
 
-            <label class="settings-row">
+            <div class="settings-row">
               <div>
                 <strong>{{ copy.settings.general.runTimeline.title }}</strong>
                 <span>{{ copy.settings.general.runTimeline.description }}</span>
               </div>
-              <input v-model="form.showRunTimeline" class="switch" type="checkbox" />
-            </label>
+              <input v-model="form.showRunTimeline" class="switch" type="checkbox" :aria-label="copy.settings.general.runTimeline.title" />
+            </div>
 
-            <label class="settings-row">
+            <div class="settings-row">
               <div>
                 <strong>{{ copy.settings.general.runSummary.title }}</strong>
                 <span>{{ copy.settings.general.runSummary.description }}</span>
               </div>
-              <input v-model="form.showRunSummary" class="switch" type="checkbox" />
-            </label>
+              <input v-model="form.showRunSummary" class="switch" type="checkbox" :aria-label="copy.settings.general.runSummary.title" />
+            </div>
 
-            <label class="settings-row">
+            <div class="settings-row">
               <div>
                 <strong>{{ copy.settings.general.runTrace.title }}</strong>
                 <span>{{ copy.settings.general.runTrace.description }}</span>
               </div>
-              <input v-model="form.showRunTrace" class="switch" type="checkbox" />
-            </label>
+              <input v-model="form.showRunTrace" class="switch" type="checkbox" :aria-label="copy.settings.general.runTrace.title" />
+            </div>
           </div>
 
           <h3>{{ copy.settings.general.connectionTitle }}</h3>
@@ -227,7 +227,7 @@
               <input v-model="form.externalChatId" type="text" spellcheck="false" @change="$emit('save-connection-settings')" />
             </label>
 
-            <label class="settings-row">
+            <div class="settings-row">
               <div>
                 <strong>{{ copy.settings.general.gateway.title }}</strong>
                 <span>{{ connectionSwitchLabel }}</span>
@@ -235,11 +235,12 @@
               <input
                 class="switch"
                 type="checkbox"
+                :aria-label="copy.settings.general.gateway.title"
                 :checked="connectionSwitchChecked"
                 :disabled="connectionState === 'connecting'"
                 @change="$emit('toggle-connection', $event.target.checked)"
               />
-            </label>
+            </div>
           </div>
 
           <h3>{{ copy.settings.general.appearanceTitle }}</h3>
@@ -753,7 +754,7 @@
                 </div>
 
                 <div class="openrouter-options__grid">
-                  <label class="openrouter-option-row openrouter-option-row--switch">
+                  <div class="openrouter-option-row openrouter-option-row--switch">
                     <div>
                       <strong>{{ copy.settings.models.openRouter.reasoningEnabled }}</strong>
                       <span>{{ copy.settings.models.openRouter.reasoningEnabledDescription }}</span>
@@ -762,8 +763,9 @@
                       v-model="settingsState.openRouterOptions[selectedTextProvider.id].reasoningEnabled"
                       class="switch"
                       type="checkbox"
+                      :aria-label="copy.settings.models.openRouter.reasoningEnabled"
                     />
-                  </label>
+                  </div>
                   <label class="openrouter-option-field">
                     <span>{{ copy.settings.models.openRouter.reasoningEffort }}</span>
                     <select v-model="settingsState.openRouterOptions[selectedTextProvider.id].reasoningEffort">
@@ -784,7 +786,7 @@
                       :placeholder="copy.settings.models.openRouter.none"
                     />
                   </label>
-                  <label class="openrouter-option-row openrouter-option-row--switch">
+                  <div class="openrouter-option-row openrouter-option-row--switch">
                     <div>
                       <strong>{{ copy.settings.models.openRouter.reasoningExclude }}</strong>
                       <span>{{ copy.settings.models.openRouter.reasoningExcludeDescription }}</span>
@@ -793,8 +795,9 @@
                       v-model="settingsState.openRouterOptions[selectedTextProvider.id].reasoningExclude"
                       class="switch"
                       type="checkbox"
+                      :aria-label="copy.settings.models.openRouter.reasoningExclude"
                     />
-                  </label>
+                  </div>
                   <label class="openrouter-option-field">
                     <span>{{ copy.settings.models.openRouter.providerSort }}</span>
                     <select v-model="settingsState.openRouterOptions[selectedTextProvider.id].providerSort">
@@ -804,7 +807,7 @@
                       <option value="latency">latency</option>
                     </select>
                   </label>
-                  <label class="openrouter-option-row openrouter-option-row--switch">
+                  <div class="openrouter-option-row openrouter-option-row--switch">
                     <div>
                       <strong>{{ copy.settings.models.openRouter.requireParameters }}</strong>
                       <span>{{ copy.settings.models.openRouter.requireParametersDescription }}</span>
@@ -813,8 +816,9 @@
                       v-model="settingsState.openRouterOptions[selectedTextProvider.id].requireParameters"
                       class="switch"
                       type="checkbox"
+                      :aria-label="copy.settings.models.openRouter.requireParameters"
                     />
-                  </label>
+                  </div>
                 </div>
 
                 <div class="openrouter-options__actions">
@@ -841,7 +845,7 @@
 
           <h3>{{ copy.settings.models.requestTitle }}</h3>
           <div class="settings-card">
-            <label class="settings-row">
+            <div class="settings-row">
               <div>
                 <strong>{{ copy.settings.models.passDecodingParams.title }}</strong>
                 <span>{{ copy.settings.models.passDecodingParams.description }}</span>
@@ -850,10 +854,11 @@
                 v-model="settingsState.llm.pass_decoding_params"
                 class="switch"
                 type="checkbox"
+                :aria-label="copy.settings.models.passDecodingParams.title"
                 :disabled="settingsState.llmLoading"
                 @change="$emit('save-llm-settings')"
               />
-            </label>
+            </div>
           </div>
 
           <h3>{{ copy.settings.models.effectiveRequest.title }}</h3>
@@ -902,7 +907,7 @@
               </div>
             </div>
 
-            <label class="settings-row">
+            <div class="settings-row">
               <div>
                 <strong>{{ copy.settings.models.enableMediaModel }}</strong>
                 <span>{{ category.description }}</span>
@@ -911,9 +916,10 @@
                 v-model="settingsState.mediaSelections[category.key].enabled"
                 class="switch"
                 type="checkbox"
+                :aria-label="copy.settings.models.enableMediaModel"
                 @change="syncMediaSelection(category.key)"
               />
-            </label>
+            </div>
 
             <div class="model-select-row">
               <label v-if="settingsState.mediaSelections[category.key].enabled">
@@ -1289,7 +1295,7 @@
 
           <h3>{{ copy.settings.log.title }}</h3>
           <div class="settings-card settings-card--form">
-            <label class="settings-row">
+            <div class="settings-row">
               <div>
                 <strong>{{ copy.settings.log.enabled.title }}</strong>
                 <span>{{ copy.settings.log.enabled.description }}</span>
@@ -1298,9 +1304,10 @@
                 v-model="settingsState.logForm.enabled"
                 class="switch"
                 type="checkbox"
+                :aria-label="copy.settings.log.enabled.title"
                 :disabled="settingsState.logLoading"
               />
-            </label>
+            </div>
 
             <label class="settings-row settings-row--field">
               <div>
@@ -1328,7 +1335,7 @@
               />
             </label>
 
-            <label class="settings-row">
+            <div class="settings-row">
               <div>
                 <strong>{{ copy.settings.log.systemPrompt.title }}</strong>
                 <span>{{ copy.settings.log.systemPrompt.description }}</span>
@@ -1337,9 +1344,10 @@
                 v-model="settingsState.logForm.logSystemPrompt"
                 class="switch"
                 type="checkbox"
+                :aria-label="copy.settings.log.systemPrompt.title"
                 :disabled="settingsState.logLoading || !settingsState.logForm.enabled"
               />
-            </label>
+            </div>
 
             <label class="settings-row settings-row--field">
               <div>
@@ -1355,7 +1363,7 @@
               />
             </label>
 
-            <label class="settings-row">
+            <div class="settings-row">
               <div>
                 <strong>{{ copy.settings.log.reasoningDetails.title }}</strong>
                 <span>{{ copy.settings.log.reasoningDetails.description }}</span>
@@ -1364,9 +1372,10 @@
                 v-model="settingsState.logForm.logReasoningDetails"
                 class="switch"
                 type="checkbox"
+                :aria-label="copy.settings.log.reasoningDetails.title"
                 :disabled="settingsState.logLoading || !settingsState.logForm.enabled"
               />
-            </label>
+            </div>
 
             <div class="settings-row">
               <div>
@@ -2088,13 +2097,13 @@
             <textarea v-model="settingsState.cronJobForm.message" rows="3" spellcheck="false"></textarea>
           </label>
 
-          <label class="settings-row schedule-editor__deliver">
+          <div class="settings-row schedule-editor__deliver">
             <div>
               <strong>{{ copy.settings.schedule.deliver.title }}</strong>
               <span>{{ copy.settings.schedule.deliver.description }}</span>
             </div>
-            <input v-model="settingsState.cronJobForm.deliver" class="switch" type="checkbox" />
-          </label>
+            <input v-model="settingsState.cronJobForm.deliver" class="switch" type="checkbox" :aria-label="copy.settings.schedule.deliver.title" />
+          </div>
 
           <button class="primary-button provider-connect-dialog__submit" type="submit" :disabled="settingsState.cronJobsLoading">
             {{ settingsState.cronJobForm.jobId ? copy.settings.schedule.updateJob : copy.settings.schedule.createJob }}
