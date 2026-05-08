@@ -17,6 +17,7 @@ from opensprite.context.paths import get_session_workspace
 from opensprite.cron import CronManager, CronSchedule, CronService
 from opensprite.storage import MemoryStorage, StoredDelegatedTask, StoredMessage, StoredWorkState
 from opensprite.storage.base import StoredBackgroundProcess
+from opensprite.tools.process_runtime import BackgroundProcessManager
 
 
 class EchoAgent:
@@ -837,6 +838,7 @@ async def _run_web_run_events_api():
 
     agent = EchoAgent()
     agent.storage = storage
+    agent.background_process_manager = BackgroundProcessManager(storage=storage)
     queue = MessageQueue(agent)
     adapter = WebAdapter(
         mq=queue,
@@ -939,6 +941,23 @@ async def _run_web_run_events_api():
                 "run_event_schema",
             ]
             assert eval_smoke_payload["background_process_counts"] == {"completed": 1, "lost": 1, "running": 2}
+
+            async with session.post(f"http://127.0.0.1:{port}/api/evals/long-task/controlled") as resp:
+                assert resp.status == 200
+                controlled_payload = await resp.json()
+
+            assert controlled_payload["ok"] is True, controlled_payload["checks"]
+            assert [check["id"] for check in controlled_payload["checks"]] == [
+                "process_record_created",
+                "process_completed",
+                "started_event_recorded",
+                "completed_event_recorded",
+                "output_tail_captured",
+            ]
+            assert controlled_payload["process"]["state"] == "exited"
+            assert controlled_payload["process"]["exit_code"] == 0
+            assert "background_process.started" in controlled_payload["event_types"]
+            assert "background_process.completed" in controlled_payload["event_types"]
 
             async with session.post(f"http://127.0.0.1:{port}/api/evals/task-completion/smoke") as resp:
                 assert resp.status == 200

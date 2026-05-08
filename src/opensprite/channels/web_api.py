@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
+import shlex
+import subprocess
+import sys
+import time
 from typing import Any
+from uuid import uuid4
 
 from aiohttp import web
 
@@ -19,6 +26,7 @@ from ..runs.schema import (
     serialize_diff_summary,
 )
 from ..runs.session_entries import serialize_run_trace_entries, serialize_session_entries
+from ..tools.shell_runtime import CapturedOutputChunk, start_shell_process
 
 
 class WebApiHandlers:
@@ -242,6 +250,125 @@ class WebApiHandlers:
                 "checks": checks,
                 "background_process_counts": process_counts,
                 "metrics": _long_task_eval_metrics(),
+            }
+        )
+
+    async def handle_long_task_eval_controlled(self, request: web.Request) -> web.Response:
+        adapter = self.adapter
+        agent = adapter._get_agent()
+        storage = adapter._get_storage()
+        manager = getattr(agent, "background_process_manager", None) if agent is not None else None
+        if storage is None:
+            raise web.HTTPServiceUnavailable(text="Run trace storage is not available")
+        if manager is None:
+            raise web.HTTPServiceUnavailable(text="Background process manager is not available")
+
+        session_id = adapter._coerce_optional_text(
+            request.query.get("session_id"),
+            default="web:long-task-eval",
+        )
+        run_id = f"run_long_task_eval_{uuid4().hex}"
+        created_at = time.time()
+        await storage.create_run(
+            session_id,
+            run_id,
+            status="running",
+            metadata={"kind": "long_task_eval_controlled"},
+            created_at=created_at,
+        )
+
+        command = _long_task_controlled_command()
+        output_chunks: list[CapturedOutputChunk] = []
+        process, read_tasks = await start_shell_process(command, cwd=None, output_chunks=output_chunks)
+        background_session = manager.register_session(
+            command=command,
+            cwd=None,
+            process=process,
+            read_tasks=read_tasks,
+            output_chunks=output_chunks,
+            timeout_seconds=5.0,
+            drain_timeout=5.0,
+            exit_notifier=None,
+            notify_on_exit=False,
+            owner_session_id=session_id,
+            owner_run_id=run_id,
+            owner_channel=adapter._channel_from_session(session_id),
+            owner_external_chat_id=adapter._external_chat_id_from_session(session_id),
+        )
+        await asyncio.sleep(0)
+
+        if background_session.watch_task is not None:
+            done, _ = await asyncio.wait({background_session.watch_task}, timeout=5.0)
+            if not done:
+                await manager.kill_session(background_session.session_id)
+
+        stored_process = await storage.get_background_process(background_session.session_id)
+        events = await storage.get_run_events(session_id, run_id)
+        event_types = [event.event_type for event in events]
+        await storage.update_run_status(
+            session_id,
+            run_id,
+            "completed" if stored_process is not None and stored_process.exit_code == 0 else "failed",
+            metadata={"kind": "long_task_eval_controlled", "event_types": event_types},
+            finished_at=time.time(),
+        )
+
+        checks = [
+            {
+                "id": "process_record_created",
+                "label": "Background process record was created",
+                "ok": stored_process is not None,
+                "detail": background_session.session_id,
+            },
+            {
+                "id": "process_completed",
+                "label": "Controlled process completed successfully",
+                "ok": (
+                    stored_process is not None
+                    and stored_process.state == "exited"
+                    and stored_process.exit_code == 0
+                ),
+                "detail": (
+                    f"state={getattr(stored_process, 'state', None)} "
+                    f"exit_code={getattr(stored_process, 'exit_code', None)}"
+                ),
+            },
+            {
+                "id": "started_event_recorded",
+                "label": "Started event was recorded",
+                "ok": "background_process.started" in event_types,
+                "detail": ", ".join(event_types) or "none",
+            },
+            {
+                "id": "completed_event_recorded",
+                "label": "Completed event was recorded",
+                "ok": "background_process.completed" in event_types,
+                "detail": ", ".join(event_types) or "none",
+            },
+            {
+                "id": "output_tail_captured",
+                "label": "Output tail was captured",
+                "ok": (
+                    stored_process is not None
+                    and "opensprite-long-task-controlled:done" in stored_process.output_tail
+                ),
+                "detail": (
+                    getattr(stored_process, "output_tail", "")[-160:]
+                    if stored_process is not None
+                    else "missing process"
+                ),
+            },
+        ]
+
+        return web.json_response(
+            {
+                "ok": all(check["ok"] for check in checks),
+                "session_id": session_id,
+                "run_id": run_id,
+                "process_session_id": background_session.session_id,
+                "checks": checks,
+                "event_types": event_types,
+                "process": _serialize_background_process(stored_process) if stored_process is not None else None,
             }
         )
 
@@ -675,6 +802,19 @@ def _long_task_eval_scenarios() -> list[dict[str, str]]:
         {"id": "parallel_processes", "label": "Multiple concurrent background processes"},
         {"id": "agent_summary", "label": "Agent summary after process completion"},
     ]
+
+
+def _long_task_controlled_command() -> str:
+    code = (
+        "import time; "
+        "print('opensprite-long-task-controlled:start', flush=True); "
+        "time.sleep(0.05); "
+        "print('opensprite-long-task-controlled:done', flush=True)"
+    )
+    argv = [sys.executable, "-u", "-c", code]
+    if os.name == "nt":
+        return subprocess.list2cmdline(argv)
+    return shlex.join(argv)
 
 
 def _serialize_background_process(process: Any) -> dict[str, Any]:

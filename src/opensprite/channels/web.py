@@ -1908,6 +1908,7 @@ class WebAdapter(MessageAdapter):
         self.app.router.add_get("/api/background-processes", self._api.handle_background_processes)
         self.app.router.add_get("/api/evals/long-task", self._api.handle_long_task_eval_status)
         self.app.router.add_post("/api/evals/long-task/smoke", self._api.handle_long_task_eval_smoke)
+        self.app.router.add_post("/api/evals/long-task/controlled", self._api.handle_long_task_eval_controlled)
         self.app.router.add_post("/api/evals/task-completion/smoke", self._api.handle_task_completion_eval_smoke)
         self.app.router.add_post("/api/evals/task-completion/run", self._api.handle_task_completion_eval_run)
         self.app.router.add_get("/api/evals/task-completion/history", self._api.handle_task_completion_eval_history)
