@@ -767,6 +767,54 @@ export const DISPLAY_COPY = {
         customPlaceholder: "輸入模型名稱",
         useCustom: "使用自訂模型",
         requestTitle: "請求參數",
+        decodingMode: {
+          title: "請求參數模式",
+          description: "選擇通用解碼參數要交給 provider 預設，或由 OpenSprite 套用一組預設值。",
+          options: {
+            provider_default: {
+              label: "廠商預設",
+              description: "不送通用解碼參數，使用 provider 或模型自己的預設值。",
+            },
+            precise: {
+              label: "精準",
+              description: "低隨機性，回答更穩定，適合程式、修 bug 與規格工作。",
+            },
+            balanced: {
+              label: "平衡",
+              description: "兼顧穩定與彈性，適合一般聊天、分析與寫作。",
+            },
+            creative: {
+              label: "創意",
+              description: "提高變化度，適合發想、命名、文案與探索。",
+            },
+            custom: {
+              label: "自訂",
+              description: "手動設定 temperature、max tokens、top_p 與 penalties。",
+            },
+          },
+        },
+        decodingFields: {
+          temperature: {
+            title: "Temperature",
+            description: "越低越穩定，越高越有變化。",
+          },
+          maxTokens: {
+            title: "Max tokens",
+            description: "限制單次回覆長度，不代表上下文窗口。",
+          },
+          topP: {
+            title: "Top-p",
+            description: "控制候選 token 範圍，通常維持 0.9 到 1.0。",
+          },
+          frequencyPenalty: {
+            title: "Frequency penalty",
+            description: "提高後會降低重複用詞。",
+          },
+          presencePenalty: {
+            title: "Presence penalty",
+            description: "提高後會更鼓勵新主題。",
+          },
+        },
         passDecodingParams: {
           title: "傳送解碼參數",
           description: "開啟時會送出 temperature、max tokens、top_p 與 penalties；關閉時交給 provider 或模型預設值。",
@@ -2095,6 +2143,54 @@ export const DISPLAY_COPY = {
         customPlaceholder: "Enter a model name",
         useCustom: "Use custom model",
         requestTitle: "Request parameters",
+        decodingMode: {
+          title: "Request parameter mode",
+          description: "Choose whether common decoding parameters use provider defaults or an OpenSprite preset.",
+          options: {
+            provider_default: {
+              label: "Provider default",
+              description: "Do not send common decoding parameters; use the provider or model defaults.",
+            },
+            precise: {
+              label: "Precise",
+              description: "Lower randomness for stable answers, coding, bug fixes, and spec-driven work.",
+            },
+            balanced: {
+              label: "Balanced",
+              description: "Balances stability and flexibility for chat, analysis, and writing.",
+            },
+            creative: {
+              label: "Creative",
+              description: "Higher variation for ideation, naming, copywriting, and exploration.",
+            },
+            custom: {
+              label: "Custom",
+              description: "Manually set temperature, max tokens, top_p, and penalties.",
+            },
+          },
+        },
+        decodingFields: {
+          temperature: {
+            title: "Temperature",
+            description: "Lower is more stable; higher is more varied.",
+          },
+          maxTokens: {
+            title: "Max tokens",
+            description: "Limits response length; this is not the context window.",
+          },
+          topP: {
+            title: "Top-p",
+            description: "Controls the candidate token range; 0.9 to 1.0 is typical.",
+          },
+          frequencyPenalty: {
+            title: "Frequency penalty",
+            description: "Higher values reduce repeated wording.",
+          },
+          presencePenalty: {
+            title: "Presence penalty",
+            description: "Higher values encourage new topics.",
+          },
+        },
         passDecodingParams: {
           title: "Send decoding parameters",
           description: "When enabled, requests include temperature, max tokens, top_p, and penalties. Turn it off to use provider or model defaults.",

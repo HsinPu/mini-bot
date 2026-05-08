@@ -90,7 +90,9 @@ export function createSettingsState() {
     llmError: "",
     llmNotice: "",
     llm: {
-      pass_decoding_params: true,
+      decoding_mode: "provider_default",
+      decoding_modes: ["provider_default", "precise", "balanced", "creative", "custom"],
+      pass_decoding_params: false,
       decoding: {
         temperature: null,
         max_tokens: null,

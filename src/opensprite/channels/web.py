@@ -76,6 +76,30 @@ class WebAdapter(MessageAdapter):
     """WebSocket adapter for browser-based chat clients."""
 
     LOG_LEVELS = ("TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL")
+    LLM_DECODING_MODE_ORDER = ("provider_default", "precise", "balanced", "creative", "custom")
+    LLM_DECODING_PRESETS = {
+        "precise": {
+            "temperature": 0.25,
+            "max_tokens": 32768,
+            "top_p": 0.95,
+            "frequency_penalty": 0.0,
+            "presence_penalty": 0.0,
+        },
+        "balanced": {
+            "temperature": 0.7,
+            "max_tokens": 32768,
+            "top_p": 1.0,
+            "frequency_penalty": 0.0,
+            "presence_penalty": 0.0,
+        },
+        "creative": {
+            "temperature": 1.0,
+            "max_tokens": 32768,
+            "top_p": 0.95,
+            "frequency_penalty": 0.0,
+            "presence_penalty": 0.0,
+        },
+    }
 
     DEFAULT_CONFIG = {
         "host": "127.0.0.1",
@@ -453,6 +477,54 @@ class WebAdapter(MessageAdapter):
             "presence_penalty": llm.presence_penalty,
         }
 
+    @classmethod
+    def _llm_decoding_mode(cls, config: Config) -> str:
+        if not config.llm.pass_decoding_params:
+            return "provider_default"
+        decoding = cls._llm_decoding_payload(config)
+        for mode, preset in cls.LLM_DECODING_PRESETS.items():
+            if all(decoding.get(key) == value for key, value in preset.items()):
+                return mode
+        return "custom"
+
+    @classmethod
+    def _apply_llm_decoding_preset(cls, config: Config, mode: str) -> None:
+        if mode == "provider_default":
+            config.llm.pass_decoding_params = False
+            return
+        preset = cls.LLM_DECODING_PRESETS.get(mode)
+        if preset is None:
+            raise web.HTTPBadRequest(text=f"decoding_mode must be one of: {', '.join(cls.LLM_DECODING_MODE_ORDER)}")
+        config.llm.pass_decoding_params = True
+        for key, value in preset.items():
+            setattr(config.llm, key, value)
+
+    @staticmethod
+    def _coerce_llm_float(value: Any, *, field: str, minimum: float | None = None, maximum: float | None = None) -> float:
+        try:
+            number = float(value)
+        except (TypeError, ValueError) as exc:
+            raise web.HTTPBadRequest(text=f"{field} must be a number") from exc
+        if minimum is not None and number < minimum:
+            raise web.HTTPBadRequest(text=f"{field} must be at least {minimum}")
+        if maximum is not None and number > maximum:
+            raise web.HTTPBadRequest(text=f"{field} must be at most {maximum}")
+        return number
+
+    @classmethod
+    def _apply_custom_llm_decoding(cls, config: Config, decoding: dict[str, Any]) -> None:
+        config.llm.pass_decoding_params = True
+        if "temperature" in decoding:
+            config.llm.temperature = cls._coerce_llm_float(decoding["temperature"], field="temperature")
+        if "max_tokens" in decoding:
+            config.llm.max_tokens = cls._coerce_positive_int(decoding["max_tokens"], field="max_tokens", default=config.llm.max_tokens, minimum=1, maximum=1_000_000)
+        if "top_p" in decoding:
+            config.llm.top_p = cls._coerce_llm_float(decoding["top_p"], field="top_p", minimum=0.0, maximum=1.0)
+        if "frequency_penalty" in decoding:
+            config.llm.frequency_penalty = cls._coerce_llm_float(decoding["frequency_penalty"], field="frequency_penalty", minimum=-2.0, maximum=2.0)
+        if "presence_penalty" in decoding:
+            config.llm.presence_penalty = cls._coerce_llm_float(decoding["presence_penalty"], field="presence_penalty", minimum=-2.0, maximum=2.0)
+
     @staticmethod
     def _anthropic_reasoning_budget(effort: str | None) -> int:
         budgets = {"minimal": 4000, "low": 4000, "medium": 8000, "high": 16000, "xhigh": 32000}
@@ -526,6 +598,8 @@ class WebAdapter(MessageAdapter):
     @classmethod
     def _llm_payload(cls, config: Config) -> dict[str, Any]:
         return {
+            "decoding_mode": cls._llm_decoding_mode(config),
+            "decoding_modes": list(cls.LLM_DECODING_MODE_ORDER),
             "pass_decoding_params": bool(config.llm.pass_decoding_params),
             "decoding": cls._llm_decoding_payload(config),
             "effective_request": cls._effective_llm_request_payload(config),
@@ -1579,7 +1653,17 @@ class WebAdapter(MessageAdapter):
         body = await self._read_json_body(request)
         config_path = self._get_config_path()
         config = Config.load(config_path)
-        config.llm.pass_decoding_params = bool(body.get("pass_decoding_params"))
+        decoding_mode = self._coerce_optional_text(body.get("decoding_mode"))
+        if decoding_mode:
+            if decoding_mode == "custom":
+                decoding = body.get("decoding")
+                if decoding is not None and not isinstance(decoding, dict):
+                    raise web.HTTPBadRequest(text="decoding must be a JSON object")
+                self._apply_custom_llm_decoding(config, decoding or {})
+            else:
+                self._apply_llm_decoding_preset(config, decoding_mode)
+        elif "pass_decoding_params" in body:
+            config.llm.pass_decoding_params = bool(body.get("pass_decoding_params"))
         config.save(config_path)
         payload = {
             "llm": self._llm_payload(config),

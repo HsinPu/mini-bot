@@ -2257,7 +2257,9 @@ async def _run_web_settings_provider_api(tmp_path: Path, monkeypatch):
                 assert resp.status == 200
                 llm_payload = await resp.json()
 
-            assert llm_payload["llm"]["pass_decoding_params"] is True
+            assert llm_payload["llm"]["decoding_mode"] == "provider_default"
+            assert "precise" in llm_payload["llm"]["decoding_modes"]
+            assert llm_payload["llm"]["pass_decoding_params"] is False
             assert llm_payload["llm"]["decoding"] == {
                 "temperature": 0.25,
                 "max_tokens": 32768,
@@ -2266,31 +2268,68 @@ async def _run_web_settings_provider_api(tmp_path: Path, monkeypatch):
                 "presence_penalty": 0.0,
             }
             assert llm_payload["llm"]["effective_request"]["configured"] is False
-            assert llm_payload["llm"]["effective_request"]["decoding"]["status"] == "sent"
+            assert llm_payload["llm"]["effective_request"]["decoding"]["status"] == "omitted"
 
             async with session.put(
                 f"http://127.0.0.1:{port}/api/settings/llm",
-                json={"pass_decoding_params": False},
+                json={"decoding_mode": "balanced"},
             ) as resp:
                 assert resp.status == 200
                 llm_update_payload = await resp.json()
 
-            assert llm_update_payload["llm"]["pass_decoding_params"] is False
+            assert llm_update_payload["llm"]["decoding_mode"] == "balanced"
+            assert llm_update_payload["llm"]["pass_decoding_params"] is True
             assert llm_update_payload["llm"]["effective_request"]["decoding"] == {
-                "status": "omitted",
+                "status": "sent",
                 "params": {
-                    "temperature": None,
-                    "max_tokens": None,
-                    "top_p": None,
-                    "frequency_penalty": None,
-                    "presence_penalty": None,
+                    "temperature": 0.7,
+                    "max_tokens": 32768,
+                    "top_p": 1.0,
+                    "frequency_penalty": 0.0,
+                    "presence_penalty": 0.0,
                 },
             }
             assert llm_update_payload["restart_required"] is False
             assert llm_update_payload["runtime_reloaded"] is True
-            assert agent.reloads[-1][2] is False
+            assert agent.reloads[-1][2] is True
             loaded_config = Config.from_json(config_path)
-            assert loaded_config.llm.pass_decoding_params is False
+            assert loaded_config.llm.pass_decoding_params is True
+            assert loaded_config.llm.temperature == 0.7
+
+            async with session.put(
+                f"http://127.0.0.1:{port}/api/settings/llm",
+                json={
+                    "decoding_mode": "custom",
+                    "decoding": {
+                        "temperature": 0.4,
+                        "max_tokens": 12000,
+                        "top_p": 0.8,
+                        "frequency_penalty": 0.1,
+                        "presence_penalty": 0.2,
+                    },
+                },
+            ) as resp:
+                assert resp.status == 200
+                custom_llm_payload = await resp.json()
+
+            assert custom_llm_payload["llm"]["decoding_mode"] == "custom"
+            assert custom_llm_payload["llm"]["decoding"] == {
+                "temperature": 0.4,
+                "max_tokens": 12000,
+                "top_p": 0.8,
+                "frequency_penalty": 0.1,
+                "presence_penalty": 0.2,
+            }
+
+            async with session.put(
+                f"http://127.0.0.1:{port}/api/settings/llm",
+                json={"decoding_mode": "provider_default"},
+            ) as resp:
+                assert resp.status == 200
+                provider_default_payload = await resp.json()
+
+            assert provider_default_payload["llm"]["decoding_mode"] == "provider_default"
+            assert provider_default_payload["llm"]["pass_decoding_params"] is False
 
             async with session.get(f"http://127.0.0.1:{port}/api/settings/log") as resp:
                 assert resp.status == 200

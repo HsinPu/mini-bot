@@ -381,7 +381,10 @@
 :root[data-color-scheme="dark"] .settings-row select:focus,
 :root[data-color-scheme="dark"] .settings-row input[type="text"]:hover,
 :root[data-color-scheme="dark"] .settings-row input[type="text"]:focus,
+:root[data-color-scheme="dark"] .settings-row input[type="number"]:hover,
+:root[data-color-scheme="dark"] .settings-row input[type="number"]:focus,
 :root[data-color-scheme="dark"] .settings-row--field input[type="text"],
+:root[data-color-scheme="dark"] .settings-row--field input[type="number"],
 :root[data-color-scheme="dark"] .settings-row--field select,
 :root[data-color-scheme="dark"] kbd {
   background: var(--surface);
@@ -5022,7 +5025,8 @@ button:disabled {
 }
 
 .settings-row select,
-.settings-row input[type="text"] {
+.settings-row input[type="text"],
+.settings-row input[type="number"] {
   min-width: 190px;
   min-height: 34px;
   padding: 0 10px;
@@ -5035,6 +5039,8 @@ button:disabled {
 .settings-row select:hover,
 .settings-row input[type="text"]:hover,
 .settings-row input[type="text"]:focus,
+.settings-row input[type="number"]:hover,
+.settings-row input[type="number"]:focus,
 .settings-row select:focus {
   border-color: #d7d7d7;
   background: #ffffff;
@@ -5045,6 +5051,7 @@ button:disabled {
 }
 
 .settings-row--field input[type="text"],
+.settings-row--field input[type="number"],
 .settings-row--field select {
   width: 100%;
   min-width: 0;

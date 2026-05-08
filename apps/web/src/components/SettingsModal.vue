@@ -848,20 +848,59 @@
 
           <h3>{{ copy.settings.models.requestTitle }}</h3>
           <div class="settings-card">
-            <div class="settings-row">
+            <label class="settings-row settings-row--field">
               <div>
-                <strong>{{ copy.settings.models.passDecodingParams.title }}</strong>
-                <span>{{ copy.settings.models.passDecodingParams.description }}</span>
+                <strong>{{ copy.settings.models.decodingMode.title }}</strong>
+                <span>{{ selectedDecodingModeDescription }}</span>
               </div>
-              <input
-                v-model="settingsState.llm.pass_decoding_params"
-                class="switch"
-                type="checkbox"
-                :aria-label="copy.settings.models.passDecodingParams.title"
+              <select
+                v-model="settingsState.llm.decoding_mode"
                 :disabled="settingsState.llmLoading"
-                @change="$emit('save-llm-settings')"
-              />
-            </div>
+                @change="handleDecodingModeChange"
+              >
+                <option v-for="option in decodingModeOptions" :key="option.id" :value="option.id">
+                  {{ option.label }}
+                </option>
+              </select>
+            </label>
+
+            <template v-if="settingsState.llm.decoding_mode === 'custom'">
+              <label class="settings-row settings-row--field">
+                <div>
+                  <strong>{{ copy.settings.models.decodingFields.temperature.title }}</strong>
+                  <span>{{ copy.settings.models.decodingFields.temperature.description }}</span>
+                </div>
+                <input v-model.number="settingsState.llm.decoding.temperature" type="number" step="0.05" :disabled="settingsState.llmLoading" @change="$emit('save-llm-settings')" />
+              </label>
+              <label class="settings-row settings-row--field">
+                <div>
+                  <strong>{{ copy.settings.models.decodingFields.maxTokens.title }}</strong>
+                  <span>{{ copy.settings.models.decodingFields.maxTokens.description }}</span>
+                </div>
+                <input v-model.number="settingsState.llm.decoding.max_tokens" type="number" min="1" step="1" :disabled="settingsState.llmLoading" @change="$emit('save-llm-settings')" />
+              </label>
+              <label class="settings-row settings-row--field">
+                <div>
+                  <strong>{{ copy.settings.models.decodingFields.topP.title }}</strong>
+                  <span>{{ copy.settings.models.decodingFields.topP.description }}</span>
+                </div>
+                <input v-model.number="settingsState.llm.decoding.top_p" type="number" min="0" max="1" step="0.05" :disabled="settingsState.llmLoading" @change="$emit('save-llm-settings')" />
+              </label>
+              <label class="settings-row settings-row--field">
+                <div>
+                  <strong>{{ copy.settings.models.decodingFields.frequencyPenalty.title }}</strong>
+                  <span>{{ copy.settings.models.decodingFields.frequencyPenalty.description }}</span>
+                </div>
+                <input v-model.number="settingsState.llm.decoding.frequency_penalty" type="number" min="-2" max="2" step="0.1" :disabled="settingsState.llmLoading" @change="$emit('save-llm-settings')" />
+              </label>
+              <label class="settings-row settings-row--field">
+                <div>
+                  <strong>{{ copy.settings.models.decodingFields.presencePenalty.title }}</strong>
+                  <span>{{ copy.settings.models.decodingFields.presencePenalty.description }}</span>
+                </div>
+                <input v-model.number="settingsState.llm.decoding.presence_penalty" type="number" min="-2" max="2" step="0.1" :disabled="settingsState.llmLoading" @change="$emit('save-llm-settings')" />
+              </label>
+            </template>
           </div>
 
           <h3>{{ copy.settings.models.effectiveRequest.title }}</h3>
@@ -3181,6 +3220,27 @@ const showOpenRouterOptions = computed(() => (
   props.settingsState.openRouterOptions[selectedTextProvider.value.id]
 ));
 
+const decodingModeOptions = computed(() => {
+  const copyModes = props.copy.settings.models.decodingMode.options;
+  const order = Array.isArray(props.settingsState.llm?.decoding_modes)
+    ? props.settingsState.llm.decoding_modes
+    : ["provider_default", "precise", "balanced", "creative", "custom"];
+  return order
+    .map((id) => ({ id, ...(copyModes[id] || {}) }))
+    .filter((option) => option.label);
+});
+
+const selectedDecodingModeDescription = computed(() => {
+  const mode = props.settingsState.llm?.decoding_mode || "provider_default";
+  return props.copy.settings.models.decodingMode.options[mode]?.description || props.copy.settings.models.decodingMode.description;
+});
+
+function handleDecodingModeChange() {
+  if (props.settingsState.llm?.decoding_mode !== "custom") {
+    emit("save-llm-settings");
+  }
+}
+
 function hasConnectedProvider(presetId) {
   return props.settingsState.providers.connected.some((provider) => provider.provider === presetId || provider.id === presetId);
 }
@@ -3436,6 +3496,7 @@ const emit = defineEmits([
   "select-model",
   "apply-openrouter-recommended-options",
   "save-openrouter-options",
+  "save-llm-settings",
   "save-log-settings",
   "save-media-model",
   "begin-mcp-create",
