@@ -82,7 +82,8 @@ def test_exec_tool_blocks_dangerous_command(tmp_path):
     tool = ExecTool(workspace=Path(tmp_path))
     result = asyncio.run(tool.execute(command="git reset --hard"))
 
-    assert result == "Error: Command blocked by safety guard (dangerous pattern detected)"
+    assert result.startswith("Error: Command blocked by safety guard:")
+    assert "git reset --hard" in result
 
 
 def test_destructive_classifier_blocks_common_bypass_variants():
@@ -140,7 +141,9 @@ def test_exec_tool_blocks_wrapped_destructive_command(tmp_path):
     tool = ExecTool(workspace=Path(tmp_path))
     result = asyncio.run(tool.execute(command='powershell -Command "Remove-Item -Recurse ."'))
 
-    assert result == "Error: Command blocked by safety guard (dangerous pattern detected)"
+    assert result.startswith("Error: Command blocked by safety guard:")
+    assert "powershell -Command" in result
+    assert "remove-item recursive/forced delete" in result
 
 
 def test_exec_tool_allows_help_for_dangerous_command_names(tmp_path):
@@ -149,7 +152,7 @@ def test_exec_tool_allows_help_for_dangerous_command_names(tmp_path):
     tool = ExecTool(workspace=Path(tmp_path))
     result = asyncio.run(tool.execute(command="Remove-Item --help"))
 
-    assert result != "Error: Command blocked by safety guard (dangerous pattern detected)"
+    assert result != "Error: Command blocked by safety guard: dangerous pattern detected"
 
 
 def test_exec_tool_accepts_notify_on_complete_alias(tmp_path):

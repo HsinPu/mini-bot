@@ -181,6 +181,7 @@ def test_permission_request_classification_fields():
     assert destructive["action_type"] == "destructive"
     assert destructive["risk_level"] == "high"
     assert destructive["recommended_decision"] == "deny"
+    assert destructive["destructive_reason"] == "git reset --hard"
 
     wrapped_destructive = classify_permission_request(
         "exec",
@@ -188,6 +189,7 @@ def test_permission_request_classification_fields():
     )
     assert wrapped_destructive["action_type"] == "destructive"
     assert wrapped_destructive["recommended_decision"] == "deny"
+    assert wrapped_destructive["destructive_reason"] == "powershell -Command -> remove-item recursive/forced delete"
 
     inline_wrapper_destructive = classify_permission_request(
         "exec",
@@ -195,6 +197,7 @@ def test_permission_request_classification_fields():
     )
     assert inline_wrapper_destructive["action_type"] == "destructive"
     assert inline_wrapper_destructive["recommended_decision"] == "deny"
+    assert inline_wrapper_destructive["destructive_reason"] == "bash -c -> git reset --hard"
 
 
 def test_approval_required_policy_denies_pending_request_in_ask_mode():

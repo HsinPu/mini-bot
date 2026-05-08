@@ -921,7 +921,7 @@ class WebAdapter(MessageAdapter):
 
     def _serialize_permission_request(self, request: Any) -> dict[str, Any]:
         classification = classify_permission_request(getattr(request, "tool_name", ""), getattr(request, "params", {}))
-        return {
+        payload = {
             "request_id": request.request_id,
             "tool_name": request.tool_name,
             "params": self._json_safe(request.params),
@@ -943,6 +943,10 @@ class WebAdapter(MessageAdapter):
             "resolution_reason": request.resolution_reason,
             "timed_out": request.timed_out,
         }
+        destructive_reason = getattr(request, "destructive_reason", None) or classification.get("destructive_reason")
+        if destructive_reason:
+            payload["destructive_reason"] = destructive_reason
+        return payload
 
     def _require_storage(self) -> Any:
         storage = self._get_storage()

@@ -1914,7 +1914,7 @@ async def _run_web_permissions_api():
     deny_permission = SimpleNamespace(
         request_id="perm-2",
         tool_name="exec",
-        params={"command": "pytest"},
+        params={"command": "git reset --hard HEAD"},
         reason="tool requires approval",
         status="created",
         session_id="web:browser-1",
@@ -2018,6 +2018,9 @@ async def _run_web_permissions_api():
             assert denied_payload["ok"] is True
             assert denied_payload["permission"]["status"] == "denied"
             assert denied_payload["permission"]["resolution_reason"] == "not now"
+            assert denied_payload["permission"]["action_type"] == "destructive"
+            assert denied_payload["permission"]["recommended_decision"] == "deny"
+            assert denied_payload["permission"]["destructive_reason"] == "git reset --hard"
 
             async with session.post(
                 f"http://127.0.0.1:{port}/api/permissions/missing/deny",

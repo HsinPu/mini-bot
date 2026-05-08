@@ -41,6 +41,7 @@ def classify_permission_request(tool_name: str, params: Any) -> dict[str, Any]:
     risks = sorted(ToolPermissionPolicy.risk_levels_for_tool(tool_name))
     command = _param_value(params, "command", "cmd")
     lowered_command = command.lower()
+    destructive_reason = classify_destructive_shell_command(command)
     action_type = "external_message"
     if "read" in risks and not any(risk in risks for risk in ("write", "execute", "external_side_effect")):
         action_type = "read"
@@ -54,8 +55,10 @@ def classify_permission_request(tool_name: str, params: Any) -> dict[str, Any]:
         action_type = "commit"
     if "git push" in lowered_command:
         action_type = "push"
-    if classify_destructive_shell_command(command) or "drop table" in lowered_command:
+    if destructive_reason or "drop table" in lowered_command:
         action_type = "destructive"
+        if not destructive_reason and "drop table" in lowered_command:
+            destructive_reason = "sql drop table"
 
     if action_type in {"destructive", "push"}:
         risk_level = "high"
@@ -65,7 +68,7 @@ def classify_permission_request(tool_name: str, params: Any) -> dict[str, Any]:
         risk_level = "low"
 
     resource = _param_value(params, "path", "file_path", "url", "command", "cmd", "query", "name")
-    return {
+    classification = {
         "action_type": action_type,
         "risk_level": risk_level,
         "risk_levels": risks,
@@ -73,6 +76,9 @@ def classify_permission_request(tool_name: str, params: Any) -> dict[str, Any]:
         "preview": _preview_params(params),
         "recommended_decision": "deny" if action_type == "destructive" else "approve",
     }
+    if destructive_reason:
+        classification["destructive_reason"] = destructive_reason
+    return classification
 
 
 @dataclass
@@ -95,6 +101,7 @@ class PermissionRequest:
     resource: str = ""
     preview: str = ""
     recommended_decision: str = "approve"
+    destructive_reason: str = ""
     status: str = "pending"
     resolved_at: float | None = None
     resolution_reason: str = ""

@@ -133,7 +133,8 @@ def _has_shell_background_operator(command: str) -> bool:
 # Foreground guardrails (aligned with hermes-agent terminal_tool policy)
 # ---------------------------------------------------------------------------
 
-_DANGEROUS_COMMAND_ERROR = "Error: Command blocked by safety guard (dangerous pattern detected)"
+_DANGEROUS_COMMAND_ERROR_PREFIX = "Error: Command blocked by safety guard"
+_DANGEROUS_COMMAND_ERROR = f"{_DANGEROUS_COMMAND_ERROR_PREFIX}: dangerous pattern detected"
 _SHELL_LEVEL_BACKGROUND_RE = re.compile(r"\b(?:nohup|disown|setsid)\b", re.IGNORECASE)
 _LONG_LIVED_FOREGROUND_PATTERNS = (
     re.compile(r"\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:dev|start|serve|watch)\b", re.IGNORECASE),
@@ -230,6 +231,11 @@ def _is_rm_recursive_or_forced(tokens: list[str], index: int) -> bool:
 def _has_windows_delete_flags(tokens: list[str], index: int) -> bool:
     flags = {token.lower() for token in tokens[index + 1 :]}
     return bool(flags & {"/f", "/q", "/s"})
+
+
+def _dangerous_command_error(reason: str | None = None) -> str:
+    detail = str(reason or "").strip() or "dangerous pattern detected"
+    return f"{_DANGEROUS_COMMAND_ERROR_PREFIX}: {detail}"
 
 
 def _reason_from_nested_command(prefix: str, nested: str) -> str | None:
@@ -617,12 +623,13 @@ class ExecTool(Tool):
         if _looks_like_help_or_version_command(command):
             return None
 
-        if classify_destructive_shell_command(command):
-            return _DANGEROUS_COMMAND_ERROR
+        destructive_reason = classify_destructive_shell_command(command)
+        if destructive_reason:
+            return _dangerous_command_error(destructive_reason)
 
         for pattern in self.deny_patterns:
             if re.search(pattern, command, re.IGNORECASE):
-                return _DANGEROUS_COMMAND_ERROR
+                return _dangerous_command_error()
 
         guidance = _foreground_exec_guidance(
             command,
