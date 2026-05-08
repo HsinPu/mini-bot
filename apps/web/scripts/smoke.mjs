@@ -115,6 +115,8 @@ assertIncludes(app, "clearTaskCompletionHistory: clearTaskCompletionHistoryNow",
 assertIncludes(app, "confirmClearHistoryTitle", "eval history clear custom confirm title");
 assertIncludes(settingsModal, "clear-web-sessions", "settings clear web sessions event");
 assertIncludes(styles, ".auth-gate", "auth gate styling");
+assertIncludes(styles, ".settings-content__header", "settings shared header styling");
+assertIncludes(styles, "position: sticky", "settings header remains fixed while scrolling");
 assertIncludes(styles, ".confirm-dialog", "custom confirmation dialog styling");
 assertIncludes(styles, ".session-tile__select", "sidebar session select styling");
 assertIncludes(styles, ".secondary-button--danger", "settings destructive action styling");

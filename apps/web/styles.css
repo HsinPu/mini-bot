@@ -3843,17 +3843,24 @@ button:disabled {
 .settings-content {
   min-height: 0;
   overflow: auto;
-  padding: 24px 40px 40px;
+  padding: 0 40px 40px;
   background: #ffffff;
 }
 
 .settings-content__header {
+  position: sticky;
+  top: 0;
+  z-index: 6;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  min-height: 36px;
-  margin-bottom: 22px;
+  min-height: 64px;
+  margin: 0 -40px 22px;
+  padding: 18px 40px 14px;
+  border-bottom: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  backdrop-filter: blur(10px);
 }
 
 .settings-content__header h2 {
@@ -5202,7 +5209,13 @@ textarea:focus-visible {
   }
 
   .settings-content {
-    padding: 18px;
+    padding: 0 18px 18px;
+  }
+
+  .settings-content__header {
+    min-height: 58px;
+    margin: 0 -18px 20px;
+    padding: 14px 18px 12px;
   }
 
   .settings-row,
