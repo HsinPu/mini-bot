@@ -144,6 +144,10 @@ assertIncludes(settingsModal, "evalActualResponse", "task completion actual answ
 assertIncludes(settingsModal, "copyEvalDebugReport", "task completion debug report copy action");
 assertIncludes(settingsModal, "buildEvalDebugReport", "task completion debug report builder");
 assertIncludes(settingsModal, "evalCopyButtonLabel", "task completion debug copy button state");
+assertIncludes(settingsModal, "resetEvalCopyFallback", "task completion debug fallback reset");
+assertIncludes(settingsModal, "isEvalCopySourceEmpty", "task completion stale debug fallback detection");
+assertIncludes(settingsModal, "clearTaskCompletionHistory", "task completion history clear resets debug fallback");
+assertIncludes(settingsModal, "deleteTaskCompletionHistoryItem", "task completion history delete resets debug fallback");
 assertIncludes(settingsModal, "eval-copy-fallback", "task completion debug manual copy fallback");
 assertIncludes(settingsModal, "taskCompletionHistoryGroups", "task completion history grouping");
 assertIncludes(settingsModal, "toggleEvalHistoryGroup", "task completion history group toggle");

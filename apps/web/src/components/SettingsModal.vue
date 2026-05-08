@@ -1432,7 +1432,7 @@
                 >
                   {{ evalCopyButtonLabel('task-completion-history:all', copy.settings.eval.copyAllHistoryDebug) }}
                 </button>
-                <button class="secondary-button" type="button" :disabled="settingsState.taskCompletionHistoryLoading || !settingsState.taskCompletionHistory.length" @click="$emit('clear-task-completion-history')">
+                <button class="secondary-button" type="button" :disabled="settingsState.taskCompletionHistoryLoading || !settingsState.taskCompletionHistory.length" @click="clearTaskCompletionHistory">
                   {{ copy.settings.eval.clearHistory }}
                 </button>
               </div>
@@ -1495,7 +1495,7 @@
                     >
                       {{ evalCopyButtonLabel(`task-completion-history:${item.eval_id}`, copy.settings.eval.copyDebug) }}
                     </button>
-                    <button class="secondary-button" type="button" :disabled="settingsState.taskCompletionHistoryLoading" @click="$emit('delete-task-completion-history-item', item.eval_id)">
+                    <button class="secondary-button" type="button" :disabled="settingsState.taskCompletionHistoryLoading" @click="deleteTaskCompletionHistoryItem(item.eval_id)">
                       {{ copy.settings.eval.deleteHistoryItem }}
                     </button>
                   </div>
@@ -2097,7 +2097,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import CuratorSettingsPage from "./CuratorSettingsPage.vue";
 
 const props = defineProps({
@@ -2155,10 +2155,58 @@ const EVAL_HISTORY_GROUP_WINDOW_SECONDS = 10 * 60;
 let evalCopyResetTimer = null;
 
 onBeforeUnmount(() => {
+  clearEvalCopyResetTimer();
+});
+
+watch(
+  () => [
+    props.settingsState.taskCompletionHistory?.length || 0,
+    props.settingsState.taskCompletionSmoke?.cases?.length || 0,
+    props.settingsState.taskCompletionLive?.cases?.length || 0,
+  ],
+  () => {
+    if (evalCopyFallbackOpen.value && isEvalCopySourceEmpty(evalCopyState.value.key)) {
+      resetEvalCopyFallback();
+    }
+  },
+);
+
+function clearEvalCopyResetTimer() {
   if (evalCopyResetTimer) {
     clearTimeout(evalCopyResetTimer);
+    evalCopyResetTimer = null;
   }
-});
+}
+
+function resetEvalCopyFallback() {
+  clearEvalCopyResetTimer();
+  evalCopyState.value = { key: "", status: "idle" };
+  evalCopyFallbackOpen.value = false;
+  evalCopyText.value = "";
+}
+
+function isEvalCopySourceEmpty(key) {
+  if (String(key || "").startsWith("task-completion-history")) {
+    return !props.settingsState.taskCompletionHistory?.length;
+  }
+  if (String(key || "").startsWith("task-completion-smoke")) {
+    return !props.settingsState.taskCompletionSmoke?.cases?.length;
+  }
+  if (String(key || "").startsWith("task-completion-live")) {
+    return !props.settingsState.taskCompletionLive?.cases?.length;
+  }
+  return false;
+}
+
+function clearTaskCompletionHistory() {
+  resetEvalCopyFallback();
+  emit("clear-task-completion-history");
+}
+
+function deleteTaskCompletionHistoryItem(evalId) {
+  resetEvalCopyFallback();
+  emit("delete-task-completion-history-item", evalId);
+}
 
 function openDataSessionDialog(session) {
   selectedDataSession.value = session;
