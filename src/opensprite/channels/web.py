@@ -43,7 +43,7 @@ from ..config.channel_settings import (
     ChannelSettingsService,
     ChannelSettingsValidationError,
 )
-from ..config.llm_presets import provider_request_options
+from ..config.llm_presets import provider_profile_defaults, provider_request_options
 from ..config.mcp_settings import (
     MCPSettingsError,
     MCPSettingsNotFound,
@@ -537,7 +537,13 @@ class WebAdapter(MessageAdapter):
         provider_id = str(llm.default or "").strip()
         active = llm.get_active()
         provider_name = str(getattr(active, "provider", None) or provider_id or "").strip()
-        api_mode = str(getattr(active, "api_mode", None) or "chat_completions").strip()
+        defaults = provider_profile_defaults(
+            provider_name,
+            auth_type=getattr(active, "auth_type", "api_key"),
+            api_mode=getattr(active, "api_mode", None),
+        )
+        provider_name = defaults.provider_id or provider_name
+        api_mode = str(defaults.api_mode or "chat_completions").strip()
         decoding = cls._llm_decoding_payload(config)
         sent_decoding = dict(decoding) if llm.pass_decoding_params else {key: None for key in decoding}
         reasoning_source = "none"

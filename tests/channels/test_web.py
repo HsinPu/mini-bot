@@ -686,6 +686,34 @@ def test_effective_llm_request_uses_provider_profile_request_options(tmp_path):
     assert openai_payload["provider_options"] == {}
 
 
+def test_effective_llm_request_uses_provider_profile_api_mode(tmp_path):
+    config_path = tmp_path / "opensprite.json"
+    Config.copy_template(config_path)
+    config = Config.from_json(config_path)
+    config.llm.providers = {
+        "minimax": ProviderConfig(
+            provider="minimax",
+            api_key="minimax-key",
+            model="MiniMax-M2.7",
+            enabled=True,
+            reasoning_enabled=True,
+            reasoning_effort="high",
+        )
+    }
+    config.llm.default = "minimax"
+
+    payload = WebAdapter._effective_llm_request_payload(config)
+
+    assert payload["provider"] == "minimax"
+    assert payload["api_mode"] == "anthropic_messages"
+    assert payload["reasoning"]["source"] == "anthropic_messages"
+    assert payload["reasoning"]["payload"] == {
+        "thinking": {"type": "enabled", "budget_tokens": 16000},
+        "temperature": 1,
+        "max_tokens": 131072,
+    }
+
+
 async def _run_web_network_settings_roundtrip(tmp_path: Path):
     config_path = tmp_path / "opensprite.json"
     Config.copy_template(config_path)
