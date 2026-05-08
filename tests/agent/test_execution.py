@@ -1,6 +1,8 @@
 import asyncio
 
+import opensprite.agent.execution as execution_module
 from opensprite.agent.execution import ExecutionEngine
+from opensprite.agent.prompt_logging import PromptLoggingService
 from opensprite.config.schema import Config, ToolsConfig
 from opensprite.llms.base import ChatMessage, LLMResponse, ToolCall
 from opensprite.tools.base import Tool
@@ -75,6 +77,9 @@ class FakeProvider:
     async def chat(self, messages, tools=None, model=None, temperature=0.7, max_tokens=2048, **kwargs):
         self.calls.append({"messages": list(messages), "tools": tools})
         return self.responses.pop(0)
+
+    def get_default_model(self) -> str:
+        return "fake-model"
 
 
 class StreamingProvider:
@@ -320,6 +325,64 @@ def test_execution_engine_records_llm_step_usage_metadata():
     assert step.total_tokens == 18
     assert step.finish_reason == "stop"
     assert step.estimated_input_tokens >= 1
+
+
+def test_execution_engine_logs_llm_request_and_response_metadata(monkeypatch):
+    provider = FakeProvider([
+        LLMResponse(
+            content="done",
+            model="fake-model",
+            usage={"completion_tokens": 7, "total_tokens": 18},
+            finish_reason="stop",
+            reasoning_details=[{"type": "reasoning.text", "text": "summary"}],
+        )
+    ])
+    engine = _make_engine(provider, ToolRegistry(), [])
+    messages = []
+    monkeypatch.setattr(execution_module.logger, "info", lambda message, *args, **kwargs: messages.append(str(message)))
+
+    result = asyncio.run(
+        engine.execute_messages("chat-1", [ChatMessage(role="user", content="hi")], allow_tools=False)
+    )
+
+    assert result.content == "done"
+    rendered = "\n".join(messages)
+    assert "llm.request.attempt" in rendered
+    assert "provider=FakeProvider" in rendered
+    assert "model=fake-model" in rendered
+    assert "tools=0" in rendered
+    assert "estimated_tokens=" in rendered
+    assert "llm.response" in rendered
+    assert "finish_reason=stop" in rendered
+    assert "output_tokens=7" in rendered
+    assert "total_tokens=18" in rendered
+    assert "reasoning_details=1" in rendered
+
+
+def test_execution_engine_redacts_raw_hidden_block_logs(monkeypatch):
+    secret = "sk-proj-abcdefghijklmnopqrstuvwxyz"
+    provider = FakeProvider([
+        LLMResponse(
+            content=f"<system-reminder>OPENAI_API_KEY=\"{secret}\"</system-reminder>",
+            model="fake-model",
+        ),
+        LLMResponse(content="done", model="fake-model"),
+    ])
+    engine = _make_engine(provider, ToolRegistry(), [])
+    engine.format_log_preview = PromptLoggingService.format_log_preview
+    engine.sanitize_response_content = lambda text: "" if "<system-reminder>" in text else text.strip()
+    warnings = []
+    monkeypatch.setattr(execution_module.logger, "warning", lambda message, *args, **kwargs: warnings.append(str(message)))
+
+    result = asyncio.run(
+        engine.execute_messages("chat-1", [ChatMessage(role="user", content="hi")], allow_tools=False)
+    )
+
+    assert result.content == "done"
+    rendered = "\n".join(warnings)
+    assert "llm.raw-hidden-blocks" in rendered
+    assert secret not in rendered
+    assert "OPENAI_API_KEY=\"sk-pro...wxyz\"" in rendered
 
 
 def test_execution_engine_retries_transient_provider_errors_with_metadata():

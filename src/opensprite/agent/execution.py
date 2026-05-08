@@ -489,6 +489,13 @@ Output exactly these sections when applicable:
         if should_cancel is not None and should_cancel():
             raise RunCancelledError("run cancellation requested")
 
+    def _format_raw_log_preview(self, content: str | list[dict[str, Any]] | None, max_chars: int = 160) -> str:
+        """Build a redacted preview without stripping hidden assistant blocks."""
+        try:
+            return self.format_log_preview(content, max_chars=max_chars, strip_internal=False)
+        except TypeError:
+            return self.format_log_preview(content, max_chars=max_chars)
+
     def _get_token_model(self) -> str | None:
         """Best-effort model name lookup for local token estimates."""
         get_default_model = getattr(self.provider, "get_default_model", None)
@@ -1163,6 +1170,16 @@ Output exactly these sections when applicable:
                         dec_pres = self.chat_presence_penalty
                     else:
                         dec_temp = dec_max = dec_top_p = dec_freq = dec_pres = None
+                    logger.info(
+                        f"[{log_id}] llm.request.attempt | iter={iteration + 1} attempt={request_attempt} "
+                        f"provider={type(self.provider).__name__} model={self._get_token_model() or '-'} "
+                        f"messages={len(chat_messages)} tools={len(tools or [])} "
+                        f"estimated_tokens={estimated_tokens} message_tokens={message_tokens} tool_schema_tokens={tool_schema_tokens} "
+                        f"temperature={dec_temp if dec_temp is not None else '-'} "
+                        f"max_tokens={dec_max if dec_max is not None else '-'} top_p={dec_top_p if dec_top_p is not None else '-'} "
+                        f"frequency_penalty={dec_freq if dec_freq is not None else '-'} "
+                        f"presence_penalty={dec_pres if dec_pres is not None else '-'}"
+                    )
                     response = await self.provider.chat(
                         messages=chat_messages,
                         tools=tools,
@@ -1178,6 +1195,11 @@ Output exactly these sections when applicable:
                     )
                     duration_ms = int((time.perf_counter() - started_at) * 1000)
                     usage = dict(getattr(response, "usage", {}) or {})
+                    output_tokens = self._usage_int(usage, "completion_tokens", "output_tokens")
+                    total_tokens = self._usage_int(usage, "total_tokens")
+                    reasoning_tokens = self._reasoning_tokens(usage)
+                    cached_tokens = self._cached_tokens(usage)
+                    finish_reason = getattr(response, "finish_reason", None)
                     llm_step_events.append(
                         LlmStepEvent(
                             iteration=iteration + 1,
@@ -1188,11 +1210,11 @@ Output exactly these sections when applicable:
                             estimated_input_tokens=estimated_tokens,
                             message_tokens=message_tokens,
                             tool_schema_tokens=tool_schema_tokens,
-                            output_tokens=self._usage_int(usage, "completion_tokens", "output_tokens"),
-                            total_tokens=self._usage_int(usage, "total_tokens"),
-                            reasoning_tokens=self._reasoning_tokens(usage),
-                            cached_tokens=self._cached_tokens(usage),
-                            finish_reason=getattr(response, "finish_reason", None),
+                            output_tokens=output_tokens,
+                            total_tokens=total_tokens,
+                            reasoning_tokens=reasoning_tokens,
+                            cached_tokens=cached_tokens,
+                            finish_reason=finish_reason,
                             tool_calls=len(getattr(response, "tool_calls", None) or []),
                         )
                     )
@@ -1294,19 +1316,29 @@ Output exactly these sections when applicable:
             sanitized_became_empty = bool(raw_content.strip() and not response.content)
             tool_calls_count = len(response.tool_calls or [])
             assistant_internal_only_response = sanitized_became_empty and tool_calls_count == 0
+            reasoning_details_count = len(response.reasoning_details or [])
             logger.info(
                 f"[{log_id}] llm.response | iter={iteration + 1} model={response.model} raw_len={len(raw_content)} "
                 f"visible_len={len(response.content)} tool_calls={tool_calls_count} "
+                f"finish_reason={finish_reason or '-'} output_tokens={output_tokens if output_tokens is not None else '-'} "
+                f"total_tokens={total_tokens if total_tokens is not None else '-'} "
+                f"reasoning_tokens={reasoning_tokens if reasoning_tokens is not None else '-'} "
+                f"cached_tokens={cached_tokens if cached_tokens is not None else '-'} reasoning_details={reasoning_details_count} "
                 f"preview={self.format_log_preview(response.content)}"
+            )
+            logger.debug(
+                f"[{log_id}] llm.response.raw | iter={iteration + 1} raw_len={len(raw_content)} "
+                f"raw_preview={self._format_raw_log_preview(raw_content, max_chars=500)}"
             )
             if sanitized_became_empty:
                 logger.warning(
                     f"[{log_id}] llm.sanitized-empty | iter={iteration + 1} raw_len={len(raw_content)} raw_non_ws={len(raw_content.strip())} "
                     f"tool_calls={tool_calls_count} tools={self._summarize_tool_names(response.tool_calls)} "
-                    f"raw_preview={self.format_log_preview(raw_content, max_chars=240)}"
+                    f"raw_preview={self._format_raw_log_preview(raw_content, max_chars=240)}"
                 )
                 logger.warning(
-                    f"[{log_id}] llm.raw-hidden-blocks | iter={iteration + 1} raw_content={raw_content[:500]}"
+                    f"[{log_id}] llm.raw-hidden-blocks | iter={iteration + 1} "
+                    f"raw_preview={self._format_raw_log_preview(raw_content, max_chars=500)}"
                 )
                 if "<system-reminder>" in raw_content:
                     logger.warning(

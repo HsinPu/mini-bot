@@ -15,37 +15,44 @@ import sys
 
 # 日誌目錄
 LOG_DIR = Path.home() / ".opensprite" / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 # 移除預設的 stderr 輸出（我們會自己加）
 logger.remove()
 
 # 追蹤是否已初始化
 _initialized = False
+_current_signature = None
 
 
 def setup_log(config=None, console: bool = True):
-    global _initialized
-    
-    # 防止重複初始化
-    if _initialized:
-        return logger
-    
     """
     初始化日誌
-    
+
     參數：
         config: LogConfig 物件，若為 None 则使用預設值
         console: 是否輸出到螢幕，預設 True
     """
-    # 取得設定值
+    global _initialized, _current_signature
+
+    enabled = True if config is None else bool(getattr(config, "enabled", True))
     if config:
-        retention = f"{config.retention_days} days"
-        level = config.level
+        retention = f"{getattr(config, 'retention_days', 365)} days"
+        level = str(getattr(config, "level", "INFO") or "INFO").upper()
     else:
         retention = "365 days"
         level = "INFO"
-    
+
+    signature = (enabled, retention, level, console)
+    if _initialized and _current_signature == signature:
+        return logger
+    logger.remove()
+    if not enabled:
+        _initialized = True
+        _current_signature = signature
+        return logger
+
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+
     # 設定輸出到檔案
     logger.add(
         LOG_DIR / "opensprite-{time:YYYY-MM-DD}.log",
@@ -65,11 +72,9 @@ def setup_log(config=None, console: bool = True):
         )
     
     _initialized = True
+    _current_signature = signature
     
     return logger
 
-
-# 預設設定（未傳入 config 時使用）
-setup_log()
 
 __all__ = ["logger", "setup_log"]

@@ -136,9 +136,14 @@ class AgentLoop:
         return PromptLoggingService.sanitize_response_content(content)
 
     @staticmethod
-    def _format_log_preview(content: str | list[dict[str, Any]] | None, max_chars: int = 160) -> str:
+    def _format_log_preview(
+        content: str | list[dict[str, Any]] | None,
+        max_chars: int = 160,
+        *,
+        strip_internal: bool = True,
+    ) -> str:
         """Build a compact, single-line preview for logs."""
-        return PromptLoggingService.format_log_preview(content, max_chars=max_chars)
+        return PromptLoggingService.format_log_preview(content, max_chars=max_chars, strip_internal=strip_internal)
 
     @staticmethod
     def _summarize_messages(messages: list[ChatMessage], tail: int = 4) -> str:
@@ -1550,6 +1555,8 @@ class AgentLoop:
         on_tool_after_execute: Callable[[str, dict[str, Any], str], Awaitable[None]] | None = None,
         on_llm_status: Callable[[str], Awaitable[None]] | None = None,
         on_response_delta: Callable[[str, str, str, int], Awaitable[None]] | None = None,
+        on_tool_input_delta: Callable[[str, str, str, int], Awaitable[None]] | None = None,
+        on_reasoning_delta: Callable[[str], Awaitable[None]] | None = None,
         refresh_system_prompt: Callable[[], str] | None = None,
         max_tool_iterations: int | None = None,
         should_cancel: Callable[[], bool] | None = None,
@@ -1567,6 +1574,8 @@ class AgentLoop:
             on_tool_after_execute=on_tool_after_execute,
             on_llm_status=on_llm_status,
             on_response_delta=on_response_delta,
+            on_tool_input_delta=on_tool_input_delta,
+            on_reasoning_delta=on_reasoning_delta,
             refresh_system_prompt=refresh_system_prompt,
             max_tool_iterations=max_tool_iterations,
             should_cancel=should_cancel,

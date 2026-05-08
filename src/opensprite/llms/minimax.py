@@ -10,6 +10,7 @@ from typing import Any, Awaitable, Callable
 
 from .base import LLMProvider, LLMResponse, ChatMessage, ToolCall
 from .tool_args import parse_tool_arguments
+from ..utils.log_redaction import redact_log_preview
 from ..utils.log import logger
 
 
@@ -29,7 +30,7 @@ def _coerce_content(content: Any) -> str:
 
 
 def _preview_text(value: Any, max_chars: int = 240) -> str:
-    text = _coerce_content(value).replace("\n", "\\n")
+    text = redact_log_preview(_coerce_content(value)).replace("\n", "\\n")
     if len(text) <= max_chars:
         return text
     return text[: max_chars - 3] + "..."
@@ -306,7 +307,7 @@ class MiniMaxLLM(LLMProvider):
             "MiniMax raw message content: len={} reasoning_details={} preview={}",
             len(raw_message_content) if raw_message_content else 0,
             len(reasoning_details or []),
-            (raw_message_content[:500] if raw_message_content else "")[:200],
+            _preview_text(raw_message_content, max_chars=200),
         )
         if _contains_system_reminder(raw_message_content):
             response_reminder_count = _count_system_reminders(raw_message_content)
@@ -335,7 +336,7 @@ class MiniMaxLLM(LLMProvider):
                     getattr(tc, "id", None),
                     getattr(func, "name", None),
                     type(raw_arguments).__name__,
-                    str(raw_arguments)[:200] if raw_arguments is not None else "None",
+                    _preview_text(raw_arguments, max_chars=200) if raw_arguments is not None else "None",
                 )
                 if _contains_system_reminder(raw_arguments):
                     logger.warning(

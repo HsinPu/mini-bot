@@ -88,3 +88,15 @@ def test_format_log_preview_redacts_private_key_blocks():
 
     assert "secret" not in preview
     assert "[REDACTED PRIVATE KEY]" in preview
+
+
+def test_format_log_preview_can_preserve_hidden_blocks_with_redaction():
+    preview = PromptLoggingService.format_log_preview(
+        "<system-reminder>OPENAI_API_KEY=\"sk-proj-abcdefghijklmnopqrstuvwxyz\"</system-reminder>",
+        max_chars=500,
+        strip_internal=False,
+    )
+
+    assert "<system-reminder>" in preview
+    assert "sk-proj-abcdefghijklmnopqrstuvwxyz" not in preview
+    assert "OPENAI_API_KEY=\"sk-pro...wxyz\"" in preview
