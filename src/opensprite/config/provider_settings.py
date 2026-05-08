@@ -508,8 +508,8 @@ def select_model_in_config(
     return provider
 
 
-def public_openrouter_options(provider: dict[str, Any]) -> dict[str, Any]:
-    """Return OpenRouter request options safe for settings APIs."""
+def public_provider_request_options(provider: dict[str, Any]) -> dict[str, Any]:
+    """Return provider request options safe for settings APIs."""
     return {
         "reasoning_enabled": bool(provider.get("reasoning_enabled", True)),
         "reasoning_effort": provider.get("reasoning_effort", "medium"),
@@ -533,7 +533,7 @@ def public_provider_options(provider: dict[str, Any], preset: ProviderPreset | N
     """Return persisted provider request options supported by its profile."""
     if not preset or not preset.request_options:
         return {}
-    return public_openrouter_options(provider)
+    return public_provider_request_options(provider)
 
 
 def is_provider_connected(provider: dict[str, Any], preset: ProviderPreset | None) -> bool:
@@ -611,13 +611,13 @@ def _ensure_request_option(supported: set[str], option: str) -> None:
         raise ProviderSettingsValidationError(f"{option} request options are not available for this provider")
 
 
-def update_openrouter_options(
+def update_provider_request_options(
     provider: dict[str, Any],
     body: dict[str, Any],
     *,
     request_options: tuple[str, ...] = ("reasoning", "provider_sort", "require_parameters"),
 ) -> None:
-    """Validate and update optional OpenRouter request settings."""
+    """Validate and update optional provider request settings."""
     supported = set(request_options)
     if any(
         key in body
@@ -825,7 +825,7 @@ class ProviderSettingsService:
         if not preset or not preset.request_options:
             raise ProviderSettingsValidationError("Provider request options are not available for this provider")
 
-        update_openrouter_options(provider, options, request_options=preset.request_options)
+        update_provider_request_options(provider, options, request_options=preset.request_options)
         self._persist_llm_state(main_data, providers)
         return {
             "ok": True,

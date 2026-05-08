@@ -10,7 +10,7 @@ from opensprite.bus.dispatcher import MessageQueue
 from opensprite.bus.events import RunEvent, SessionStatusEvent
 from opensprite.bus.message import AssistantMessage
 from opensprite.channels.web import WebAdapter
-from opensprite.config import Config
+from opensprite.config import Config, ProviderConfig
 from opensprite.auth.codex import CodexToken, delete_codex_token, save_codex_token
 import opensprite.auth.codex as codex_module
 from opensprite.context.paths import get_session_workspace
@@ -648,6 +648,42 @@ async def _run_web_frontend_unavailable_response(tmp_path: Path):
 
 def test_web_adapter_root_explains_missing_frontend(tmp_path):
     asyncio.run(_run_web_frontend_unavailable_response(tmp_path))
+
+
+def test_effective_llm_request_uses_provider_profile_request_options(tmp_path):
+    config_path = tmp_path / "opensprite.json"
+    Config.copy_template(config_path)
+    config = Config.from_json(config_path)
+    config.llm.providers = {
+        "openrouter": ProviderConfig(
+            provider="openrouter",
+            api_key="router-key",
+            model="anthropic/claude-sonnet-4.6",
+            enabled=True,
+            provider_sort="latency",
+            require_parameters=True,
+        ),
+        "openai": ProviderConfig(
+            provider="openai",
+            api_key="openai-key",
+            model="gpt-5.5",
+            enabled=True,
+            provider_sort="latency",
+            require_parameters=True,
+        ),
+    }
+
+    config.llm.default = "openrouter"
+    openrouter_payload = WebAdapter._effective_llm_request_payload(config)
+    assert openrouter_payload["reasoning"]["source"] == "openrouter"
+    assert openrouter_payload["reasoning"]["payload"] == {"effort": "medium"}
+    assert openrouter_payload["provider_options"] == {"sort": "latency", "require_parameters": True}
+
+    config.llm.default = "openai"
+    openai_payload = WebAdapter._effective_llm_request_payload(config)
+    assert openai_payload["reasoning"]["source"] == "none"
+    assert openai_payload["reasoning"]["payload"] == {}
+    assert openai_payload["provider_options"] == {}
 
 
 async def _run_web_network_settings_roundtrip(tmp_path: Path):

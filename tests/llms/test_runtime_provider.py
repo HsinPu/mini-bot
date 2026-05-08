@@ -7,6 +7,7 @@ from opensprite.config import ProviderConfig
 from opensprite.llms.anthropic_messages import AnthropicMessagesLLM
 from opensprite.llms.minimax import MiniMaxLLM
 from opensprite.llms.openai_responses import OpenAIResponsesLLM
+from opensprite.llms.openrouter import OpenRouterLLM
 from opensprite.llms.registry import create_llm
 from opensprite.llms.runtime_provider import ProviderRuntimeError, resolve_provider_runtime
 
@@ -103,6 +104,34 @@ def test_create_llm_uses_responses_provider_for_responses_mode():
 
     assert isinstance(provider, OpenAIResponsesLLM)
     assert provider.default_model == "gpt-5.1-codex"
+
+
+def test_resolve_provider_runtime_includes_profile_request_options():
+    runtime = resolve_provider_runtime(
+        ProviderConfig(provider="openrouter", api_key="router-key", model="anthropic/claude-sonnet-4.6", enabled=True),
+        provider_name="openrouter",
+    )
+
+    assert runtime.request_options == ("reasoning", "provider_sort", "require_parameters")
+
+
+def test_create_llm_filters_request_options_by_profile():
+    provider = create_llm(
+        api_key="sk-or-test",
+        model="anthropic/claude-sonnet-4.6",
+        provider_name="openrouter",
+        reasoning_enabled=True,
+        reasoning_effort="high",
+        provider_sort="latency",
+        require_parameters=True,
+        request_options=(),
+    )
+
+    assert isinstance(provider, OpenRouterLLM)
+    assert provider.reasoning_enabled is False
+    assert provider.reasoning_effort is None
+    assert provider.provider_sort is None
+    assert provider.require_parameters is False
 
 
 def test_create_llm_passes_minimax_base_url():

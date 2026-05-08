@@ -43,6 +43,7 @@ from ..config.channel_settings import (
     ChannelSettingsService,
     ChannelSettingsValidationError,
 )
+from ..config.llm_presets import load_llm_presets
 from ..config.mcp_settings import (
     MCPSettingsError,
     MCPSettingsNotFound,
@@ -542,21 +543,23 @@ class WebAdapter(MessageAdapter):
         reasoning_source = "none"
         reasoning_payload: dict[str, Any] = {}
         provider_options: dict[str, Any] = {}
+        request_options = cls._active_provider_request_options(provider_id, active)
 
-        if provider_name == "openrouter":
+        if request_options:
             reasoning: dict[str, Any] = {}
-            if active.reasoning_enabled:
+            if "reasoning" in request_options and active.reasoning_enabled:
                 if active.reasoning_effort:
                     reasoning["effort"] = active.reasoning_effort
                 if active.reasoning_max_tokens is not None:
                     reasoning["max_tokens"] = active.reasoning_max_tokens
-            if active.reasoning_exclude:
+            if "reasoning" in request_options and active.reasoning_exclude:
                 reasoning["exclude"] = True
-            reasoning_source = "openrouter"
+            if "reasoning" in request_options:
+                reasoning_source = provider_name or "provider_request_options"
             reasoning_payload = reasoning
-            if active.provider_sort:
+            if "provider_sort" in request_options and active.provider_sort:
                 provider_options["sort"] = active.provider_sort
-            if active.require_parameters:
+            if "require_parameters" in request_options and active.require_parameters:
                 provider_options["require_parameters"] = True
         elif api_mode == "anthropic_messages":
             reasoning_source = "anthropic_messages"
@@ -594,6 +597,14 @@ class WebAdapter(MessageAdapter):
             },
             "provider_options": provider_options,
         }
+
+    @staticmethod
+    def _active_provider_request_options(provider_id: str, active: Any) -> tuple[str, ...]:
+        provider_name = str(getattr(active, "provider", None) or provider_id or "").strip()
+        if not provider_name:
+            return ()
+        preset = load_llm_presets().providers.get(provider_name)
+        return preset.request_options if preset else ()
 
     @classmethod
     def _llm_payload(cls, config: Config) -> dict[str, Any]:

@@ -14,10 +14,13 @@ from ..auth.credentials import (
 from ..auth.codex import CodexAuthError, load_or_refresh_codex_token
 from ..auth.copilot import COPILOT_BASE_URL, CopilotAuthError, get_copilot_api_token, load_copilot_token
 from ..config import ProviderConfig
+from ..config.llm_presets import load_llm_presets
 
 
 OPENAI_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
 GITHUB_COPILOT_BASE_URL = COPILOT_BASE_URL
+
+
 class ProviderRuntimeError(RuntimeError):
     """Raised when a configured provider cannot be resolved for runtime use."""
 
@@ -37,6 +40,7 @@ class ResolvedProviderRuntime:
     reasoning_exclude: bool = False
     provider_sort: str | None = None
     require_parameters: bool = False
+    request_options: tuple[str, ...] = ()
 
 
 def default_app_home(config_path: str | Path | None = None) -> Path:
@@ -116,7 +120,17 @@ def resolve_provider_runtime(
         reasoning_exclude=provider.reasoning_exclude,
         provider_sort=provider.provider_sort,
         require_parameters=provider.require_parameters,
+        request_options=provider_request_options(configured_provider),
     )
+
+
+def provider_request_options(provider_name: str) -> tuple[str, ...]:
+    """Return request options supported by a bundled provider profile."""
+    normalized = str(provider_name or "").strip()
+    if not normalized:
+        return ()
+    preset = load_llm_presets().providers.get(normalized)
+    return preset.request_options if preset else ()
 
 
 def create_llm_from_runtime(runtime: ResolvedProviderRuntime):
@@ -136,4 +150,5 @@ def create_llm_from_runtime(runtime: ResolvedProviderRuntime):
         reasoning_exclude=runtime.reasoning_exclude,
         provider_sort=runtime.provider_sort,
         require_parameters=runtime.require_parameters,
+        request_options=runtime.request_options,
     )
