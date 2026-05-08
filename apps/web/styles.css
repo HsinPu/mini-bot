@@ -232,6 +232,7 @@
 :root[data-color-scheme="dark"] .settings-nav,
 :root[data-color-scheme="dark"] .settings-card,
 :root[data-color-scheme="dark"] .settings-inline-status,
+:root[data-color-scheme="dark"] .eval-copy-fallback,
 :root[data-color-scheme="dark"] .eval-history-row__failures,
 :root[data-color-scheme="dark"] .data-timeline-table th,
 :root[data-color-scheme="dark"] .data-timeline-table__details-grid pre {
@@ -305,7 +306,8 @@
 :root[data-color-scheme="dark"] .custom-model-row input,
 :root[data-color-scheme="dark"] .channel-field input,
 :root[data-color-scheme="dark"] .channel-field select,
-:root[data-color-scheme="dark"] .channel-field textarea {
+:root[data-color-scheme="dark"] .channel-field textarea,
+:root[data-color-scheme="dark"] .eval-copy-fallback textarea {
   color: var(--text);
 }
 
@@ -325,6 +327,8 @@
 
 :root[data-color-scheme="dark"] .provider-row,
 :root[data-color-scheme="dark"] .settings-row,
+:root[data-color-scheme="dark"] .eval-copy-fallback,
+:root[data-color-scheme="dark"] .eval-copy-fallback textarea,
 :root[data-color-scheme="dark"] .eval-history-row__failures,
 :root[data-color-scheme="dark"] .eval-history-row__comparison div,
 :root[data-color-scheme="dark"] .eval-history-group,
@@ -372,6 +376,7 @@
 :root[data-color-scheme="dark"] .provider-row__select select,
 :root[data-color-scheme="dark"] .openrouter-option-field select,
 :root[data-color-scheme="dark"] .openrouter-option-field input,
+:root[data-color-scheme="dark"] .eval-copy-fallback textarea,
 :root[data-color-scheme="dark"] .settings-row select:hover,
 :root[data-color-scheme="dark"] .settings-row select:focus,
 :root[data-color-scheme="dark"] .settings-row input[type="text"]:hover,
@@ -3911,6 +3916,14 @@ button:disabled {
   background: #ffffff;
 }
 
+.eval-history-group__batch-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #eeeeee;
+}
+
 .eval-history-group__items .eval-history-row {
   border-bottom-color: #eeeeee;
 }
@@ -3948,6 +3961,34 @@ button:disabled {
 
 .eval-history-row__actions .secondary-button {
   white-space: nowrap;
+}
+
+.eval-copy-fallback {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(183, 121, 31, 0.22);
+  border-radius: 8px;
+  background: #fff8eb;
+}
+
+.eval-copy-fallback span {
+  color: #7c520f;
+  font-size: 0.84rem;
+  font-weight: 650;
+}
+
+.eval-copy-fallback textarea {
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  padding: 10px;
+  border: 1px solid rgba(183, 121, 31, 0.22);
+  border-radius: 7px;
+  color: #1d1d1d;
+  background: #ffffff;
+  font: 0.82rem/1.45 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  white-space: pre;
 }
 
 .eval-history-row__failures {

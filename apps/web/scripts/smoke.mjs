@@ -141,12 +141,17 @@ assertIncludes(settingsModal, "failedEvalCheckHint", "task completion failed-che
 assertIncludes(settingsModal, "evalHistoryCaseLabel", "task completion history case labels");
 assertIncludes(settingsModal, "evalExpectedSummary", "task completion expected answer display");
 assertIncludes(settingsModal, "evalActualResponse", "task completion actual answer display");
+assertIncludes(settingsModal, "copyEvalDebugReport", "task completion debug report copy action");
+assertIncludes(settingsModal, "buildEvalDebugReport", "task completion debug report builder");
+assertIncludes(settingsModal, "evalCopyButtonLabel", "task completion debug copy button state");
+assertIncludes(settingsModal, "eval-copy-fallback", "task completion debug manual copy fallback");
 assertIncludes(settingsModal, "taskCompletionHistoryGroups", "task completion history grouping");
 assertIncludes(settingsModal, "toggleEvalHistoryGroup", "task completion history group toggle");
 assertIncludes(settingsModal, "evalHistoryBatchId", "task completion history batch grouping");
 assertIncludes(settingsModal, "eval-history-group__toggle", "task completion history group accordion");
 assertIncludes(settingsModal, "eval-history-row__failures", "task completion history failure details rendering");
 assertIncludes(settingsModal, "evalModelLabel", "task completion eval model label rendering");
+assertIncludes(styles, ".eval-copy-fallback", "task completion debug copy fallback styling");
 assertIncludes(chatClient, "STORAGE_KEYS.accessToken", "access token preference persistence");
 assertIncludes(chatClient, "authorizedHeaders", "authorized API requests");
 assertIncludes(chatClient, "access_token", "authorized websocket connection");
@@ -235,6 +240,14 @@ for (const key of [
   "failedChecksForCase",
   "expectedAnswerTitle",
   "actualAnswerTitle",
+  "copyDebug",
+  "copyAllSmokeDebug",
+  "copyAllLiveDebug",
+  "copyAllHistoryDebug",
+  "copyBatchDebug",
+  "copyDebugDescription",
+  "debugFallback",
+  "debugReportTitle",
   "failedCheckItem",
   "failedCheckItems",
   "failedCheckHints",

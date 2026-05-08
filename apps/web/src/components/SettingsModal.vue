@@ -1339,6 +1339,19 @@
                 <span>{{ copy.settings.eval.noTaskCompletionDescription }}</span>
               </div>
             </div>
+            <div v-if="settingsState.taskCompletionSmoke.cases.length" class="settings-row">
+              <div>
+                <strong>{{ copy.settings.eval.copyAllSmokeDebug }}</strong>
+                <span>{{ copy.settings.eval.copyDebugDescription }}</span>
+              </div>
+              <button
+                class="secondary-button"
+                type="button"
+                @click="copyEvalDebugReport('task-completion-smoke:all', settingsState.taskCompletionSmoke.cases, { source: copy.settings.eval.debugSources.smoke, title: copy.settings.eval.taskCompletionResultsTitle })"
+              >
+                {{ evalCopyButtonLabel('task-completion-smoke:all', copy.settings.eval.copyAllSmokeDebug) }}
+              </button>
+            </div>
             <div v-for="evalCase in settingsState.taskCompletionSmoke.cases" :key="evalCase.id" class="settings-row">
               <div>
                 <strong>{{ evalCase.label }}</strong>
@@ -1346,7 +1359,16 @@
                 <span v-if="evalModelLabel(evalCase)">{{ evalModelLabel(evalCase) }}</span>
                 <span v-if="failedEvalChecks(evalCase).length">{{ failedEvalChecksSummary(evalCase) }}</span>
               </div>
-              <span class="provider-row__badge">{{ evalCase.ok ? copy.settings.eval.pass : copy.settings.eval.fail }}</span>
+              <div class="settings-row__actions">
+                <button
+                  class="secondary-button"
+                  type="button"
+                  @click="copyEvalDebugReport(`task-completion-smoke:${evalCase.id}`, [evalCase], { source: copy.settings.eval.debugSources.smoke, title: evalCase.label })"
+                >
+                  {{ evalCopyButtonLabel(`task-completion-smoke:${evalCase.id}`, copy.settings.eval.copyDebug) }}
+                </button>
+                <span class="provider-row__badge">{{ evalCase.ok ? copy.settings.eval.pass : copy.settings.eval.fail }}</span>
+              </div>
             </div>
           </div>
 
@@ -1358,6 +1380,19 @@
                 <span>{{ copy.settings.eval.noLiveTaskCompletionDescription }}</span>
               </div>
             </div>
+            <div v-if="settingsState.taskCompletionLive.cases.length" class="settings-row">
+              <div>
+                <strong>{{ copy.settings.eval.copyAllLiveDebug }}</strong>
+                <span>{{ copy.settings.eval.copyDebugDescription }}</span>
+              </div>
+              <button
+                class="secondary-button"
+                type="button"
+                @click="copyEvalDebugReport('task-completion-live:all', settingsState.taskCompletionLive.cases, { source: copy.settings.eval.debugSources.live, title: copy.settings.eval.liveTaskCompletionResultsTitle })"
+              >
+                {{ evalCopyButtonLabel('task-completion-live:all', copy.settings.eval.copyAllLiveDebug) }}
+              </button>
+            </div>
             <div v-for="evalCase in settingsState.taskCompletionLive.cases" :key="evalCase.id" class="settings-row">
               <div>
                 <strong>{{ evalCase.label }}</strong>
@@ -1365,7 +1400,16 @@
                 <span v-if="evalModelLabel(evalCase)">{{ evalModelLabel(evalCase) }}</span>
                 <span v-if="failedEvalChecks(evalCase).length">{{ failedEvalChecksSummary(evalCase) }}</span>
               </div>
-              <span class="provider-row__badge">{{ evalCase.ok ? copy.settings.eval.pass : copy.settings.eval.fail }}</span>
+              <div class="settings-row__actions">
+                <button
+                  class="secondary-button"
+                  type="button"
+                  @click="copyEvalDebugReport(`task-completion-live:${evalCase.id}`, [evalCase], { source: copy.settings.eval.debugSources.live, title: evalCase.label })"
+                >
+                  {{ evalCopyButtonLabel(`task-completion-live:${evalCase.id}`, copy.settings.eval.copyDebug) }}
+                </button>
+                <span class="provider-row__badge">{{ evalCase.ok ? copy.settings.eval.pass : copy.settings.eval.fail }}</span>
+              </div>
             </div>
           </div>
 
@@ -1379,6 +1423,14 @@
               <div class="settings-row__actions">
                 <button class="secondary-button" type="button" :disabled="settingsState.taskCompletionHistoryLoading" @click="$emit('refresh-task-completion-history')">
                   {{ copy.settings.eval.refreshHistory }}
+                </button>
+                <button
+                  class="secondary-button"
+                  type="button"
+                  :disabled="settingsState.taskCompletionHistoryLoading || !settingsState.taskCompletionHistory.length"
+                  @click="copyEvalDebugReport('task-completion-history:all', settingsState.taskCompletionHistory, { source: copy.settings.eval.debugSources.history, title: copy.settings.eval.historyTitle })"
+                >
+                  {{ evalCopyButtonLabel('task-completion-history:all', copy.settings.eval.copyAllHistoryDebug) }}
                 </button>
                 <button class="secondary-button" type="button" :disabled="settingsState.taskCompletionHistoryLoading || !settingsState.taskCompletionHistory.length" @click="$emit('clear-task-completion-history')">
                   {{ copy.settings.eval.clearHistory }}
@@ -1415,6 +1467,16 @@
               </button>
 
               <div v-if="isEvalHistoryGroupExpanded(group.key)" class="eval-history-group__items">
+                <div class="eval-history-group__batch-actions">
+                  <button
+                    class="secondary-button"
+                    type="button"
+                    :disabled="settingsState.taskCompletionHistoryLoading"
+                    @click="copyEvalDebugReport(`task-completion-history-group:${group.key}`, group.items, { source: copy.settings.eval.debugSources.batch, title: copy.settings.eval.historyGroupTitle(formatTimestamp(group.createdAt)), batchId: group.batchId, modelLabel: group.modelLabel })"
+                  >
+                    {{ evalCopyButtonLabel(`task-completion-history-group:${group.key}`, copy.settings.eval.copyBatchDebug) }}
+                  </button>
+                </div>
                 <div v-for="item in group.items" :key="item.eval_id" class="settings-row eval-history-row">
                   <div>
                     <span class="eval-history-row__title">
@@ -1426,6 +1488,13 @@
                     <span>{{ item.response_preview }}</span>
                   </div>
                   <div class="settings-row__actions eval-history-row__actions">
+                    <button
+                      class="secondary-button"
+                      type="button"
+                      @click="copyEvalDebugReport(`task-completion-history:${item.eval_id}`, [item], { source: copy.settings.eval.debugSources.history, title: evalHistoryCaseLabel(item) })"
+                    >
+                      {{ evalCopyButtonLabel(`task-completion-history:${item.eval_id}`, copy.settings.eval.copyDebug) }}
+                    </button>
                     <button class="secondary-button" type="button" :disabled="settingsState.taskCompletionHistoryLoading" @click="$emit('delete-task-completion-history-item', item.eval_id)">
                       {{ copy.settings.eval.deleteHistoryItem }}
                     </button>
@@ -1451,6 +1520,11 @@
                 </div>
               </div>
             </div>
+          </div>
+
+          <div v-if="evalCopyFallbackOpen" class="eval-copy-fallback">
+            <span>{{ copy.settings.eval.debugFallback }}</span>
+            <textarea ref="evalCopyTextarea" :value="evalCopyText" rows="8" readonly></textarea>
           </div>
 
           <h3>{{ copy.settings.eval.metricsTitle }}</h3>
@@ -2023,7 +2097,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref } from "vue";
 import CuratorSettingsPage from "./CuratorSettingsPage.vue";
 
 const props = defineProps({
@@ -2072,8 +2146,19 @@ const props = defineProps({
 const selectedDataSession = ref(null);
 const expandedTimelineEntryKeys = ref(new Set());
 const expandedEvalHistoryGroupKeys = ref(new Set());
+const evalCopyState = ref({ key: "", status: "idle" });
+const evalCopyFallbackOpen = ref(false);
+const evalCopyText = ref("");
+const evalCopyTextarea = ref(null);
 const openRouterOptionsExpanded = ref(false);
 const EVAL_HISTORY_GROUP_WINDOW_SECONDS = 10 * 60;
+let evalCopyResetTimer = null;
+
+onBeforeUnmount(() => {
+  if (evalCopyResetTimer) {
+    clearTimeout(evalCopyResetTimer);
+  }
+});
 
 function openDataSessionDialog(session) {
   selectedDataSession.value = session;
@@ -2248,7 +2333,14 @@ function failedEvalCheckText(check) {
 }
 
 function evalHistoryCaseLabel(entry) {
-  return String(entry?.case_label || entry?.metadata?.case_label || entry?.case_id || props.copy.settings.eval.none).trim();
+  return String(
+    entry?.case_label
+      || entry?.metadata?.case_label
+      || entry?.label
+      || entry?.case_id
+      || entry?.id
+      || props.copy.settings.eval.none,
+  ).trim();
 }
 
 function evalExpectedSummary(entry) {
@@ -2344,6 +2436,143 @@ function evalHistoryModelKey(entry) {
 
 function evalHistoryBatchId(entry) {
   return String(entry?.batch_id || entry?.metadata?.batch_id || "").trim();
+}
+
+function evalCopyButtonLabel(key, fallbackLabel) {
+  if (evalCopyState.value.key !== key) {
+    return fallbackLabel;
+  }
+  if (evalCopyState.value.status === "copying") {
+    return props.copy.settings.eval.copyingDebug;
+  }
+  if (evalCopyState.value.status === "copied") {
+    return props.copy.settings.eval.debugCopied;
+  }
+  if (evalCopyState.value.status === "manual") {
+    return props.copy.settings.eval.manualCopyDebug;
+  }
+  return fallbackLabel;
+}
+
+async function copyEvalDebugReport(key, entries, context = {}) {
+  const normalizedEntries = Array.isArray(entries) ? entries.filter(Boolean) : [];
+  if (!normalizedEntries.length) {
+    return;
+  }
+  const report = buildEvalDebugReport(normalizedEntries, context);
+  evalCopyText.value = report;
+  evalCopyState.value = { key, status: "copying" };
+  if (evalCopyResetTimer) {
+    clearTimeout(evalCopyResetTimer);
+    evalCopyResetTimer = null;
+  }
+  try {
+    if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+      throw new Error("Clipboard API unavailable");
+    }
+    await navigator.clipboard.writeText(report);
+    evalCopyFallbackOpen.value = false;
+    evalCopyState.value = { key, status: "copied" };
+    evalCopyResetTimer = setTimeout(() => {
+      evalCopyState.value = { key: "", status: "idle" };
+    }, 1800);
+  } catch {
+    evalCopyState.value = { key, status: "manual" };
+    evalCopyFallbackOpen.value = true;
+    await nextTick();
+    evalCopyTextarea.value?.focus();
+    evalCopyTextarea.value?.select();
+  }
+}
+
+function buildEvalDebugReport(entries, context = {}) {
+  const debug = props.copy.settings.eval.debugReport;
+  const total = entries.length;
+  const passed = entries.filter((entry) => entry?.ok).length;
+  const failed = total - passed;
+  const lines = [
+    `# ${context.title || props.copy.settings.eval.debugReportTitle}`,
+    "",
+    `- ${debug.generated}: ${formatTimestamp(Date.now() / 1000)}`,
+    `- ${debug.source}: ${context.source || props.copy.settings.eval.none}`,
+    `- ${debug.total}: ${props.copy.settings.eval.historyGroupMeta(total, passed, failed)}`,
+  ];
+
+  if (context.batchId) {
+    lines.push(`- ${debug.batch}: ${context.batchId}`);
+  }
+  if (context.modelLabel) {
+    lines.push(`- ${debug.model}: ${context.modelLabel}`);
+  }
+
+  for (const entry of entries) {
+    lines.push("", `## ${debug.case}: ${evalHistoryCaseLabel(entry)}`);
+    lines.push(`- ${debug.status}: ${entry?.ok ? props.copy.settings.eval.pass : props.copy.settings.eval.fail}`);
+    lines.push(`- ${debug.caseId}: ${evalEntryCaseId(entry)}`);
+    if (entry?.eval_id) {
+      lines.push(`- ${debug.evalId}: ${entry.eval_id}`);
+    }
+    if (evalHistoryBatchId(entry)) {
+      lines.push(`- ${debug.batch}: ${evalHistoryBatchId(entry)}`);
+    }
+    if (evalModelLabel(entry)) {
+      lines.push(`- ${debug.model}: ${evalModelLabel(entry)}`);
+    }
+    if (entry?.session_id) {
+      lines.push(`- ${debug.session}: ${entry.session_id}`);
+    }
+    if (entry?.run_id) {
+      lines.push(`- ${debug.run}: ${entry.run_id}`);
+    }
+    lines.push(`- ${debug.completionStatus}: ${entry?.completion_status || props.copy.settings.eval.none}`);
+    lines.push(`- ${debug.summary}: ${evalEntrySummary(entry)}`);
+    lines.push(`- ${debug.responsePreview}: ${entry?.response_preview || props.copy.settings.eval.none}`);
+    lines.push("", `### ${debug.prompt}`, evalEntryPrompt(entry));
+    lines.push("", `### ${debug.failedChecks}`);
+    const failedChecks = failedEvalChecks(entry);
+    if (failedChecks.length) {
+      lines.push(...failedChecks.map((check) => `- ${failedEvalCheckText(check)}`));
+    } else {
+      lines.push(`- ${debug.noFailedChecks}`);
+    }
+    lines.push("", `### ${debug.expected}`, evalExpectedSummary(entry));
+    lines.push("", `### ${debug.actual}`, evalActualResponse(entry));
+    lines.push("", `### ${debug.allChecks}`, "```json", evalEntryChecksJson(entry), "```");
+  }
+
+  return lines.join("\n");
+}
+
+function evalEntryCaseId(entry) {
+  return String(entry?.case_id || entry?.id || props.copy.settings.eval.none).trim();
+}
+
+function evalEntryPrompt(entry) {
+  return String(entry?.prompt || entry?.metadata?.prompt || props.copy.settings.eval.none).trim();
+}
+
+function evalEntrySummary(entry) {
+  if (typeof entry?.summary === "string") {
+    return entry.summary || props.copy.settings.eval.none;
+  }
+  if (entry?.summary?.text) {
+    return String(entry.summary.text).trim();
+  }
+  if (entry?.score) {
+    return `${entry.score.passed || 0}/${entry.score.total || 0} checks passed.`;
+  }
+  if (entry?.summary?.score) {
+    return `${entry.summary.score.passed || 0}/${entry.summary.score.total || 0} checks passed.`;
+  }
+  return props.copy.settings.eval.none;
+}
+
+function evalEntryChecksJson(entry) {
+  try {
+    return JSON.stringify(entry?.checks || [], null, 2);
+  } catch {
+    return String(entry?.checks || props.copy.settings.eval.none);
+  }
 }
 
 function isEvalHistoryGroupExpanded(groupKey) {
