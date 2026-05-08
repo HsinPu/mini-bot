@@ -14,7 +14,7 @@ from ..auth.credentials import (
 from ..auth.codex import CodexAuthError, load_or_refresh_codex_token
 from ..auth.copilot import COPILOT_BASE_URL, CopilotAuthError, get_copilot_api_token, load_copilot_token
 from ..config import ProviderConfig
-from ..config.llm_presets import load_llm_presets
+from ..config.llm_presets import provider_request_options
 
 
 OPENAI_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
@@ -122,15 +122,6 @@ def resolve_provider_runtime(
         require_parameters=provider.require_parameters,
         request_options=provider_request_options(configured_provider),
     )
-
-
-def provider_request_options(provider_name: str) -> tuple[str, ...]:
-    """Return request options supported by a bundled provider profile."""
-    normalized = str(provider_name or "").strip()
-    if not normalized:
-        return ()
-    preset = load_llm_presets().providers.get(normalized)
-    return preset.request_options if preset else ()
 
 
 def create_llm_from_runtime(runtime: ResolvedProviderRuntime):

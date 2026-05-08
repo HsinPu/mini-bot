@@ -143,3 +143,35 @@ def load_llm_presets() -> LLMPresets:
             raise ValueError(f'llm-presets.json: provider_order entry "{name}" missing from providers')
 
     return LLMPresets(version=version, provider_order=tuple(order), providers=providers)
+
+
+def get_provider_profile(provider_id: str | None) -> ProviderPreset | None:
+    """Return one bundled provider profile by id."""
+    normalized = str(provider_id or "").strip()
+    if not normalized:
+        return None
+    return load_llm_presets().providers.get(normalized)
+
+
+def provider_request_options(provider_id: str | None) -> tuple[str, ...]:
+    """Return request option ids supported by a provider profile."""
+    profile = get_provider_profile(provider_id)
+    return profile.request_options if profile else ()
+
+
+def provider_default_base_url(provider_id: str | None) -> str:
+    """Return a provider profile default base URL, or an empty string for unknown providers."""
+    profile = get_provider_profile(provider_id)
+    return profile.default_base_url if profile else ""
+
+
+def provider_auth_type(provider_id: str | None) -> str:
+    """Return a provider profile auth type, defaulting to API key auth."""
+    profile = get_provider_profile(provider_id)
+    return profile.auth_type if profile else "api_key"
+
+
+def provider_api_mode(provider_id: str | None) -> str | None:
+    """Return a provider profile API mode, if one is defined."""
+    profile = get_provider_profile(provider_id)
+    return profile.api_mode if profile else None

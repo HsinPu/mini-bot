@@ -146,6 +146,17 @@ def test_create_llm_passes_minimax_base_url():
     assert provider.base_url == "https://api.minimaxi.com/v1"
 
 
+def test_create_llm_uses_minimax_chat_completions_base_url_without_anthropic_mode():
+    provider = create_llm(
+        api_key="minimax-key",
+        model="MiniMax-M2.7",
+        provider_name="minimax",
+    )
+
+    assert isinstance(provider, MiniMaxLLM)
+    assert provider.base_url == "https://api.minimax.io/v1"
+
+
 def test_create_llm_uses_anthropic_messages_provider_for_minimax_mode():
     provider = create_llm(
         api_key="minimax-key",
@@ -160,6 +171,18 @@ def test_create_llm_uses_anthropic_messages_provider_for_minimax_mode():
     assert isinstance(provider, AnthropicMessagesLLM)
     assert provider.base_url == "https://api.minimax.io/anthropic"
     assert provider.reasoning_effort == "high"
+
+
+def test_create_llm_uses_minimax_profile_base_url_for_anthropic_mode():
+    provider = create_llm(
+        api_key="minimax-key",
+        model="MiniMax-M2.7",
+        provider_name="minimax",
+        api_mode="anthropic_messages",
+    )
+
+    assert isinstance(provider, AnthropicMessagesLLM)
+    assert provider.base_url == "https://api.minimax.io/anthropic"
 
 
 def test_resolve_copilot_runtime_exchanges_github_token(monkeypatch):

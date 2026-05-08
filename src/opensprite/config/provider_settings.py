@@ -16,7 +16,7 @@ from ..auth.credentials import (
     resolve_credential,
     set_provider_default,
 )
-from .llm_presets import ProviderPreset, load_llm_presets
+from .llm_presets import ProviderPreset, get_provider_profile, load_llm_presets
 from .schema import Config
 
 
@@ -784,7 +784,9 @@ class ProviderSettingsService:
             display_name=name,
         )
         self._persist_llm_state(main_data, providers)
-        preset = load_llm_presets().providers[provider_id]
+        preset = get_provider_profile(provider_id)
+        if preset is None:
+            raise ProviderSettingsNotFound(f"Unknown provider: {provider_id}")
         credential = public_credential_for_provider(instance_id, provider, provider_id, app_home=self.config_path.parent)
         credential_source = public_credential_source(provider, credential)
         return {

@@ -43,7 +43,7 @@ from ..config.channel_settings import (
     ChannelSettingsService,
     ChannelSettingsValidationError,
 )
-from ..config.llm_presets import load_llm_presets
+from ..config.llm_presets import provider_request_options
 from ..config.mcp_settings import (
     MCPSettingsError,
     MCPSettingsNotFound,
@@ -543,7 +543,7 @@ class WebAdapter(MessageAdapter):
         reasoning_source = "none"
         reasoning_payload: dict[str, Any] = {}
         provider_options: dict[str, Any] = {}
-        request_options = cls._active_provider_request_options(provider_id, active)
+        request_options = provider_request_options(provider_name)
 
         if request_options:
             reasoning: dict[str, Any] = {}
@@ -597,14 +597,6 @@ class WebAdapter(MessageAdapter):
             },
             "provider_options": provider_options,
         }
-
-    @staticmethod
-    def _active_provider_request_options(provider_id: str, active: Any) -> tuple[str, ...]:
-        provider_name = str(getattr(active, "provider", None) or provider_id or "").strip()
-        if not provider_name:
-            return ()
-        preset = load_llm_presets().providers.get(provider_name)
-        return preset.request_options if preset else ()
 
     @classmethod
     def _llm_payload(cls, config: Config) -> dict[str, Any]:

@@ -20,7 +20,7 @@ from .search.base import SearchStore
 from .storage import MemoryStorage, StorageProvider
 from .bus.dispatcher import MessageQueue
 from .config import Config
-from .llms.registry import find_provider
+from .llms.registry import find_provider, provider_spec_default_base_url
 from .llms import UnconfiguredLLM
 from .utils.log import logger
 
@@ -115,7 +115,7 @@ def create_search_embedding_provider(config: Config):
         api_key=api_key,
         model=embedding_config.model,
         provider_name=provider_spec.name,
-        base_url=base_url or provider_spec.default_base_url,
+        base_url=base_url or provider_spec_default_base_url(provider_spec),
         batch_size=embedding_config.batch_size,
     )
 

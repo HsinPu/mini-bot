@@ -1,4 +1,11 @@
-from opensprite.config.llm_presets import load_llm_presets
+from opensprite.config.llm_presets import (
+    get_provider_profile,
+    load_llm_presets,
+    provider_api_mode,
+    provider_auth_type,
+    provider_default_base_url,
+    provider_request_options,
+)
 
 
 def test_load_llm_presets_has_expected_providers():
@@ -129,3 +136,22 @@ def test_load_llm_presets_has_expected_providers():
         "vision": ("MiniMax-VL-01",),
         "ocr": ("MiniMax-VL-01",),
     }
+
+
+def test_provider_profile_accessors_return_known_provider_fields():
+    profile = get_provider_profile(" openrouter ")
+
+    assert profile is not None
+    assert profile.default_base_url == "https://openrouter.ai/api/v1"
+    assert provider_default_base_url("openrouter") == "https://openrouter.ai/api/v1"
+    assert provider_request_options("openrouter") == ("reasoning", "provider_sort", "require_parameters")
+    assert provider_auth_type("openai-codex") == "openai_codex_oauth"
+    assert provider_api_mode("minimax") == "anthropic_messages"
+
+
+def test_provider_profile_accessors_fall_back_for_unknown_provider():
+    assert get_provider_profile("missing") is None
+    assert provider_default_base_url("missing") == ""
+    assert provider_request_options("missing") == ()
+    assert provider_auth_type("missing") == "api_key"
+    assert provider_api_mode("missing") is None
