@@ -168,32 +168,32 @@
   />
 
   <section
-    v-if="conversationDeleteDialog.open"
+    v-if="confirmDialog.open"
     class="confirm-dialog"
     role="dialog"
     aria-modal="true"
-    aria-labelledby="conversationDeleteDialogTitle"
+    aria-labelledby="confirmDialogTitle"
   >
     <button
       class="confirm-dialog__backdrop"
       type="button"
-      :aria-label="copy.sidebar.cancelDelete"
-      :disabled="conversationDeleteDialog.busy"
-      @click="cancelConversationDelete"
+      :aria-label="confirmDialog.cancelLabel"
+      :disabled="confirmDialog.busy"
+      @click="cancelConfirmDialog"
     ></button>
     <div class="confirm-dialog__panel">
-      <span class="confirm-dialog__eyebrow">{{ copy.sidebar.deleteChat }}</span>
-      <h2 id="conversationDeleteDialogTitle">{{ conversationDeleteDialog.title }}</h2>
-      <p>{{ conversationDeleteDialog.message }}</p>
-      <p v-if="conversationDeleteDialog.detail" class="confirm-dialog__detail">
-        {{ conversationDeleteDialog.detail }}
+      <span class="confirm-dialog__eyebrow">{{ confirmDialog.eyebrow }}</span>
+      <h2 id="confirmDialogTitle">{{ confirmDialog.title }}</h2>
+      <p>{{ confirmDialog.message }}</p>
+      <p v-if="confirmDialog.detail" class="confirm-dialog__detail">
+        {{ confirmDialog.detail }}
       </p>
       <div class="confirm-dialog__actions">
-        <button class="secondary-button" type="button" :disabled="conversationDeleteDialog.busy" @click="cancelConversationDelete">
-          {{ copy.sidebar.cancelDelete }}
+        <button class="secondary-button" type="button" :disabled="confirmDialog.busy" @click="cancelConfirmDialog">
+          {{ confirmDialog.cancelLabel }}
         </button>
-        <button class="secondary-button secondary-button--danger" type="button" :disabled="conversationDeleteDialog.busy" @click="confirmConversationDelete">
-          {{ conversationDeleteDialog.confirmLabel }}
+        <button class="secondary-button secondary-button--danger" type="button" :disabled="confirmDialog.busy" @click="confirmDialogAction">
+          {{ confirmDialog.confirmLabel }}
         </button>
       </div>
     </div>
@@ -305,7 +305,7 @@ const {
   runTaskCompletionLiveEval,
   loadTaskCompletionHistory,
   deleteTaskCompletionHistoryItem,
-  clearTaskCompletionHistory,
+  clearTaskCompletionHistory: clearTaskCompletionHistoryNow,
   loadBackgroundProcesses,
   loadDataSessionTimeline,
   beginCronJobCreate,
@@ -337,57 +337,63 @@ const {
   dismissToast,
 } = useChatClient();
 
-const conversationDeleteDialog = ref({
+const confirmDialog = ref({
   open: false,
+  eyebrow: "",
   title: "",
   message: "",
   detail: "",
+  cancelLabel: "",
   confirmLabel: "",
   busy: false,
   action: null,
 });
 
-function openConversationDeleteDialog({ title, message, detail, confirmLabel, action }) {
-  conversationDeleteDialog.value = {
+function openConfirmDialog({ eyebrow, title, message, detail, cancelLabel, confirmLabel, action }) {
+  confirmDialog.value = {
     open: true,
+    eyebrow,
     title,
     message,
     detail,
+    cancelLabel,
     confirmLabel,
     busy: false,
     action,
   };
 }
 
-function closeConversationDeleteDialog() {
-  conversationDeleteDialog.value = {
+function closeConfirmDialog() {
+  confirmDialog.value = {
     open: false,
+    eyebrow: "",
     title: "",
     message: "",
     detail: "",
+    cancelLabel: "",
     confirmLabel: "",
     busy: false,
     action: null,
   };
 }
 
-function cancelConversationDelete() {
-  if (conversationDeleteDialog.value.busy) {
+function cancelConfirmDialog() {
+  if (confirmDialog.value.busy) {
     return;
   }
-  closeConversationDeleteDialog();
+  closeConfirmDialog();
 }
 
-async function confirmConversationDelete() {
-  const action = conversationDeleteDialog.value.action;
-  if (typeof action !== "function" || conversationDeleteDialog.value.busy) {
+async function confirmDialogAction() {
+  const action = confirmDialog.value.action;
+  if (typeof action !== "function" || confirmDialog.value.busy) {
     return;
   }
-  conversationDeleteDialog.value = { ...conversationDeleteDialog.value, busy: true };
+  confirmDialog.value = { ...confirmDialog.value, busy: true };
   try {
     await action();
   } finally {
-    closeConversationDeleteDialog();
+    closeConfirmDialog();
   }
 }
 
@@ -396,24 +402,40 @@ function deleteSessions(sessions) {
   if (!targets.length) {
     return;
   }
-  openConversationDeleteDialog({
+  openConfirmDialog({
+    eyebrow: copy.value.sidebar.deleteChat,
     title: copy.value.sidebar.confirmDeleteTitle,
     message: targets.length === 1
       ? copy.value.sidebar.confirmDeleteChat(getSessionTitle(targets[0]))
       : copy.value.sidebar.confirmDeleteChats(targets.length),
     detail: copy.value.sidebar.confirmDeleteDetail,
+    cancelLabel: copy.value.sidebar.cancelDelete,
     confirmLabel: copy.value.sidebar.confirmDeleteAction,
     action: () => deleteSessionsNow(targets),
   });
 }
 
 function clearWebSessions() {
-  openConversationDeleteDialog({
+  openConfirmDialog({
+    eyebrow: copy.value.settings.general.clearWebChats.action,
     title: copy.value.settings.general.clearWebChats.confirmTitle,
     message: copy.value.settings.general.clearWebChats.confirm,
     detail: copy.value.settings.general.clearWebChats.confirmDescription(webSessionCount.value || 0),
+    cancelLabel: copy.value.sidebar.cancelDelete,
     confirmLabel: copy.value.settings.general.clearWebChats.confirmAction,
     action: () => clearWebSessionsNow(),
+  });
+}
+
+function clearTaskCompletionHistory() {
+  openConfirmDialog({
+    eyebrow: copy.value.settings.eval.clearHistory,
+    title: copy.value.settings.eval.confirmClearHistoryTitle,
+    message: copy.value.settings.eval.confirmClearHistory,
+    detail: copy.value.settings.eval.confirmClearHistoryDescription(settingsState.taskCompletionHistory.length || 0),
+    cancelLabel: copy.value.sidebar.cancelDelete,
+    confirmLabel: copy.value.settings.eval.confirmClearHistoryAction,
+    action: () => clearTaskCompletionHistoryNow(),
   });
 }
 </script>

@@ -3500,9 +3500,6 @@ export function useChatClient() {
   }
 
   async function clearTaskCompletionHistory() {
-    if (typeof window !== "undefined" && !window.confirm(copy.value.settings.eval.confirmClearHistory)) {
-      return;
-    }
     settingsState.taskCompletionHistoryLoading = true;
     settingsState.taskCompletionHistoryError = "";
     settingsState.evalNotice = "";
