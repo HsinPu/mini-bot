@@ -1,5 +1,6 @@
 """Shell execution tool."""
 
+import ast
 import asyncio
 import re
 from pathlib import Path
@@ -168,6 +169,11 @@ def _strip_shell_quotes(token: str) -> str:
     return token.strip()
 
 
+def _command_basename(token: str) -> str:
+    token = _strip_shell_quotes(token).replace("\\", "/")
+    return token.rsplit("/", 1)[-1].lower()
+
+
 def _shell_tokens(command: str) -> list[str]:
     tokens: list[str] = []
     i = 0
@@ -226,6 +232,177 @@ def _has_windows_delete_flags(tokens: list[str], index: int) -> bool:
     return bool(flags & {"/f", "/q", "/s"})
 
 
+def _reason_from_nested_command(prefix: str, nested: str) -> str | None:
+    reason = classify_destructive_shell_command(nested)
+    if reason is None:
+        return None
+    return f"{prefix} -> {reason}"
+
+
+def _first_inline_arg_after_flag(tokens: list[str], lowered: list[str], index: int, flags: set[str]) -> str | None:
+    for flag_index in range(index + 1, len(lowered)):
+        flag = lowered[flag_index]
+        if flag in flags and flag_index + 1 < len(tokens):
+            return tokens[flag_index + 1]
+    return None
+
+
+def _shell_wrapper_inline_command(tokens: list[str], lowered: list[str], index: int) -> str | None:
+    for flag_index in range(index + 1, len(lowered)):
+        flag = lowered[flag_index]
+        if flag.startswith("-") and "c" in flag.lstrip("-") and flag_index + 1 < len(tokens):
+            return tokens[flag_index + 1]
+    return None
+
+
+def _python_call_name(node: ast.AST) -> str:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parent = _python_call_name(node.value)
+        return f"{parent}.{node.attr}" if parent else node.attr
+    return ""
+
+
+def _python_constant_string(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return None
+
+
+def _python_string_sequence(node: ast.AST) -> list[str] | None:
+    if not isinstance(node, (ast.List, ast.Tuple)):
+        return None
+    values: list[str] = []
+    for item in node.elts:
+        value = _python_constant_string(item)
+        if value is None:
+            return None
+        values.append(value)
+    return values
+
+
+def _python_keyword_is_true(call: ast.Call, name: str) -> bool:
+    for keyword in call.keywords:
+        if keyword.arg == name and isinstance(keyword.value, ast.Constant):
+            return keyword.value.value is True
+    return False
+
+
+def _classify_python_inline_code(code: str) -> str | None:
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return None
+
+    subprocess_calls = {
+        "subprocess.run",
+        "subprocess.call",
+        "subprocess.check_call",
+        "subprocess.check_output",
+        "subprocess.Popen",
+        "Popen",
+    }
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        call_name = _python_call_name(node.func)
+        if call_name == "os.system" and node.args:
+            command = _python_constant_string(node.args[0])
+            if command and (reason := _reason_from_nested_command("python -c os.system", command)):
+                return reason
+            continue
+        if call_name not in subprocess_calls or not node.args:
+            continue
+        command = _python_constant_string(node.args[0])
+        if command and _python_keyword_is_true(node, "shell"):
+            if reason := _reason_from_nested_command("python -c subprocess shell", command):
+                return reason
+        sequence = _python_string_sequence(node.args[0])
+        if sequence:
+            command = " ".join(sequence)
+            if reason := _reason_from_nested_command("python -c subprocess argv", command):
+                return reason
+    return None
+
+
+def _read_quoted_js_string(code: str, start: int) -> tuple[str | None, int]:
+    quote = code[start]
+    if quote not in {"'", '"'}:
+        return None, start
+    chars: list[str] = []
+    i = start + 1
+    while i < len(code):
+        ch = code[i]
+        if ch == "\\" and i + 1 < len(code):
+            chars.append(code[i + 1])
+            i += 2
+            continue
+        if ch == quote:
+            return "".join(chars), i + 1
+        chars.append(ch)
+        i += 1
+    return None, i
+
+
+def _skip_js_string_or_comment(code: str, index: int) -> int | None:
+    ch = code[index]
+    if ch in {"'", '"'}:
+        _, next_index = _read_quoted_js_string(code, index)
+        return max(next_index, index + 1)
+    if ch == "`":
+        i = index + 1
+        while i < len(code):
+            if code[i] == "\\" and i + 1 < len(code):
+                i += 2
+                continue
+            if code[i] == "`":
+                return i + 1
+            i += 1
+        return i
+    if code.startswith("//", index):
+        newline = code.find("\n", index + 2)
+        return len(code) if newline == -1 else newline + 1
+    if code.startswith("/*", index):
+        end = code.find("*/", index + 2)
+        return len(code) if end == -1 else end + 2
+    return None
+
+
+def _classify_node_inline_code(code: str) -> str | None:
+    i = 0
+    while i < len(code):
+        skipped = _skip_js_string_or_comment(code, i)
+        if skipped is not None:
+            i = skipped
+            continue
+        for function_name in ("execSync", "exec"):
+            if not code.startswith(function_name, i):
+                continue
+            before = code[i - 1] if i > 0 else ""
+            after_index = i + len(function_name)
+            after = code[after_index] if after_index < len(code) else ""
+            if before and (before.isalnum() or before in {"_", "$"}):
+                continue
+            if after and (after.isalnum() or after in {"_", "$"}):
+                continue
+            j = after_index
+            while j < len(code) and code[j].isspace():
+                j += 1
+            if j >= len(code) or code[j] != "(":
+                continue
+            j += 1
+            while j < len(code) and code[j].isspace():
+                j += 1
+            if j >= len(code) or code[j] not in {"'", '"'}:
+                continue
+            command, _ = _read_quoted_js_string(code, j)
+            if command and (reason := _reason_from_nested_command(f"node -e {function_name}", command)):
+                return reason
+        i += 1
+    return None
+
+
 def classify_destructive_shell_command(command: str) -> str | None:
     """Return a stable reason when a shell command is unambiguously destructive."""
     segments = _shell_segments(command)
@@ -242,17 +419,31 @@ def classify_destructive_shell_command(command: str) -> str | None:
     if lowered[0] in {"echo", "printf"}:
         return None
 
-    for index, token in enumerate(lowered):
+    basenames = [_command_basename(token) for token in tokens]
+
+    for index, token in enumerate(basenames):
         if token in {"cmd", "cmd.exe"} and index + 2 < len(lowered) and lowered[index + 1] in {"/c", "/k"}:
             nested = " ".join(tokens[index + 2 :])
-            if reason := classify_destructive_shell_command(nested):
+            if reason := _reason_from_nested_command("cmd /c", nested):
                 return reason
         if token in {"powershell", "powershell.exe", "pwsh", "pwsh.exe"}:
             for flag_index in range(index + 1, len(lowered)):
                 if lowered[flag_index] in {"-command", "-c", "/command", "/c"} and flag_index + 1 < len(tokens):
                     nested = " ".join(tokens[flag_index + 1 :])
-                    if reason := classify_destructive_shell_command(nested):
+                    if reason := _reason_from_nested_command("powershell -Command", nested):
                         return reason
+        if token in {"bash", "bash.exe", "sh", "sh.exe", "zsh", "zsh.exe", "dash", "dash.exe"}:
+            nested = _shell_wrapper_inline_command(tokens, lowered, index)
+            if nested and (reason := _reason_from_nested_command(f"{token} -c", nested)):
+                return reason
+        if token in {"python", "python.exe", "python3", "python3.exe", "py", "py.exe"}:
+            code = _first_inline_arg_after_flag(tokens, lowered, index, {"-c"})
+            if code and (reason := _classify_python_inline_code(code)):
+                return reason
+        if token in {"node", "node.exe"}:
+            code = _first_inline_arg_after_flag(tokens, lowered, index, {"-e", "--eval"})
+            if code and (reason := _classify_node_inline_code(code)):
+                return reason
 
     for index, token in enumerate(lowered):
         if token == "git" and index + 2 < len(lowered):

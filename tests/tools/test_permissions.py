@@ -189,6 +189,13 @@ def test_permission_request_classification_fields():
     assert wrapped_destructive["action_type"] == "destructive"
     assert wrapped_destructive["recommended_decision"] == "deny"
 
+    inline_wrapper_destructive = classify_permission_request(
+        "exec",
+        {"command": 'bash -c "git reset --hard HEAD"'},
+    )
+    assert inline_wrapper_destructive["action_type"] == "destructive"
+    assert inline_wrapper_destructive["recommended_decision"] == "deny"
+
 
 def test_approval_required_policy_denies_pending_request_in_ask_mode():
     async def scenario():

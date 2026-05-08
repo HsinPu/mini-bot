@@ -104,6 +104,21 @@ def test_destructive_classifier_blocks_common_bypass_variants():
         assert classify_destructive_shell_command(command), command
 
 
+def test_destructive_classifier_blocks_inline_wrapper_bypass_variants():
+    commands = [
+        'bash -c "git reset --hard HEAD"',
+        "sh -lc 'rm -rf build'",
+        'python -c "import os; os.system(\'git clean -fdx\')"',
+        'python -c "import subprocess; subprocess.run(\'rm -rf build\', shell=True)"',
+        'python -c "import subprocess; subprocess.run([\'rm\', \'-rf\', \'build\'])"',
+        'node -e "require(\'child_process\').execSync(\'git reset --hard HEAD\')"',
+        'node -e "const { exec } = require(\'child_process\'); exec(\'rm -rf build\')"',
+    ]
+
+    for command in commands:
+        assert classify_destructive_shell_command(command), command
+
+
 def test_destructive_classifier_allows_safe_commands():
     commands = [
         "git status",
@@ -111,6 +126,8 @@ def test_destructive_classifier_allows_safe_commands():
         "Remove-Item --help",
         "npm run build",
         "echo git reset --hard",
+        'python -c "print(\'git reset --hard\')"',
+        'node -e "console.log(\'rm -rf build\')"',
     ]
 
     for command in commands:
