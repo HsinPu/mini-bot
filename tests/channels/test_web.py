@@ -807,6 +807,7 @@ async def _run_web_run_events_api():
             command="python worker.py",
             state="lost",
             termination_reason="runtime_restart",
+            metadata={"recovery_reason": "runtime_restart", "reattach_supported": False},
             started_at=140.0,
             updated_at=160.0,
             finished_at=160.0,
@@ -918,6 +919,7 @@ async def _run_web_run_events_api():
                 "proc-running",
             ]
             assert processes_payload["processes"][0]["termination_reason"] == "runtime_restart"
+            assert processes_payload["processes"][0]["metadata"]["reattach_supported"] is False
             assert processes_payload["processes"][1]["command"] == "npm run dev"
             assert processes_payload["processes"][1]["metadata"] == {"source": "test"}
 

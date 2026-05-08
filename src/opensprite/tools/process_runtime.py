@@ -163,6 +163,7 @@ class BackgroundProcessManager:
             "exit_code": process.exit_code,
             "notify_mode": process.notify_mode,
             "output_tail": process.output_tail,
+            "metadata": dict(process.metadata or {}),
         }
 
     async def _persist_stored_process(
@@ -222,7 +223,14 @@ class BackgroundProcessManager:
         marked = 0
         for process in running_processes:
             metadata = dict(process.metadata or {})
-            metadata["recovery_reason"] = "runtime_restart"
+            metadata.update(
+                {
+                    "recovery_reason": "runtime_restart",
+                    "reattach_supported": False,
+                    "reattach_reason": "stdout_stderr_and_watch_state_are_runtime_local",
+                    "lost_policy": "mark_running_processes_lost_on_startup",
+                }
+            )
             updated = replace(
                 process,
                 state="lost",

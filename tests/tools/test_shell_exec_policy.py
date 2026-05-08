@@ -284,11 +284,18 @@ def test_background_process_manager_marks_persisted_running_sessions_lost(tmp_pa
     assert lost.termination_reason == "runtime_restart"
     assert lost.finished_at is not None
     assert lost.output_tail == "server started"
-    assert lost.metadata == {"source": "test", "recovery_reason": "runtime_restart"}
+    assert lost.metadata == {
+        "source": "test",
+        "recovery_reason": "runtime_restart",
+        "reattach_supported": False,
+        "reattach_reason": "stdout_stderr_and_watch_state_are_runtime_local",
+        "lost_policy": "mark_running_processes_lost_on_startup",
+    }
     assert exited is not None
     assert exited.state == "exited"
     assert [event.event_type for event in events] == ["background_process.lost"]
     assert events[0].payload["process_session_id"] == "proc-running"
+    assert events[0].payload["metadata"]["reattach_supported"] is False
 
 
 def test_exec_tool_preserves_stdout_stderr_order(tmp_path):
