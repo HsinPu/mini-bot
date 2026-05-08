@@ -15,9 +15,7 @@ from ..auth.codex import CodexAuthError, load_or_refresh_codex_token
 from ..auth.copilot import COPILOT_BASE_URL, CopilotAuthError, get_copilot_api_token, load_copilot_token
 from ..config import ProviderConfig
 from ..config.llm_presets import (
-    provider_api_mode,
-    provider_auth_type,
-    provider_default_base_url,
+    provider_profile_defaults,
     provider_request_options,
 )
 
@@ -62,20 +60,15 @@ def resolve_provider_runtime(
 ) -> ResolvedProviderRuntime:
     """Resolve a ProviderConfig into the arguments needed by create_llm()."""
     configured_provider = str(provider.provider or provider_name or "").strip()
-    auth_type = provider.auth_type
-    if not configured_provider:
-        if auth_type == "openai_codex_oauth":
-            configured_provider = "openai-codex"
-        elif auth_type == "github_copilot_oauth":
-            configured_provider = "copilot"
-    profile_auth_type = provider_auth_type(configured_provider)
-    if auth_type == "api_key" and profile_auth_type != "api_key":
-        auth_type = profile_auth_type
-    profile_api_mode = provider_api_mode(configured_provider)
-    api_mode = provider.api_mode or profile_api_mode
-    profile_base_url = provider_default_base_url(configured_provider)
-    if configured_provider == "minimax" and api_mode != profile_api_mode:
-        profile_base_url = ""
+    defaults = provider_profile_defaults(
+        configured_provider,
+        auth_type=provider.auth_type,
+        api_mode=provider.api_mode,
+    )
+    configured_provider = defaults.provider_id
+    auth_type = defaults.auth_type
+    api_mode = defaults.api_mode
+    profile_base_url = defaults.default_base_url
     base_url = str(provider.base_url or "").strip()
     api_key = str(provider.api_key or "").strip()
     credential_id = str(provider.credential_id or "").strip()
@@ -83,9 +76,7 @@ def resolve_provider_runtime(
 
     if auth_type == "openai_codex_oauth":
         configured_provider = configured_provider or "openai-codex"
-        profile_base_url = profile_base_url or provider_default_base_url(configured_provider)
-        profile_api_mode = profile_api_mode or provider_api_mode(configured_provider)
-        api_mode = api_mode or profile_api_mode or "responses"
+        api_mode = api_mode or "responses"
         base_url = base_url or profile_base_url or OPENAI_CODEX_BASE_URL
         if not api_key:
             try:
@@ -96,10 +87,8 @@ def resolve_provider_runtime(
                 raise ProviderRuntimeError(str(exc)) from exc
     elif configured_provider == "copilot" or auth_type == "github_copilot_oauth":
         configured_provider = "copilot"
-        profile_base_url = profile_base_url or provider_default_base_url(configured_provider)
-        profile_api_mode = profile_api_mode or provider_api_mode(configured_provider)
         base_url = base_url or profile_base_url or GITHUB_COPILOT_BASE_URL
-        api_mode = api_mode or profile_api_mode or "chat_completions"
+        api_mode = api_mode or "chat_completions"
         if not api_key and auth_type == "github_copilot_oauth":
             try:
                 api_key = load_copilot_token(app_home_path).access_token

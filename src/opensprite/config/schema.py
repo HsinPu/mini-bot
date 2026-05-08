@@ -5,7 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from ..channels.registry import coerce_channel_instances, default_channel_instances
-from .llm_presets import provider_auth_type
+from .llm_presets import provider_profile_defaults
 
 
 class ProviderConfig(BaseModel):
@@ -1206,10 +1206,8 @@ class Config:
         if self.llm.providers and self.llm.default and self.llm.default in self.llm.providers:
             provider = self.llm.providers[self.llm.default]
             provider_id = str(provider.provider or self.llm.default or "").strip()
-            auth_type = provider.auth_type
-            profile_auth_type = provider_auth_type(provider_id)
-            if auth_type == "api_key" and profile_auth_type != "api_key":
-                auth_type = profile_auth_type
+            defaults = provider_profile_defaults(provider_id, auth_type=provider.auth_type, api_mode=provider.api_mode)
+            auth_type = defaults.auth_type
             if auth_type == "openai_codex_oauth":
                 if not provider.model:
                     return False

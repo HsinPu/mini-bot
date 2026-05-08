@@ -13,7 +13,7 @@ from ..llms import ChatMessage
 from ..llms.routed import ModelRoutedProvider
 from ..llms.registry import create_llm
 from ..llms.runtime_provider import create_llm_from_runtime, resolve_provider_runtime
-from ..config.llm_presets import provider_api_mode, provider_auth_type
+from ..config.llm_presets import provider_profile_defaults
 from ..storage import StorageProvider
 from ..storage.base import StoredDelegatedTask
 from .subagent_output import parse_structured_subagent_output
@@ -241,16 +241,16 @@ class SubagentRunService:
             provider_config = providers.get(llm_provider) if isinstance(providers, dict) else None
             if provider_config is not None and getattr(provider_config, "enabled", True):
                 provider_id = str(getattr(provider_config, "provider", None) or llm_provider or "").strip()
-                auth_type = getattr(provider_config, "auth_type", "api_key")
-                profile_auth_type = provider_auth_type(provider_id)
-                if auth_type == "api_key" and profile_auth_type != "api_key":
-                    auth_type = profile_auth_type
-                api_mode = getattr(provider_config, "api_mode", None) or provider_api_mode(provider_id)
-                if api_mode or auth_type != "api_key":
+                defaults = provider_profile_defaults(
+                    provider_id,
+                    auth_type=getattr(provider_config, "auth_type", "api_key"),
+                    api_mode=getattr(provider_config, "api_mode", None),
+                )
+                if defaults.api_mode or defaults.auth_type != "api_key":
                     provider_override = create_llm_from_runtime(
                         resolve_provider_runtime(
                             provider_config,
-                            provider_name=provider_id,
+                            provider_name=defaults.provider_id,
                             app_home=self._app_home_getter(),
                         )
                     )
@@ -259,7 +259,7 @@ class SubagentRunService:
                         api_key=getattr(provider_config, "api_key", ""),
                         model=getattr(provider_config, "model", ""),
                         base_url=getattr(provider_config, "base_url", "") or "",
-                        provider_name=provider_id,
+                        provider_name=defaults.provider_id,
                         enabled=getattr(provider_config, "enabled", True),
                         reasoning_enabled=getattr(provider_config, "reasoning_enabled", False),
                         reasoning_effort=getattr(provider_config, "reasoning_effort", None),

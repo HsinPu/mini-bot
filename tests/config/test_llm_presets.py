@@ -4,6 +4,7 @@ from opensprite.config.llm_presets import (
     provider_api_mode,
     provider_auth_type,
     provider_default_base_url,
+    provider_profile_defaults,
     provider_request_options,
 )
 
@@ -155,3 +156,21 @@ def test_provider_profile_accessors_fall_back_for_unknown_provider():
     assert provider_request_options("missing") == ()
     assert provider_auth_type("missing") == "api_key"
     assert provider_api_mode("missing") is None
+
+
+def test_provider_profile_defaults_overlay_explicit_values():
+    codex = provider_profile_defaults("openai-codex")
+    assert codex.provider_id == "openai-codex"
+    assert codex.auth_type == "openai_codex_oauth"
+    assert codex.api_mode == "responses"
+    assert codex.default_base_url == "https://chatgpt.com/backend-api/codex"
+
+    copilot = provider_profile_defaults(None, auth_type="github_copilot_oauth")
+    assert copilot.provider_id == "copilot"
+    assert copilot.auth_type == "github_copilot_oauth"
+    assert copilot.default_base_url == "https://api.githubcopilot.com"
+
+    minimax_chat = provider_profile_defaults("minimax", api_mode="chat_completions")
+    assert minimax_chat.auth_type == "api_key"
+    assert minimax_chat.api_mode == "chat_completions"
+    assert minimax_chat.default_base_url == ""

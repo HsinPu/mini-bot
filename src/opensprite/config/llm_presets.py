@@ -35,6 +35,16 @@ class LLMPresets:
     providers: dict[str, ProviderPreset]
 
 
+@dataclass(frozen=True)
+class ProviderProfileDefaults:
+    """Effective provider defaults inferred from a bundled profile."""
+
+    provider_id: str
+    auth_type: str
+    api_mode: str | None
+    default_base_url: str
+
+
 def _parse_providers(raw: dict[str, Any]) -> dict[str, ProviderPreset]:
     out: dict[str, ProviderPreset] = {}
     for name, entry in raw.items():
@@ -175,3 +185,37 @@ def provider_api_mode(provider_id: str | None) -> str | None:
     """Return a provider profile API mode, if one is defined."""
     profile = get_provider_profile(provider_id)
     return profile.api_mode if profile else None
+
+
+def provider_profile_defaults(
+    provider_id: str | None,
+    *,
+    auth_type: str | None = "api_key",
+    api_mode: str | None = None,
+) -> ProviderProfileDefaults:
+    """Return explicit values overlaid with bundled provider profile defaults."""
+    normalized = str(provider_id or "").strip()
+    explicit_auth_type = str(auth_type or "api_key").strip() or "api_key"
+    if not normalized:
+        if explicit_auth_type == "openai_codex_oauth":
+            normalized = "openai-codex"
+        elif explicit_auth_type == "github_copilot_oauth":
+            normalized = "copilot"
+
+    profile_auth_type = provider_auth_type(normalized)
+    effective_auth_type = explicit_auth_type
+    if effective_auth_type == "api_key" and profile_auth_type != "api_key":
+        effective_auth_type = profile_auth_type
+
+    profile_api_mode = provider_api_mode(normalized)
+    effective_api_mode = api_mode or profile_api_mode
+    default_base_url = provider_default_base_url(normalized)
+    if normalized == "minimax" and effective_api_mode != profile_api_mode:
+        default_base_url = ""
+
+    return ProviderProfileDefaults(
+        provider_id=normalized,
+        auth_type=effective_auth_type,
+        api_mode=effective_api_mode,
+        default_base_url=default_base_url,
+    )
