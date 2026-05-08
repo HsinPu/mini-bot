@@ -68,12 +68,14 @@ from ..cron.presentation import format_cron_timestamp, format_cron_timing
 from ..runs.schema import serialize_diff_summary, serialize_run_event, serialize_work_state_todos
 from ..runs.session_entries import serialize_session_entries
 from ..tools.approval import classify_permission_request
-from ..utils.log import logger
+from ..utils.log import logger, setup_log
 from .web_api import WebApiHandlers
 
 
 class WebAdapter(MessageAdapter):
     """WebSocket adapter for browser-based chat clients."""
+
+    LOG_LEVELS = ("TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL")
 
     DEFAULT_CONFIG = {
         "host": "127.0.0.1",
@@ -439,6 +441,40 @@ class WebAdapter(MessageAdapter):
             "https_proxy": str(getattr(network, "https_proxy", "") or ""),
             "no_proxy": str(getattr(network, "no_proxy", "") or ""),
         }
+
+    @classmethod
+    def _log_payload(cls, config: Config) -> dict[str, Any]:
+        log = getattr(config, "log", None)
+        return {
+            "enabled": bool(getattr(log, "enabled", False)),
+            "level": str(getattr(log, "level", "INFO") or "INFO").upper(),
+            "retention_days": int(getattr(log, "retention_days", 365) or 365),
+            "log_system_prompt": bool(getattr(log, "log_system_prompt", True)),
+            "log_system_prompt_lines": int(getattr(log, "log_system_prompt_lines", 0) or 0),
+            "log_reasoning_details": bool(getattr(log, "log_reasoning_details", False)),
+            "levels": list(cls.LOG_LEVELS),
+        }
+
+    @classmethod
+    def _coerce_log_level(cls, value: Any) -> str:
+        level = str(value or "INFO").strip().upper()
+        if level not in cls.LOG_LEVELS:
+            raise web.HTTPBadRequest(text=f"level must be one of: {', '.join(cls.LOG_LEVELS)}")
+        return level
+
+    @staticmethod
+    def _coerce_positive_int(value: Any, *, field: str, default: int, minimum: int = 0, maximum: int = 3650) -> int:
+        if value is None or value == "":
+            return default
+        try:
+            number = int(value)
+        except (TypeError, ValueError) as exc:
+            raise web.HTTPBadRequest(text=f"{field} must be an integer") from exc
+        if number < minimum:
+            raise web.HTTPBadRequest(text=f"{field} must be at least {minimum}")
+        if number > maximum:
+            raise web.HTTPBadRequest(text=f"{field} must be at most {maximum}")
+        return number
 
     def _reload_agent_llm_from_config(self, payload: dict[str, Any], *, force: bool = False) -> dict[str, Any]:
         """Hot-apply persisted LLM settings to the running agent when possible."""
@@ -1621,6 +1657,40 @@ class WebAdapter(MessageAdapter):
         self._apply_network_environment(config)
         return web.json_response({"network": self._network_payload(config), "restart_required": False})
 
+    async def _handle_settings_log(self, request: web.Request) -> web.Response:
+        config = Config.load(self._get_config_path())
+        return web.json_response({"log": self._log_payload(config)})
+
+    async def _handle_settings_log_update(self, request: web.Request) -> web.Response:
+        body = await self._read_json_body(request)
+        config_path = self._get_config_path()
+        config = Config.load(config_path)
+        if "enabled" in body:
+            config.log.enabled = bool(body.get("enabled"))
+        if "level" in body:
+            config.log.level = self._coerce_log_level(body.get("level"))
+        if "retention_days" in body:
+            config.log.retention_days = self._coerce_positive_int(
+                body.get("retention_days"),
+                field="retention_days",
+                default=config.log.retention_days,
+                minimum=1,
+            )
+        if "log_system_prompt" in body:
+            config.log.log_system_prompt = bool(body.get("log_system_prompt"))
+        if "log_system_prompt_lines" in body:
+            config.log.log_system_prompt_lines = self._coerce_positive_int(
+                body.get("log_system_prompt_lines"),
+                field="log_system_prompt_lines",
+                default=config.log.log_system_prompt_lines,
+                minimum=0,
+            )
+        if "log_reasoning_details" in body:
+            config.log.log_reasoning_details = bool(body.get("log_reasoning_details"))
+        config.save(config_path)
+        setup_log(config.log)
+        return web.json_response({"log": self._log_payload(config), "restart_required": False, "runtime_reloaded": True})
+
     async def _handle_settings_mcp(self, request: web.Request) -> web.Response:
         try:
             payload = self._get_mcp_settings().list_servers()
@@ -1967,6 +2037,8 @@ class WebAdapter(MessageAdapter):
         self.app.router.add_put("/api/settings/schedule", self._handle_settings_schedule_update)
         self.app.router.add_get("/api/settings/network", self._handle_settings_network)
         self.app.router.add_put("/api/settings/network", self._handle_settings_network_update)
+        self.app.router.add_get("/api/settings/log", self._handle_settings_log)
+        self.app.router.add_put("/api/settings/log", self._handle_settings_log_update)
         self.app.router.add_get("/api/settings/mcp", self._handle_settings_mcp)
         self.app.router.add_post("/api/settings/mcp", self._handle_settings_mcp_create)
         self.app.router.add_post("/api/settings/mcp/reload", self._handle_settings_mcp_reload)

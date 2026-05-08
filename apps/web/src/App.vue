@@ -135,6 +135,7 @@
     @apply-openrouter-recommended-options="applyOpenRouterRecommendedOptions"
     @save-openrouter-options="saveOpenRouterOptions"
     @save-llm-settings="saveLlmSettings"
+    @save-log-settings="saveLogSettings"
     @save-media-model="saveMediaModel"
     @begin-mcp-create="beginMcpCreate"
     @save-mcp-server="saveMcpServer"
@@ -285,6 +286,7 @@ const {
   applyOpenRouterRecommendedOptions,
   saveOpenRouterOptions,
   saveLlmSettings,
+  saveLogSettings,
   saveMediaModel,
   beginMcpCreate,
   beginMcpEdit,

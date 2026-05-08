@@ -2,6 +2,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { getDisplayCopy } from "../i18n/copy";
 import { useChannelSettingsActions } from "./useChannelSettingsActions";
 import { useDataSettingsActions } from "./useDataSettingsActions";
+import { useLogSettingsActions } from "./useLogSettingsActions";
 import { useMcpSettingsActions } from "./useMcpSettingsActions";
 import { useModelSettingsActions } from "./useModelSettingsActions";
 import { useNetworkSettingsActions } from "./useNetworkSettingsActions";
@@ -2362,6 +2363,13 @@ export function useChatClient() {
     setSettingsSuccess,
   });
 
+  const { loadLogSettings, saveLogSettings } = useLogSettingsActions({
+    settingsState,
+    requestSettingsJson,
+    copy,
+    setSettingsSuccess,
+  });
+
   const { loadScheduleSettings, saveScheduleSettings } = useScheduleSettingsActions({
     settingsState,
     requestSettingsJson,
@@ -3546,6 +3554,10 @@ export function useChatClient() {
       loadNetworkSettings();
       return;
     }
+    if (sectionName === "log") {
+      loadLogSettings();
+      return;
+    }
     if (sectionName === "data") {
       loadDataSettings();
       return;
@@ -4459,6 +4471,7 @@ export function useChatClient() {
     loadChannelSettings,
     loadScheduleSettings,
     loadNetworkSettings,
+    loadLogSettings,
     loadDataSettings,
     loadEvalStatus,
     runEvalSmokeCheck,
@@ -4506,6 +4519,7 @@ export function useChatClient() {
     applyMcpJson,
     saveScheduleSettings,
     saveNetworkSettings,
+    saveLogSettings,
     beginCronJobEdit,
     beginCronJobCreate,
     cancelCronJobEdit,

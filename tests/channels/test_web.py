@@ -2122,6 +2122,8 @@ def test_web_adapter_exposes_worktree_cleanup_api(tmp_path):
 async def _run_web_settings_provider_api(tmp_path: Path, monkeypatch):
     config_path = tmp_path / "opensprite.json"
     Config.copy_template(config_path)
+    applied_log_configs = []
+    monkeypatch.setattr("opensprite.channels.web.setup_log", lambda log_config: applied_log_configs.append(log_config))
 
     class SettingsAgent(EchoAgent):
         def __init__(self):
@@ -2270,6 +2272,41 @@ async def _run_web_settings_provider_api(tmp_path: Path, monkeypatch):
             assert agent.reloads[-1][2] is False
             loaded_config = Config.from_json(config_path)
             assert loaded_config.llm.pass_decoding_params is False
+
+            async with session.get(f"http://127.0.0.1:{port}/api/settings/log") as resp:
+                assert resp.status == 200
+                log_payload = await resp.json()
+
+            assert log_payload["log"]["level"] == "INFO"
+            assert "DEBUG" in log_payload["log"]["levels"]
+
+            async with session.put(
+                f"http://127.0.0.1:{port}/api/settings/log",
+                json={
+                    "enabled": True,
+                    "level": "DEBUG",
+                    "retention_days": 14,
+                    "log_system_prompt": True,
+                    "log_system_prompt_lines": 0,
+                    "log_reasoning_details": False,
+                },
+            ) as resp:
+                assert resp.status == 200
+                log_update_payload = await resp.json()
+
+            assert log_update_payload["restart_required"] is False
+            assert log_update_payload["runtime_reloaded"] is True
+            assert log_update_payload["log"]["level"] == "DEBUG"
+            loaded_config = Config.from_json(config_path)
+            assert loaded_config.log.level == "DEBUG"
+            assert loaded_config.log.retention_days == 14
+            assert applied_log_configs[-1].level == "DEBUG"
+
+            async with session.put(
+                f"http://127.0.0.1:{port}/api/settings/log",
+                json={"level": "LOUD"},
+            ) as resp:
+                assert resp.status == 400
 
             async with session.get(f"http://127.0.0.1:{port}/api/settings/providers") as resp:
                 assert resp.status == 200

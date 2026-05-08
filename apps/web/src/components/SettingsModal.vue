@@ -98,6 +98,15 @@
           </button>
           <button
             class="settings-nav__item"
+            :class="{ 'settings-nav__item--active': section === 'log' }"
+            type="button"
+            @click="$emit('select-section', 'log')"
+          >
+            <span aria-hidden="true">≋</span>
+            {{ copy.settingsTitles.log }}
+          </button>
+          <button
+            class="settings-nav__item"
             :class="{ 'settings-nav__item--active': section === 'data' }"
             type="button"
             @click="$emit('select-section', 'data')"
@@ -1249,6 +1258,120 @@
               <div>
                 <strong>{{ copy.settings.network.scopeTitle }}</strong>
                 <span>{{ copy.settings.network.scopeDescription }}</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section v-if="section === 'log'" class="settings-page">
+          <p v-if="settingsState.logLoading" class="settings-inline-status">{{ copy.settings.log.loading }}</p>
+          <p v-if="settingsState.logNotice" class="settings-inline-status">{{ settingsState.logNotice }}</p>
+          <p v-if="settingsState.logError" class="settings-inline-status settings-inline-status--error">
+            {{ settingsState.logError }}
+          </p>
+
+          <h3>{{ copy.settings.log.title }}</h3>
+          <div class="settings-card settings-card--form">
+            <label class="settings-row">
+              <div>
+                <strong>{{ copy.settings.log.enabled.title }}</strong>
+                <span>{{ copy.settings.log.enabled.description }}</span>
+              </div>
+              <input
+                v-model="settingsState.logForm.enabled"
+                class="switch"
+                type="checkbox"
+                :disabled="settingsState.logLoading"
+              />
+            </label>
+
+            <label class="settings-row settings-row--field">
+              <div>
+                <strong>{{ copy.settings.log.level.title }}</strong>
+                <span>{{ copy.settings.log.level.description }}</span>
+              </div>
+              <select v-model="settingsState.logForm.level" :disabled="settingsState.logLoading || !settingsState.logForm.enabled">
+                <option v-for="level in logLevelOptions" :key="level" :value="level">
+                  {{ level }}
+                </option>
+              </select>
+            </label>
+
+            <label class="settings-row settings-row--field">
+              <div>
+                <strong>{{ copy.settings.log.retention.title }}</strong>
+                <span>{{ copy.settings.log.retention.description }}</span>
+              </div>
+              <input
+                v-model.number="settingsState.logForm.retentionDays"
+                type="number"
+                min="1"
+                max="3650"
+                :disabled="settingsState.logLoading || !settingsState.logForm.enabled"
+              />
+            </label>
+
+            <label class="settings-row">
+              <div>
+                <strong>{{ copy.settings.log.systemPrompt.title }}</strong>
+                <span>{{ copy.settings.log.systemPrompt.description }}</span>
+              </div>
+              <input
+                v-model="settingsState.logForm.logSystemPrompt"
+                class="switch"
+                type="checkbox"
+                :disabled="settingsState.logLoading || !settingsState.logForm.enabled"
+              />
+            </label>
+
+            <label class="settings-row settings-row--field">
+              <div>
+                <strong>{{ copy.settings.log.systemPromptLines.title }}</strong>
+                <span>{{ copy.settings.log.systemPromptLines.description }}</span>
+              </div>
+              <input
+                v-model.number="settingsState.logForm.logSystemPromptLines"
+                type="number"
+                min="0"
+                max="3650"
+                :disabled="settingsState.logLoading || !settingsState.logForm.enabled || !settingsState.logForm.logSystemPrompt"
+              />
+            </label>
+
+            <label class="settings-row">
+              <div>
+                <strong>{{ copy.settings.log.reasoningDetails.title }}</strong>
+                <span>{{ copy.settings.log.reasoningDetails.description }}</span>
+              </div>
+              <input
+                v-model="settingsState.logForm.logReasoningDetails"
+                class="switch"
+                type="checkbox"
+                :disabled="settingsState.logLoading || !settingsState.logForm.enabled"
+              />
+            </label>
+
+            <div class="settings-row">
+              <div>
+                <strong>{{ copy.settings.log.currentTitle }}</strong>
+                <span>{{ logSummary }}</span>
+              </div>
+              <button
+                class="secondary-button"
+                type="button"
+                :disabled="settingsState.logLoading"
+                @click="$emit('save-log-settings')"
+              >
+                {{ copy.settings.log.save }}
+              </button>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <div class="settings-row">
+              <div>
+                <strong>{{ copy.settings.log.rawResponseTitle }}</strong>
+                <span>{{ copy.settings.log.rawResponseDescription }}</span>
               </div>
             </div>
           </div>
@@ -3059,6 +3182,19 @@ const networkSummary = computed(() => {
   return props.copy.settings.network.proxyConfigured(active);
 });
 
+const logLevelOptions = computed(() => {
+  const levels = props.settingsState.log?.levels;
+  return Array.isArray(levels) && levels.length ? levels : ["DEBUG", "INFO", "WARNING", "ERROR"];
+});
+
+const logSummary = computed(() => {
+  const form = props.settingsState.logForm || {};
+  if (!form.enabled) {
+    return props.copy.settings.log.disabled;
+  }
+  return props.copy.settings.log.summary(form.level || "INFO", Number(form.retentionDays || 365));
+});
+
 const evalReadinessLabel = computed(() => {
   if (props.settingsState.evalStatus.ready) {
     return props.copy.settings.eval.ready;
@@ -3148,6 +3284,7 @@ const emit = defineEmits([
   "select-model",
   "apply-openrouter-recommended-options",
   "save-openrouter-options",
+  "save-log-settings",
   "save-media-model",
   "begin-mcp-create",
   "save-mcp-server",
