@@ -5,6 +5,11 @@
     "openrouter": {
       "display_name": "OpenRouter",
       "default_base_url": "https://openrouter.ai/api/v1",
+      "capabilities": ["chat", "model_discovery", "media_discovery", "request_options", "model_metadata"],
+      "model_discovery": {"type": "openrouter"},
+      "media_discovery": {"type": "openrouter_image"},
+      "request_options": ["reasoning", "provider_sort", "require_parameters"],
+      "model_metadata_fields": ["context_length"],
       "model_choices": [
         "moonshotai/kimi-k2.6",
         "anthropic/claude-sonnet-4.6",
@@ -161,6 +166,8 @@
     "openai": {
       "display_name": "OpenAI",
       "default_base_url": "https://api.openai.com/v1",
+      "capabilities": ["chat", "model_discovery", "media"],
+      "model_discovery": {"type": "openai_compatible"},
       "model_choices": [
         "gpt-5.5",
         "gpt-5.5-pro",
@@ -197,6 +204,8 @@
       "default_base_url": "https://chatgpt.com/backend-api/codex",
       "auth_type": "openai_codex_oauth",
       "api_mode": "responses",
+      "capabilities": ["chat", "model_discovery"],
+      "model_discovery": {"type": "codex"},
       "model_choices": [
         "gpt-5.1-codex",
         "gpt-5.3-codex"
@@ -206,6 +215,8 @@
       "display_name": "GitHub Copilot",
       "default_base_url": "https://api.githubcopilot.com",
       "auth_type": "github_copilot_oauth",
+      "capabilities": ["chat", "model_discovery"],
+      "model_discovery": {"type": "copilot"},
       "model_choices": [
         "gpt-5.4",
         "gpt-5.4-mini",
@@ -228,11 +239,15 @@
       "display_name": "Ollama Local",
       "default_base_url": "http://localhost:11434/v1",
       "auth_type": "optional_api_key",
+      "capabilities": ["chat", "model_discovery"],
+      "model_discovery": {"type": "openai_compatible"},
       "model_choices": []
     },
     "ollama-cloud": {
       "display_name": "Ollama Cloud",
       "default_base_url": "https://ollama.com/v1",
+      "capabilities": ["chat", "model_discovery"],
+      "model_discovery": {"type": "openai_compatible"},
       "model_choices": [
         "qwen3.5:397b",
         "glm-5",
@@ -244,6 +259,7 @@
       "display_name": "MiniMax",
       "default_base_url": "https://api.minimax.io/anthropic",
       "api_mode": "anthropic_messages",
+      "capabilities": ["chat", "media"],
       "model_choices": ["MiniMax-M2.7", "MiniMax-M2.5", "MiniMax-M2.1"],
       "media_model_choices": {
         "vision": ["MiniMax-VL-01"],

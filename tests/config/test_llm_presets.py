@@ -95,6 +95,20 @@ def test_load_llm_presets_has_expected_providers():
             "qwen/qwen3.6-flash",
         ),
     }
+    assert presets.providers["openrouter"].capabilities == (
+        "chat",
+        "model_discovery",
+        "media_discovery",
+        "request_options",
+        "model_metadata",
+    )
+    assert presets.providers["openrouter"].model_discovery == {"type": "openrouter"}
+    assert presets.providers["openrouter"].media_discovery == {"type": "openrouter_image"}
+    assert presets.providers["openrouter"].request_options == ("reasoning", "provider_sort", "require_parameters")
+    assert presets.providers["openrouter"].model_metadata_fields == ("context_length",)
+    assert presets.providers["openai"].model_discovery == {"type": "openai_compatible"}
+    assert presets.providers["openai-codex"].model_discovery == {"type": "codex"}
+    assert presets.providers["copilot"].model_discovery == {"type": "copilot"}
     assert presets.providers["openrouter"].model_capabilities["anthropic/claude-sonnet-4.6"] == {
         "reasoning": True,
         "vision": True,

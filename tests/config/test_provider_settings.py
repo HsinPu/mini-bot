@@ -410,12 +410,22 @@ def test_provider_settings_select_model_updates_default_and_enabled_flags(tmp_pa
     assert providers["openai"]["enabled"] is False
     assert models["default_provider"] == "openrouter"
     assert models["active_model"] == "openai/gpt-4o-mini"
-    assert models["providers"][0]["model_capabilities"]["openai/gpt-5.5"]["reasoning"] is True
-    assert models["providers"][0]["model_capabilities"]["openai/gpt-5.5"]["recommended_options"] == {
+    provider = models["providers"][0]
+    assert provider["capabilities"] == [
+        "chat",
+        "model_discovery",
+        "media_discovery",
+        "request_options",
+        "model_metadata",
+    ]
+    assert provider["request_options"] == ["reasoning", "provider_sort", "require_parameters"]
+    assert provider["model_metadata_fields"] == ["context_length"]
+    assert provider["model_capabilities"]["openai/gpt-5.5"]["reasoning"] is True
+    assert provider["model_capabilities"]["openai/gpt-5.5"]["recommended_options"] == {
         "reasoning_enabled": True,
         "reasoning_effort": "medium",
     }
-    assert models["providers"][0]["options"] == {
+    assert provider["options"] == {
         "reasoning_enabled": True,
         "reasoning_effort": "medium",
         "reasoning_max_tokens": None,
@@ -447,6 +457,16 @@ def test_provider_settings_updates_openrouter_request_options(tmp_path):
     listing = service.list_providers()
     options = listing["connected"][0]["options"]
 
+    assert listing["connected"][0]["request_options"] == ["reasoning", "provider_sort", "require_parameters"]
+    assert listing["connected"][0]["model_metadata_fields"] == ["context_length"]
+    available_openrouter = next(provider for provider in listing["available"] if provider["id"] == "openrouter")
+    assert available_openrouter["capabilities"] == [
+        "chat",
+        "model_discovery",
+        "media_discovery",
+        "request_options",
+        "model_metadata",
+    ]
     assert result == {
         "ok": True,
         "provider_id": "openrouter",

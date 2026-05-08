@@ -44,7 +44,9 @@ def discover_media_model_choices(preset_id: str | None, preset: Any) -> tuple[di
         category: list(models)
         for category, models in (preset.media_model_choices or {}).items()
     } if preset else {}
-    if preset_id != "openrouter":
+    discovery = getattr(preset, "media_discovery", None) if preset else None
+    discovery_type = str(discovery.get("type") or "").strip() if isinstance(discovery, dict) else ""
+    if discovery_type != "openrouter_image":
         return fallback, "preset"
 
     live_image_models = fetch_openrouter_image_models()

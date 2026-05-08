@@ -17,6 +17,11 @@ class ProviderPreset:
     display_name: str | None = None
     auth_type: str = "api_key"
     api_mode: str | None = None
+    capabilities: tuple[str, ...] = ()
+    model_discovery: dict[str, Any] | None = None
+    media_discovery: dict[str, Any] | None = None
+    request_options: tuple[str, ...] = ()
+    model_metadata_fields: tuple[str, ...] = ()
     media_model_choices: dict[str, tuple[str, ...]] | None = None
     model_capabilities: dict[str, dict[str, Any]] | None = None
 
@@ -46,6 +51,11 @@ def _parse_providers(raw: dict[str, Any]) -> dict[str, ProviderPreset]:
         auth_type = str(entry.get("auth_type") or "api_key").strip()
         api_mode_raw = entry.get("api_mode")
         api_mode = str(api_mode_raw).strip() if isinstance(api_mode_raw, str) and api_mode_raw.strip() else None
+        capabilities = _parse_string_tuple(entry, name, "capabilities")
+        model_discovery = _parse_discovery_config(entry, name, "model_discovery")
+        media_discovery = _parse_discovery_config(entry, name, "media_discovery")
+        request_options = _parse_string_tuple(entry, name, "request_options")
+        model_metadata_fields = _parse_string_tuple(entry, name, "model_metadata_fields")
         raw_media_models = entry.get("media_model_choices", {})
         if raw_media_models is None:
             raw_media_models = {}
@@ -60,26 +70,52 @@ def _parse_providers(raw: dict[str, Any]) -> dict[str, ProviderPreset]:
                     f'llm-presets: providers["{name}"].media_model_choices entries must be string arrays'
                 )
             media_models[category] = tuple(category_models)
-        raw_capabilities = entry.get("model_capabilities", {})
-        if raw_capabilities is None:
-            raw_capabilities = {}
-        if not isinstance(raw_capabilities, dict):
+        raw_model_capabilities = entry.get("model_capabilities", {})
+        if raw_model_capabilities is None:
+            raw_model_capabilities = {}
+        if not isinstance(raw_model_capabilities, dict):
             raise ValueError(f'llm-presets: providers["{name}"].model_capabilities must be an object')
-        capabilities: dict[str, dict[str, Any]] = {}
-        for model_name, capability in raw_capabilities.items():
+        model_capabilities: dict[str, dict[str, Any]] = {}
+        for model_name, capability in raw_model_capabilities.items():
             if not isinstance(model_name, str) or not isinstance(capability, dict):
                 raise ValueError(f'llm-presets: providers["{name}"].model_capabilities entries must be objects')
-            capabilities[model_name] = dict(capability)
+            model_capabilities[model_name] = dict(capability)
         out[name] = ProviderPreset(
             default_base_url=base.strip(),
             model_choices=tuple(models),
             display_name=display,
             auth_type=auth_type,
             api_mode=api_mode,
+            capabilities=capabilities,
+            model_discovery=model_discovery,
+            media_discovery=media_discovery,
+            request_options=request_options,
+            model_metadata_fields=model_metadata_fields,
             media_model_choices=media_models or None,
-            model_capabilities=capabilities or None,
+            model_capabilities=model_capabilities or None,
         )
     return out
+
+
+def _parse_string_tuple(entry: dict[str, Any], provider_name: str, field_name: str) -> tuple[str, ...]:
+    raw = entry.get(field_name, [])
+    if raw is None:
+        raw = []
+    if not isinstance(raw, list) or not all(isinstance(item, str) for item in raw):
+        raise ValueError(f'llm-presets: providers["{provider_name}"].{field_name} must be a string array')
+    return tuple(item.strip() for item in raw if item.strip())
+
+
+def _parse_discovery_config(entry: dict[str, Any], provider_name: str, field_name: str) -> dict[str, Any] | None:
+    raw = entry.get(field_name)
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError(f'llm-presets: providers["{provider_name}"].{field_name} must be an object')
+    discovery_type = raw.get("type")
+    if not isinstance(discovery_type, str) or not discovery_type.strip():
+        raise ValueError(f'llm-presets: providers["{provider_name}"].{field_name}.type is required')
+    return {**raw, "type": discovery_type.strip()}
 
 
 def load_llm_presets() -> LLMPresets:

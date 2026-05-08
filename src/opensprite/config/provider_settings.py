@@ -152,6 +152,28 @@ def _openrouter_model_metadata(item: dict[str, Any]) -> dict[str, Any]:
     return {"context_length": context_length} if context_length else {}
 
 
+def _discovery_type(preset: ProviderPreset | None, field_name: str) -> str:
+    discovery = getattr(preset, field_name, None) if preset else None
+    if not isinstance(discovery, dict):
+        return ""
+    return str(discovery.get("type") or "").strip()
+
+
+def _filter_model_metadata_fields(
+    metadata_by_model: dict[str, dict[str, Any]],
+    fields: tuple[str, ...],
+) -> dict[str, dict[str, Any]]:
+    if not fields:
+        return {}
+    allowed = set(fields)
+    out: dict[str, dict[str, Any]] = {}
+    for model, metadata in metadata_by_model.items():
+        filtered = {key: value for key, value in metadata.items() if key in allowed and value is not None}
+        if filtered:
+            out[model] = filtered
+    return out
+
+
 def cached_openrouter_model_metadata(models: list[str] | tuple[str, ...] | None = None) -> dict[str, dict[str, Any]]:
     """Return metadata captured during the last OpenRouter model discovery."""
     if models is None:
@@ -277,6 +299,9 @@ def discover_provider_models(
 ) -> tuple[list[str], str, dict[str, dict[str, Any]]]:
     fallback = list(preset.model_choices if preset else ())
     preset_id = str(provider.get("provider") or provider_id or "").strip()
+    discovery_type = _discovery_type(preset, "model_discovery")
+    if not discovery_type and provider.get("api_mode") != "anthropic_messages" and str(provider.get("base_url") or "").strip():
+        discovery_type = "openai_compatible"
     credential_api_key = ""
     if not str(provider.get("api_key") or "").strip() and preset_id:
         try:
@@ -289,9 +314,9 @@ def discover_provider_models(
             credential_api_key = ""
     live: list[str] = []
     model_metadata: dict[str, dict[str, Any]] = {}
-    if preset_id == "openai-codex":
+    if discovery_type == "codex":
         live = fetch_codex_models(app_home)
-    elif preset_id == "copilot":
+    elif discovery_type == "copilot":
         api_key = str(provider.get("api_key") or "").strip() or credential_api_key
         if not api_key:
             try:
@@ -301,19 +326,17 @@ def discover_provider_models(
             except Exception:
                 api_key = ""
         live = fetch_copilot_provider_models(api_key) if api_key else []
-    elif preset_id == "openrouter":
+    elif discovery_type == "openrouter":
         live = fetch_openrouter_models()
         model_metadata = cached_openrouter_model_metadata(live)
-    elif provider.get("api_mode") != "anthropic_messages" and (
-        preset_id in {"openai", "minimax"} or str(provider.get("base_url") or "").strip()
-    ):
+    elif discovery_type == "openai_compatible" and provider.get("api_mode") != "anthropic_messages":
         live = fetch_openai_compatible_models(
             str(provider.get("api_key") or "").strip() or credential_api_key,
             str(provider.get("base_url") or (preset.default_base_url if preset else "")).strip(),
         )
     if live:
         models = _dedupe_models(live + fallback)
-        return models, "live", cached_openrouter_model_metadata(models) if preset_id == "openrouter" else {}
+        return models, "live", _filter_model_metadata_fields(model_metadata, preset.model_metadata_fields if preset else ())
     return fallback, "preset", {}
 
 
@@ -409,7 +432,7 @@ def connect_provider_in_config(
     provider["auth_type"] = preset.auth_type
     if preset.api_mode:
         provider["api_mode"] = preset.api_mode
-    if preset_id == "openrouter":
+    if "reasoning" in preset.request_options:
         provider.setdefault("reasoning_enabled", True)
         provider.setdefault("reasoning_effort", "medium")
     normalized_name = str(display_name or "").strip()
@@ -497,6 +520,22 @@ def public_openrouter_options(provider: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def public_provider_profile(preset: ProviderPreset | None) -> dict[str, Any]:
+    """Return profile fields safe for settings APIs."""
+    return {
+        "capabilities": list(preset.capabilities) if preset else [],
+        "request_options": list(preset.request_options) if preset else [],
+        "model_metadata_fields": list(preset.model_metadata_fields) if preset else [],
+    }
+
+
+def public_provider_options(provider: dict[str, Any], preset: ProviderPreset | None) -> dict[str, Any]:
+    """Return persisted provider request options supported by its profile."""
+    if not preset or not preset.request_options:
+        return {}
+    return public_openrouter_options(provider)
+
+
 def is_provider_connected(provider: dict[str, Any], preset: ProviderPreset | None) -> bool:
     """Return whether a provider instance is configured enough for model selection."""
     if not isinstance(provider, dict):
@@ -567,8 +606,29 @@ def public_credential_source(provider: dict[str, Any], credential: dict[str, Any
     return "priority"
 
 
-def update_openrouter_options(provider: dict[str, Any], body: dict[str, Any]) -> None:
+def _ensure_request_option(supported: set[str], option: str) -> None:
+    if option not in supported:
+        raise ProviderSettingsValidationError(f"{option} request options are not available for this provider")
+
+
+def update_openrouter_options(
+    provider: dict[str, Any],
+    body: dict[str, Any],
+    *,
+    request_options: tuple[str, ...] = ("reasoning", "provider_sort", "require_parameters"),
+) -> None:
     """Validate and update optional OpenRouter request settings."""
+    supported = set(request_options)
+    if any(
+        key in body
+        for key in {"reasoning_enabled", "reasoning_effort", "reasoning_max_tokens", "reasoning_exclude"}
+    ):
+        _ensure_request_option(supported, "reasoning")
+    if "provider_sort" in body:
+        _ensure_request_option(supported, "provider_sort")
+    if "require_parameters" in body:
+        _ensure_request_option(supported, "require_parameters")
+
     if "reasoning_enabled" in body:
         provider["reasoning_enabled"] = bool(body["reasoning_enabled"])
     if "reasoning_effort" in body:
@@ -677,25 +737,28 @@ class ProviderSettingsService:
                     "auth_type": provider.get("auth_type") or (preset.auth_type if preset else "api_key"),
                     "requires_api_key": (preset.auth_type if preset else "api_key") == "api_key",
                     "api_key_optional": (preset.auth_type if preset else "api_key") == "optional_api_key",
+                    **public_provider_profile(preset),
                     "is_default": provider_id == default_provider,
                     "enabled": bool(provider.get("enabled")),
-                    "options": public_openrouter_options(provider) if preset_id == "openrouter" else {},
+                    "options": public_provider_options(provider, preset),
                 }
             )
 
         available = [
             {
                 "id": provider_id,
-                "name": self._display_name(provider_id, presets.providers[provider_id]),
-                "default_base_url": presets.providers[provider_id].default_base_url,
-                "auth_type": presets.providers[provider_id].auth_type,
-                "api_mode": presets.providers[provider_id].api_mode,
-                "requires_api_key": presets.providers[provider_id].auth_type == "api_key",
-                "api_key_optional": presets.providers[provider_id].auth_type == "optional_api_key",
-                "model_choices": list(presets.providers[provider_id].model_choices),
+                "name": self._display_name(provider_id, preset),
+                "default_base_url": preset.default_base_url,
+                "auth_type": preset.auth_type,
+                "api_mode": preset.api_mode,
+                "requires_api_key": preset.auth_type == "api_key",
+                "api_key_optional": preset.auth_type == "optional_api_key",
+                **public_provider_profile(preset),
+                "model_choices": list(preset.model_choices),
                 "connected_count": sum(1 for provider in connected if provider.get("provider") == provider_id),
             }
             for provider_id in presets.provider_order
+            for preset in [presets.providers[provider_id]]
         ]
 
         return {
@@ -742,9 +805,10 @@ class ProviderSettingsService:
                 "auth_type": provider.get("auth_type") or preset.auth_type,
                 "requires_api_key": preset.auth_type == "api_key",
                 "api_key_optional": preset.auth_type == "optional_api_key",
+                **public_provider_profile(preset),
                 "is_default": instance_id == loaded.llm.default,
                 "enabled": bool(provider.get("enabled")),
-                "options": public_openrouter_options(provider) if provider_id == "openrouter" else {},
+                "options": public_provider_options(provider, preset),
             },
             "restart_required": False,
         }
@@ -758,15 +822,15 @@ class ProviderSettingsService:
         preset = presets.providers.get(preset_id) if preset_id else None
         if not isinstance(provider, dict) or not is_provider_connected(provider, preset):
             raise ProviderSettingsNotFound(f"Provider is not connected: {provider_id}")
-        if preset_id != "openrouter":
-            raise ProviderSettingsValidationError("OpenRouter request options are only available for OpenRouter providers")
+        if not preset or not preset.request_options:
+            raise ProviderSettingsValidationError("Provider request options are not available for this provider")
 
-        update_openrouter_options(provider, options)
+        update_openrouter_options(provider, options, request_options=preset.request_options)
         self._persist_llm_state(main_data, providers)
         return {
             "ok": True,
             "provider_id": provider_id,
-            "options": public_openrouter_options(provider),
+            "options": public_provider_options(provider, preset),
             "restart_required": bool(provider.get("enabled")),
         }
 
@@ -874,7 +938,8 @@ class ProviderSettingsService:
                         if model in choices and metadata
                     },
                     "model_capabilities": (preset.model_capabilities or {}) if preset else {},
-                    "options": public_openrouter_options(provider) if preset_id == "openrouter" else {},
+                    **public_provider_profile(preset),
+                    "options": public_provider_options(provider, preset),
                     "supports_custom_model": True,
                 }
             )
