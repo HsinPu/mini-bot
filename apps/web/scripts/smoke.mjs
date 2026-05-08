@@ -50,6 +50,7 @@ const [
   dataSettingsActions,
   mcpSettingsActions,
   modelSettingsActions,
+  settingsNormalizers,
   networkSettingsActions,
   providerSettingsActions,
   scheduleSettingsActions,
@@ -71,6 +72,7 @@ const [
   read("src/composables/useDataSettingsActions.js"),
   read("src/composables/useMcpSettingsActions.js"),
   read("src/composables/useModelSettingsActions.js"),
+  read("src/composables/settingsNormalizers.js"),
   read("src/composables/useNetworkSettingsActions.js"),
   read("src/composables/useProviderSettingsActions.js"),
   read("src/composables/useScheduleSettingsActions.js"),
@@ -78,7 +80,7 @@ const [
   read("styles.css"),
 ]);
 
-const settingsLogic = `${chatClient}\n${dataSettingsActions}\n${mcpSettingsActions}\n${modelSettingsActions}\n${networkSettingsActions}\n${providerSettingsActions}\n${scheduleSettingsActions}`;
+const settingsLogic = `${chatClient}\n${dataSettingsActions}\n${mcpSettingsActions}\n${modelSettingsActions}\n${settingsNormalizers}\n${networkSettingsActions}\n${providerSettingsActions}\n${scheduleSettingsActions}`;
 
 assertIncludes(messageList, "artifactTypeLabel", "session entry artifact labels");
 assertIncludes(messageList, "message__artifact-status", "session entry artifact status");
@@ -126,11 +128,19 @@ assertIncludes(settingsModal, "CuratorSettingsPage", "curator settings placement
 assertIncludes(settingsModal, "section === 'curator'", "curator settings section");
 assertIncludes(settingsModal, "connectedCount", "multiple provider connection count");
 assertIncludes(settingsModal, "save-media-model", "media model settings action");
-assertIncludes(settingsModal, "textProviderModelGroups", "OpenRouter model grouping");
-assertIncludes(settingsModal, "mediaProviderModelGroups", "OpenRouter media model grouping");
-assertIncludes(settingsModal, "openRouterModelGroups", "shared OpenRouter model grouping");
-assertIncludes(settingsModal, "model_metadata", "OpenRouter model metadata rendering");
-assertIncludes(settingsModal, "textModelOptionLabel", "OpenRouter model context option labels");
+assertIncludes(settingsModal, "textProviderModelGroups", "provider model grouping");
+assertIncludes(settingsModal, "mediaProviderModelGroups", "provider media model grouping");
+assertIncludes(settingsModal, "slashModelGroups", "shared slash model grouping");
+assertIncludes(settingsModal, "model_metadata", "provider model metadata rendering");
+assertIncludes(settingsModal, "providerSupportsModelMetadata", "provider profile model metadata rendering");
+assertIncludes(settingsModal, "providerSupportsRequestOptions", "provider profile request option rendering");
+assertIncludes(settingsModal, "providerRequestOptions", "provider request option state rendering");
+assertIncludes(settingsModal, "apply-provider-recommended-options", "provider request option recommendation event");
+assertIncludes(settingsModal, "provider-options", "provider request option styling hook");
+assertIncludes(modelSettingsActions, "serializeProviderRequestOptions", "provider profile request option save payload");
+assertIncludes(settingsNormalizers, "providerRequestOptions", "provider profile request option helpers");
+assertNotIncludes(settingsLogic, "openRouterOptions", "provider request option state is not provider-specific");
+assertIncludes(settingsModal, "textModelOptionLabel", "provider model context option labels");
 assertIncludes(settingsModal, "<optgroup", "grouped model select rendering");
 assertIncludes(settingsModal, "@click=\"$emit('select-model', selectedTextProvider.id, settingsState.modelSelections[selectedTextProvider.id])\"", "model selection applies on explicit action");
 assertNotIncludes(settingsModal, "@change=\"$emit('select-model', settingsState.selectedTextProviderId", "provider selection does not auto-apply model");

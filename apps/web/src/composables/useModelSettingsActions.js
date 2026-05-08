@@ -1,8 +1,9 @@
 import {
-  DEFAULT_OPENROUTER_RECOMMENDED_OPTIONS,
+  DEFAULT_PROVIDER_RECOMMENDED_OPTIONS,
   normalizeMediaSettings,
-  normalizeOpenRouterOptions,
-  serializeOpenRouterOptions,
+  normalizeProviderRequestOptions,
+  providerSupportsRequestOptions,
+  serializeProviderRequestOptions,
 } from "./settingsNormalizers";
 
 function normalizeLlmSettings(payload = {}) {
@@ -50,8 +51,8 @@ export function useModelSettingsActions({ settingsState, requestSettingsJson, co
         const selectedModel = provider.selected_model || provider.models?.[0] || "";
         settingsState.modelSelections[provider.id] = selectedModel;
         settingsState.customModels[provider.id] = "";
-        if (provider.provider === "openrouter") {
-          settingsState.openRouterOptions[provider.id] = normalizeOpenRouterOptions(provider.options || {});
+        if (providerSupportsRequestOptions(provider)) {
+          settingsState.providerRequestOptions[provider.id] = normalizeProviderRequestOptions(provider.options || {});
         }
       }
       for (const category of Object.keys(settingsState.media.sections || {})) {
@@ -86,9 +87,9 @@ export function useModelSettingsActions({ settingsState, requestSettingsJson, co
     settingsState.modelsNotice = "";
     try {
       const provider = (settingsState.models.providers || []).find((entry) => entry.id === providerId);
-      if (provider?.provider === "openrouter" && providerId !== settingsState.models.default_provider) {
-        settingsState.openRouterOptions[providerId] = normalizeOpenRouterOptions(DEFAULT_OPENROUTER_RECOMMENDED_OPTIONS);
-        await persistOpenRouterOptions(providerId, { silent: true });
+      if (providerSupportsRequestOptions(provider) && providerId !== settingsState.models.default_provider) {
+        settingsState.providerRequestOptions[providerId] = normalizeProviderRequestOptions(DEFAULT_PROVIDER_RECOMMENDED_OPTIONS);
+        await persistProviderRequestOptions(providerId, { silent: true });
       }
       const payload = await requestSettingsJson("/api/settings/models/select", {
         method: "POST",
@@ -109,25 +110,29 @@ export function useModelSettingsActions({ settingsState, requestSettingsJson, co
     }
   }
 
-  async function applyOpenRouterRecommendedOptions(providerId, model) {
+  async function applyProviderRecommendedOptions(providerId, model) {
     const provider = (settingsState.models.providers || []).find((entry) => entry.id === providerId);
-    const recommended = provider?.model_capabilities?.[model]?.recommended_options || DEFAULT_OPENROUTER_RECOMMENDED_OPTIONS;
-    settingsState.openRouterOptions[providerId] = normalizeOpenRouterOptions({
-      ...serializeOpenRouterOptions(settingsState.openRouterOptions[providerId] || {}),
-      ...DEFAULT_OPENROUTER_RECOMMENDED_OPTIONS,
+    if (!providerSupportsRequestOptions(provider)) {
+      return;
+    }
+    const recommended = provider?.model_capabilities?.[model]?.recommended_options || DEFAULT_PROVIDER_RECOMMENDED_OPTIONS;
+    settingsState.providerRequestOptions[providerId] = normalizeProviderRequestOptions({
+      ...serializeProviderRequestOptions(settingsState.providerRequestOptions[providerId] || {}, provider),
+      ...DEFAULT_PROVIDER_RECOMMENDED_OPTIONS,
       ...recommended,
     });
-    await saveOpenRouterOptions(providerId);
+    await saveProviderRequestOptions(providerId);
   }
 
-  async function persistOpenRouterOptions(providerId, { silent = false } = {}) {
-    const options = settingsState.openRouterOptions[providerId];
+  async function persistProviderRequestOptions(providerId, { silent = false } = {}) {
+    const options = settingsState.providerRequestOptions[providerId];
     if (!options) {
       return null;
     }
+    const provider = (settingsState.models.providers || []).find((entry) => entry.id === providerId);
     const payload = await requestSettingsJson(`/api/settings/providers/${encodeURIComponent(providerId)}/options`, {
       method: "PUT",
-      body: JSON.stringify(serializeOpenRouterOptions(options)),
+      body: JSON.stringify(serializeProviderRequestOptions(options, provider)),
     });
     if (!silent) {
       setSettingsSuccess(
@@ -140,8 +145,8 @@ export function useModelSettingsActions({ settingsState, requestSettingsJson, co
     return payload;
   }
 
-  async function saveOpenRouterOptions(providerId) {
-    const options = settingsState.openRouterOptions[providerId];
+  async function saveProviderRequestOptions(providerId) {
+    const options = settingsState.providerRequestOptions[providerId];
     if (!options) {
       return;
     }
@@ -150,7 +155,7 @@ export function useModelSettingsActions({ settingsState, requestSettingsJson, co
     settingsState.modelsError = "";
     settingsState.modelsNotice = "";
     try {
-      await persistOpenRouterOptions(providerId);
+      await persistProviderRequestOptions(providerId);
     } catch (error) {
       settingsState.modelsError = error?.message || copy.value.notices.providerOptionsSaveFailed;
     } finally {
@@ -223,8 +228,8 @@ export function useModelSettingsActions({ settingsState, requestSettingsJson, co
   return {
     loadModelSettings,
     selectModel,
-    applyOpenRouterRecommendedOptions,
-    saveOpenRouterOptions,
+    applyProviderRecommendedOptions,
+    saveProviderRequestOptions,
     saveLlmSettings,
     saveMediaModel,
   };

@@ -727,24 +727,24 @@
               </button>
             </div>
 
-            <div v-if="showOpenRouterOptions" class="openrouter-options">
-              <div class="openrouter-options__header">
+            <div v-if="showProviderRequestOptions" class="provider-options">
+              <div class="provider-options__header">
                 <div>
-                  <strong>{{ copy.settings.models.openRouter.title }}</strong>
-                  <span>{{ copy.settings.models.openRouter.description }}</span>
+                  <strong>{{ copy.settings.models.providerOptions.title }}</strong>
+                  <span>{{ copy.settings.models.providerOptions.description }}</span>
                 </div>
                 <button
                   class="secondary-button"
                   type="button"
                   :disabled="settingsState.modelsLoading"
-                  @click="openRouterOptionsExpanded = !openRouterOptionsExpanded"
+                  @click="providerRequestOptionsExpanded = !providerRequestOptionsExpanded"
                 >
-                  {{ openRouterOptionsExpanded ? copy.settings.models.openRouter.hideOptions : copy.settings.models.openRouter.showOptions }}
+                  {{ providerRequestOptionsExpanded ? copy.settings.models.providerOptions.hideOptions : copy.settings.models.providerOptions.showOptions }}
                 </button>
               </div>
 
-              <template v-if="openRouterOptionsExpanded">
-                <div class="openrouter-capabilities">
+              <template v-if="providerRequestOptionsExpanded">
+                <div class="provider-options__capabilities">
                   <span v-if="selectedTextContextBadge" class="provider-row__badge">
                     {{ selectedTextContextBadge }}
                   </span>
@@ -752,27 +752,27 @@
                     {{ capability }}
                   </span>
                   <span class="settings-muted">
-                    {{ copy.settings.models.openRouter.recommendedSummary(selectedTextRecommendedOptions) }}
+                    {{ copy.settings.models.providerOptions.recommendedSummary(selectedTextRecommendedOptions) }}
                   </span>
                 </div>
 
-                <div class="openrouter-options__grid">
-                  <div class="openrouter-option-row openrouter-option-row--switch">
+                <div class="provider-options__grid">
+                  <div v-if="supportsSelectedProviderRequestOption('reasoning')" class="provider-option-row provider-option-row--switch">
                     <div>
-                      <strong>{{ copy.settings.models.openRouter.reasoningEnabled }}</strong>
-                      <span>{{ copy.settings.models.openRouter.reasoningEnabledDescription }}</span>
+                      <strong>{{ copy.settings.models.providerOptions.reasoningEnabled }}</strong>
+                      <span>{{ copy.settings.models.providerOptions.reasoningEnabledDescription }}</span>
                     </div>
                     <input
-                      v-model="settingsState.openRouterOptions[selectedTextProvider.id].reasoningEnabled"
+                      v-model="settingsState.providerRequestOptions[selectedTextProvider.id].reasoningEnabled"
                       class="switch"
                       type="checkbox"
-                      :aria-label="copy.settings.models.openRouter.reasoningEnabled"
+                      :aria-label="copy.settings.models.providerOptions.reasoningEnabled"
                     />
                   </div>
-                  <label class="openrouter-option-field">
-                    <span>{{ copy.settings.models.openRouter.reasoningEffort }}</span>
-                    <select v-model="settingsState.openRouterOptions[selectedTextProvider.id].reasoningEffort">
-                      <option value="">{{ copy.settings.models.openRouter.none }}</option>
+                  <label v-if="supportsSelectedProviderRequestOption('reasoning')" class="provider-option-field">
+                    <span>{{ copy.settings.models.providerOptions.reasoningEffort }}</span>
+                    <select v-model="settingsState.providerRequestOptions[selectedTextProvider.id].reasoningEffort">
+                      <option value="">{{ copy.settings.models.providerOptions.none }}</option>
                       <option value="minimal">minimal</option>
                       <option value="low">low</option>
                       <option value="medium">medium</option>
@@ -780,66 +780,66 @@
                       <option value="xhigh">xhigh</option>
                     </select>
                   </label>
-                  <label class="openrouter-option-field">
-                    <span>{{ copy.settings.models.openRouter.reasoningMaxTokens }}</span>
+                  <label v-if="supportsSelectedProviderRequestOption('reasoning')" class="provider-option-field">
+                    <span>{{ copy.settings.models.providerOptions.reasoningMaxTokens }}</span>
                     <input
-                      v-model="settingsState.openRouterOptions[selectedTextProvider.id].reasoningMaxTokens"
+                      v-model="settingsState.providerRequestOptions[selectedTextProvider.id].reasoningMaxTokens"
                       type="number"
                       min="1"
-                      :placeholder="copy.settings.models.openRouter.none"
+                      :placeholder="copy.settings.models.providerOptions.none"
                     />
                   </label>
-                  <div class="openrouter-option-row openrouter-option-row--switch">
+                  <div v-if="supportsSelectedProviderRequestOption('reasoning')" class="provider-option-row provider-option-row--switch">
                     <div>
-                      <strong>{{ copy.settings.models.openRouter.reasoningExclude }}</strong>
-                      <span>{{ copy.settings.models.openRouter.reasoningExcludeDescription }}</span>
+                      <strong>{{ copy.settings.models.providerOptions.reasoningExclude }}</strong>
+                      <span>{{ copy.settings.models.providerOptions.reasoningExcludeDescription }}</span>
                     </div>
                     <input
-                      v-model="settingsState.openRouterOptions[selectedTextProvider.id].reasoningExclude"
+                      v-model="settingsState.providerRequestOptions[selectedTextProvider.id].reasoningExclude"
                       class="switch"
                       type="checkbox"
-                      :aria-label="copy.settings.models.openRouter.reasoningExclude"
+                      :aria-label="copy.settings.models.providerOptions.reasoningExclude"
                     />
                   </div>
-                  <label class="openrouter-option-field">
-                    <span>{{ copy.settings.models.openRouter.providerSort }}</span>
-                    <select v-model="settingsState.openRouterOptions[selectedTextProvider.id].providerSort">
-                      <option value="">{{ copy.settings.models.openRouter.none }}</option>
+                  <label v-if="supportsSelectedProviderRequestOption('provider_sort')" class="provider-option-field">
+                    <span>{{ copy.settings.models.providerOptions.providerSort }}</span>
+                    <select v-model="settingsState.providerRequestOptions[selectedTextProvider.id].providerSort">
+                      <option value="">{{ copy.settings.models.providerOptions.none }}</option>
                       <option value="price">price</option>
                       <option value="throughput">throughput</option>
                       <option value="latency">latency</option>
                     </select>
                   </label>
-                  <div class="openrouter-option-row openrouter-option-row--switch">
+                  <div v-if="supportsSelectedProviderRequestOption('require_parameters')" class="provider-option-row provider-option-row--switch">
                     <div>
-                      <strong>{{ copy.settings.models.openRouter.requireParameters }}</strong>
-                      <span>{{ copy.settings.models.openRouter.requireParametersDescription }}</span>
+                      <strong>{{ copy.settings.models.providerOptions.requireParameters }}</strong>
+                      <span>{{ copy.settings.models.providerOptions.requireParametersDescription }}</span>
                     </div>
                     <input
-                      v-model="settingsState.openRouterOptions[selectedTextProvider.id].requireParameters"
+                      v-model="settingsState.providerRequestOptions[selectedTextProvider.id].requireParameters"
                       class="switch"
                       type="checkbox"
-                      :aria-label="copy.settings.models.openRouter.requireParameters"
+                      :aria-label="copy.settings.models.providerOptions.requireParameters"
                     />
                   </div>
                 </div>
 
-                <div class="openrouter-options__actions">
+                <div class="provider-options__actions">
                   <button
                     class="secondary-button"
                     type="button"
                     :disabled="settingsState.modelsLoading"
-                    @click="$emit('apply-openrouter-recommended-options', selectedTextProvider.id, selectedTextModel)"
+                    @click="$emit('apply-provider-recommended-options', selectedTextProvider.id, selectedTextModel)"
                   >
-                    {{ copy.settings.models.openRouter.applyRecommended }}
+                    {{ copy.settings.models.providerOptions.applyRecommended }}
                   </button>
                   <button
                     class="secondary-button"
                     type="button"
                     :disabled="settingsState.modelsLoading"
-                    @click="$emit('save-openrouter-options', selectedTextProvider.id)"
+                    @click="$emit('save-provider-request-options', selectedTextProvider.id)"
                   >
-                    {{ copy.settings.models.openRouter.save }}
+                    {{ copy.settings.models.providerOptions.save }}
                   </button>
                 </div>
               </template>
@@ -2297,6 +2297,11 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import CuratorSettingsPage from "./CuratorSettingsPage.vue";
+import {
+  providerSupportsModelMetadata,
+  providerSupportsRequestOption,
+  providerSupportsRequestOptions,
+} from "../composables/settingsNormalizers";
 
 const props = defineProps({
   copy: {
@@ -2348,7 +2353,7 @@ const evalCopyState = ref({ key: "", status: "idle" });
 const evalCopyFallbackOpen = ref(false);
 const evalCopyText = ref("");
 const evalCopyTextarea = ref(null);
-const openRouterOptionsExpanded = ref(false);
+const providerRequestOptionsExpanded = ref(false);
 const EVAL_HISTORY_GROUP_WINDOW_SECONDS = 10 * 60;
 let evalCopyResetTimer = null;
 
@@ -3002,12 +3007,12 @@ function formatCompactTokenCount(value) {
 function modelContextLabel(provider, model) {
   const contextLength = provider?.model_metadata?.[model]?.context_length;
   const formatted = formatCompactTokenCount(contextLength);
-  return formatted ? props.copy.settings.models.openRouter.contextLength(formatted) : "";
+  return formatted ? props.copy.settings.models.providerOptions.contextLength(formatted) : "";
 }
 
 function textModelOptionLabel(model) {
   const provider = selectedTextProvider.value;
-  const context = provider?.provider === "openrouter" ? modelContextLabel(provider, model) : "";
+  const context = providerSupportsModelMetadata(provider, "context_length") ? modelContextLabel(provider, model) : "";
   const label = [model, context].filter(Boolean).join(" · ");
   return provider?.is_default && provider.selected_model === model ? `${label} (${props.copy.settings.models.active})` : label;
 }
@@ -3031,7 +3036,7 @@ const textProviderModels = computed(() => {
   return models;
 });
 
-const openRouterFamilyLabels = {
+const modelFamilyLabels = {
   "01-ai": "01.AI",
   ai21: "AI21",
   amazon: "Amazon",
@@ -3062,23 +3067,23 @@ function titleCaseModelFamily(value) {
     .join(" ");
 }
 
-function openRouterModelFamily(model) {
+function slashModelFamily(model) {
   const normalized = String(model || "").trim();
   const separator = normalized.indexOf("/");
   if (separator <= 0) {
-    return { key: "custom", label: props.copy.settings.models.openRouter.customGroup };
+    return { key: "custom", label: props.copy.settings.models.providerOptions.customGroup };
   }
   const family = normalized.slice(0, separator).trim().toLowerCase();
   return {
     key: family,
-    label: openRouterFamilyLabels[family] || titleCaseModelFamily(family) || props.copy.settings.models.openRouter.otherGroup,
+    label: modelFamilyLabels[family] || titleCaseModelFamily(family) || props.copy.settings.models.providerOptions.otherGroup,
   };
 }
 
-function openRouterModelGroups(models) {
+function slashModelGroups(models) {
   const groups = new Map();
   for (const model of models) {
-    const family = openRouterModelFamily(model);
+    const family = slashModelFamily(model);
     if (!groups.has(family.key)) {
       groups.set(family.key, { key: family.key, label: family.label, models: [] });
     }
@@ -3087,11 +3092,15 @@ function openRouterModelGroups(models) {
   return Array.from(groups.values());
 }
 
+function hasSlashModelIds(models) {
+  return models.some((model) => String(model || "").includes("/"));
+}
+
 const textProviderModelGroups = computed(() => {
-  if (selectedTextProvider.value?.provider !== "openrouter") {
+  if (!hasSlashModelIds(textProviderModels.value)) {
     return [];
   }
-  return openRouterModelGroups(textProviderModels.value);
+  return slashModelGroups(textProviderModels.value);
 });
 
 const selectedTextModel = computed(() => {
@@ -3111,14 +3120,14 @@ const selectedTextCapabilities = computed(() => {
 const selectedTextRecommendedOptions = computed(() => selectedTextCapabilities.value?.recommended_options || null);
 
 const selectedTextContextBadge = computed(() => {
-  if (selectedTextProvider.value?.provider !== "openrouter" || !selectedTextModel.value) {
+  if (!providerSupportsModelMetadata(selectedTextProvider.value, "context_length") || !selectedTextModel.value) {
     return "";
   }
   return modelContextLabel(selectedTextProvider.value, selectedTextModel.value);
 });
 
 const selectedTextCapabilityBadges = computed(() => {
-  const labels = props.copy.settings.models.openRouter.capabilities;
+  const labels = props.copy.settings.models.providerOptions.capabilities;
   const capabilities = selectedTextCapabilities.value || {};
   return [
     capabilities.reasoning ? labels.reasoning : null,
@@ -3215,10 +3224,14 @@ function formatEffectiveParamValue(value) {
   return String(value);
 }
 
-const showOpenRouterOptions = computed(() => (
-  selectedTextProvider.value?.provider === "openrouter" &&
-  props.settingsState.openRouterOptions[selectedTextProvider.value.id]
+const showProviderRequestOptions = computed(() => (
+  providerSupportsRequestOptions(selectedTextProvider.value) &&
+  props.settingsState.providerRequestOptions[selectedTextProvider.value.id]
 ));
+
+function supportsSelectedProviderRequestOption(option) {
+  return providerSupportsRequestOption(selectedTextProvider.value, option);
+}
 
 const decodingModeOptions = computed(() => {
   const copyModes = props.copy.settings.models.decodingMode.options;
@@ -3329,11 +3342,11 @@ function mediaProviderModels(category) {
 
 function mediaProviderModelGroups(category) {
   const providerId = props.settingsState.mediaSelections[category]?.providerId;
-  const provider = props.settingsState.media.providers.find((entry) => entry.id === providerId);
-  if (provider?.provider !== "openrouter") {
+  const models = mediaProviderModels(category);
+  if (!providerId || !hasSlashModelIds(models)) {
     return [];
   }
-  return openRouterModelGroups(mediaProviderModels(category));
+  return slashModelGroups(models);
 }
 
 function mediaModelsForProvider(category, providerId, selectedModel = "") {
@@ -3494,8 +3507,8 @@ const emit = defineEmits([
   "start-copilot-auth-login",
   "logout-copilot-auth",
   "select-model",
-  "apply-openrouter-recommended-options",
-  "save-openrouter-options",
+  "apply-provider-recommended-options",
+  "save-provider-request-options",
   "save-llm-settings",
   "save-log-settings",
   "save-media-model",

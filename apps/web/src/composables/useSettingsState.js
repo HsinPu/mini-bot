@@ -110,7 +110,7 @@ export function createSettingsState() {
     selectedTextProviderId: "",
     modelSelections: {},
     customModels: {},
-    openRouterOptions: {},
+    providerRequestOptions: {},
     mediaLoading: false,
     mediaError: "",
     mediaNotice: "",
