@@ -5,6 +5,15 @@ import {
   serializeOpenRouterOptions,
 } from "./settingsNormalizers";
 
+function normalizeLlmSettings(payload = {}) {
+  const llm = payload?.llm || {};
+  return {
+    pass_decoding_params: Boolean(llm.pass_decoding_params),
+    decoding: llm.decoding && typeof llm.decoding === "object" ? llm.decoding : {},
+    effective_request: llm.effective_request && typeof llm.effective_request === "object" ? llm.effective_request : null,
+  };
+}
+
 export function useModelSettingsActions({ settingsState, requestSettingsJson, copy, setSettingsSuccess, loadProviderSettings }) {
   async function loadModelSettings() {
     settingsState.modelsLoading = true;
@@ -21,9 +30,7 @@ export function useModelSettingsActions({ settingsState, requestSettingsJson, co
       ]);
       settingsState.models = models;
       settingsState.media = normalizeMediaSettings(media);
-      settingsState.llm = {
-        pass_decoding_params: Boolean(llm?.llm?.pass_decoding_params),
-      };
+      settingsState.llm = normalizeLlmSettings(llm);
       const activeProvider = (settingsState.models.providers || []).find((provider) => provider.is_default);
       settingsState.selectedTextProviderId = activeProvider?.id || settingsState.models.providers?.[0]?.id || "";
       for (const provider of settingsState.models.providers || []) {
@@ -149,9 +156,7 @@ export function useModelSettingsActions({ settingsState, requestSettingsJson, co
           pass_decoding_params: Boolean(settingsState.llm.pass_decoding_params),
         }),
       });
-      settingsState.llm = {
-        pass_decoding_params: Boolean(payload?.llm?.pass_decoding_params),
-      };
+      settingsState.llm = normalizeLlmSettings(payload);
       setSettingsSuccess(
         "llmNotice",
         payload.restart_required ? copy.value.notices.modelRestartRequired : copy.value.notices.llmSettingsSaved,

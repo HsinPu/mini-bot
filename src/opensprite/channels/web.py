@@ -442,6 +442,95 @@ class WebAdapter(MessageAdapter):
             "no_proxy": str(getattr(network, "no_proxy", "") or ""),
         }
 
+    @staticmethod
+    def _llm_decoding_payload(config: Config) -> dict[str, Any]:
+        llm = config.llm
+        return {
+            "temperature": llm.temperature,
+            "max_tokens": llm.max_tokens,
+            "top_p": llm.top_p,
+            "frequency_penalty": llm.frequency_penalty,
+            "presence_penalty": llm.presence_penalty,
+        }
+
+    @staticmethod
+    def _anthropic_reasoning_budget(effort: str | None) -> int:
+        budgets = {"minimal": 4000, "low": 4000, "medium": 8000, "high": 16000, "xhigh": 32000}
+        return budgets.get(str(effort or "medium").lower(), budgets["medium"])
+
+    @classmethod
+    def _effective_llm_request_payload(cls, config: Config) -> dict[str, Any]:
+        llm = config.llm
+        provider_id = str(llm.default or "").strip()
+        active = llm.get_active()
+        provider_name = str(getattr(active, "provider", None) or provider_id or "").strip()
+        api_mode = str(getattr(active, "api_mode", None) or "chat_completions").strip()
+        decoding = cls._llm_decoding_payload(config)
+        sent_decoding = dict(decoding) if llm.pass_decoding_params else {key: None for key in decoding}
+        reasoning_source = "none"
+        reasoning_payload: dict[str, Any] = {}
+        provider_options: dict[str, Any] = {}
+
+        if provider_name == "openrouter":
+            reasoning: dict[str, Any] = {}
+            if active.reasoning_enabled:
+                if active.reasoning_effort:
+                    reasoning["effort"] = active.reasoning_effort
+                if active.reasoning_max_tokens is not None:
+                    reasoning["max_tokens"] = active.reasoning_max_tokens
+            if active.reasoning_exclude:
+                reasoning["exclude"] = True
+            reasoning_source = "openrouter"
+            reasoning_payload = reasoning
+            if active.provider_sort:
+                provider_options["sort"] = active.provider_sort
+            if active.require_parameters:
+                provider_options["require_parameters"] = True
+        elif api_mode == "anthropic_messages":
+            reasoning_source = "anthropic_messages"
+            if active.reasoning_enabled:
+                budget = cls._anthropic_reasoning_budget(active.reasoning_effort)
+                base_max_tokens = sent_decoding.get("max_tokens") or 131072
+                reasoning_payload = {
+                    "thinking": {"type": "enabled", "budget_tokens": budget},
+                    "temperature": 1,
+                    "max_tokens": max(int(base_max_tokens), budget + 4096),
+                }
+        elif provider_name == "minimax":
+            reasoning_source = "minimax_chat_completions"
+            reasoning_payload = {"extra_body": {"reasoning_split": True}}
+
+        return {
+            "configured": bool(config.is_llm_configured),
+            "provider_id": provider_id,
+            "provider": provider_name,
+            "api_mode": api_mode,
+            "model": str(getattr(active, "model", "") or llm.model or ""),
+            "context_window_tokens": active.context_window_tokens,
+            "decoding": {
+                "status": "sent" if llm.pass_decoding_params else "omitted",
+                "params": sent_decoding,
+            },
+            "reasoning": {
+                "source": reasoning_source,
+                "sent": bool(reasoning_payload),
+                "enabled": bool(getattr(active, "reasoning_enabled", False)),
+                "effort": getattr(active, "reasoning_effort", None),
+                "max_tokens": getattr(active, "reasoning_max_tokens", None),
+                "exclude": bool(getattr(active, "reasoning_exclude", False)),
+                "payload": reasoning_payload,
+            },
+            "provider_options": provider_options,
+        }
+
+    @classmethod
+    def _llm_payload(cls, config: Config) -> dict[str, Any]:
+        return {
+            "pass_decoding_params": bool(config.llm.pass_decoding_params),
+            "decoding": cls._llm_decoding_payload(config),
+            "effective_request": cls._effective_llm_request_payload(config),
+        }
+
     @classmethod
     def _log_payload(cls, config: Config) -> dict[str, Any]:
         log = getattr(config, "log", None)
@@ -1484,7 +1573,7 @@ class WebAdapter(MessageAdapter):
 
     async def _handle_settings_llm(self, request: web.Request) -> web.Response:
         config = Config.load(self._get_config_path())
-        return web.json_response({"llm": {"pass_decoding_params": bool(config.llm.pass_decoding_params)}})
+        return web.json_response({"llm": self._llm_payload(config)})
 
     async def _handle_settings_llm_update(self, request: web.Request) -> web.Response:
         body = await self._read_json_body(request)
@@ -1493,7 +1582,7 @@ class WebAdapter(MessageAdapter):
         config.llm.pass_decoding_params = bool(body.get("pass_decoding_params"))
         config.save(config_path)
         payload = {
-            "llm": {"pass_decoding_params": bool(config.llm.pass_decoding_params)},
+            "llm": self._llm_payload(config),
             "restart_required": True,
         }
         payload = self._reload_agent_llm_from_config(payload, force=True)

@@ -2258,6 +2258,15 @@ async def _run_web_settings_provider_api(tmp_path: Path, monkeypatch):
                 llm_payload = await resp.json()
 
             assert llm_payload["llm"]["pass_decoding_params"] is True
+            assert llm_payload["llm"]["decoding"] == {
+                "temperature": 0.25,
+                "max_tokens": 32768,
+                "top_p": 0.95,
+                "frequency_penalty": 0.0,
+                "presence_penalty": 0.0,
+            }
+            assert llm_payload["llm"]["effective_request"]["configured"] is False
+            assert llm_payload["llm"]["effective_request"]["decoding"]["status"] == "sent"
 
             async with session.put(
                 f"http://127.0.0.1:{port}/api/settings/llm",
@@ -2267,6 +2276,16 @@ async def _run_web_settings_provider_api(tmp_path: Path, monkeypatch):
                 llm_update_payload = await resp.json()
 
             assert llm_update_payload["llm"]["pass_decoding_params"] is False
+            assert llm_update_payload["llm"]["effective_request"]["decoding"] == {
+                "status": "omitted",
+                "params": {
+                    "temperature": None,
+                    "max_tokens": None,
+                    "top_p": None,
+                    "frequency_penalty": None,
+                    "presence_penalty": None,
+                },
+            }
             assert llm_update_payload["restart_required"] is False
             assert llm_update_payload["runtime_reloaded"] is True
             assert agent.reloads[-1][2] is False

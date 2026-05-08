@@ -856,6 +856,23 @@
             </label>
           </div>
 
+          <h3>{{ copy.settings.models.effectiveRequest.title }}</h3>
+          <div class="settings-card">
+            <div class="settings-row">
+              <div>
+                <strong>{{ effectiveRequestProviderLabel }}</strong>
+                <span>{{ copy.settings.models.effectiveRequest.description }}</span>
+              </div>
+              <span class="provider-row__badge">{{ effectiveRequestConfiguredLabel }}</span>
+            </div>
+            <div v-for="row in effectiveRequestRows" :key="row.key" class="settings-row">
+              <div>
+                <strong>{{ row.label }}</strong>
+                <span>{{ row.value }}</span>
+              </div>
+            </div>
+          </div>
+
           <h3>{{ copy.settings.models.mediaTitle }}</h3>
           <div v-if="settingsState.media.providers.length === 0" class="settings-card">
             <div class="settings-row">
@@ -3023,6 +3040,94 @@ const selectedTextCapabilityBadges = computed(() => {
     capabilities.tools ? labels.tools : null,
   ].filter(Boolean);
 });
+
+const effectiveRequest = computed(() => props.settingsState.llm?.effective_request || {});
+
+const effectiveRequestProviderLabel = computed(() => {
+  const request = effectiveRequest.value;
+  const provider = request.provider || request.provider_id || props.copy.settings.models.effectiveRequest.noProvider;
+  return request.api_mode ? `${provider} (${request.api_mode})` : provider;
+});
+
+const effectiveRequestConfiguredLabel = computed(() => (
+  effectiveRequest.value.configured
+    ? props.copy.settings.models.effectiveRequest.configured
+    : props.copy.settings.models.effectiveRequest.notConfigured
+));
+
+const effectiveRequestRows = computed(() => {
+  const request = effectiveRequest.value;
+  const labels = props.copy.settings.models.effectiveRequest.labels;
+  const decoding = request.decoding || {};
+  const rows = [
+    {
+      key: "model",
+      label: labels.model,
+      value: request.model || props.copy.settings.models.noModel,
+    },
+    {
+      key: "decoding",
+      label: labels.decoding,
+      value: decoding.status === "omitted"
+        ? props.copy.settings.models.effectiveRequest.decodingOmitted
+        : formatEffectiveParams(decoding.params || {}),
+    },
+    {
+      key: "reasoning",
+      label: labels.reasoning,
+      value: formatEffectiveReasoning(request.reasoning || {}),
+    },
+    {
+      key: "provider-options",
+      label: labels.providerOptions,
+      value: formatEffectiveParams(request.provider_options || {}),
+    },
+  ];
+  if (request.context_window_tokens) {
+    rows.splice(1, 0, {
+      key: "context-window",
+      label: labels.contextWindow,
+      value: String(request.context_window_tokens),
+    });
+  }
+  return rows;
+});
+
+function formatEffectiveReasoning(reasoning) {
+  const copyText = props.copy.settings.models.effectiveRequest;
+  if (!reasoning.source || reasoning.source === "none") {
+    return copyText.reasoningNone;
+  }
+  if (!reasoning.sent) {
+    return `${reasoning.source}: ${copyText.notSent}`;
+  }
+  return `${reasoning.source}: ${formatEffectiveParams(reasoning.payload || {})}`;
+}
+
+function formatEffectiveParams(params) {
+  const entries = Object.entries(params || {});
+  if (!entries.length) {
+    return props.copy.settings.models.effectiveRequest.none;
+  }
+  return entries.map(([key, value]) => `${key}=${formatEffectiveParamValue(value)}`).join(", ");
+}
+
+function formatEffectiveParamValue(value) {
+  const copyText = props.copy.settings.models.effectiveRequest;
+  if (value === null || value === undefined || value === "") {
+    return copyText.omitted;
+  }
+  if (typeof value === "boolean") {
+    return value ? copyText.on : copyText.off;
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(formatEffectiveParamValue).join(", ")}]`;
+  }
+  if (typeof value === "object") {
+    return `{${formatEffectiveParams(value)}}`;
+  }
+  return String(value);
+}
 
 const showOpenRouterOptions = computed(() => (
   selectedTextProvider.value?.provider === "openrouter" &&

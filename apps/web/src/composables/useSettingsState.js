@@ -91,6 +91,14 @@ export function createSettingsState() {
     llmNotice: "",
     llm: {
       pass_decoding_params: true,
+      decoding: {
+        temperature: null,
+        max_tokens: null,
+        top_p: null,
+        frequency_penalty: null,
+        presence_penalty: null,
+      },
+      effective_request: null,
     },
     models: {
       default_provider: null,
