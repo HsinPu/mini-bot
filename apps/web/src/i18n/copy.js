@@ -773,7 +773,7 @@ export const DISPLAY_COPY = {
         },
         effectiveRequest: {
           title: "實際請求參數",
-          description: "依目前 provider、模型與設定計算，不包含 messages、tools 或任何 secret。",
+          description: "依目前 provider、模型與設定計算，不包含 messages、tools 或任何 secret；上下文窗口只用於本地裁切，不會送到 provider。",
           configured: "已設定",
           notConfigured: "未設定",
           noProvider: "尚未選擇 provider",
@@ -786,7 +786,7 @@ export const DISPLAY_COPY = {
           reasoningNone: "這個 provider mode 目前不送出 reasoning/thinking 參數。",
           labels: {
             model: "模型",
-            contextWindow: "Context window",
+            contextWindow: "設定的上下文窗口",
             decoding: "通用解碼參數",
             reasoning: "Reasoning / thinking",
             providerOptions: "Provider 專屬選項",
@@ -2101,7 +2101,7 @@ export const DISPLAY_COPY = {
         },
         effectiveRequest: {
           title: "Effective request parameters",
-          description: "Calculated from the current provider, model, and settings. Messages, tools, and secrets are not shown.",
+          description: "Calculated from the current provider, model, and settings. Messages, tools, and secrets are not shown; the context window is only used for local trimming and is not sent to the provider.",
           configured: "Configured",
           notConfigured: "Not configured",
           noProvider: "No provider selected",
@@ -2114,7 +2114,7 @@ export const DISPLAY_COPY = {
           reasoningNone: "This provider mode does not currently send reasoning/thinking parameters.",
           labels: {
             model: "Model",
-            contextWindow: "Context window",
+            contextWindow: "Configured context window",
             decoding: "General decoding parameters",
             reasoning: "Reasoning / thinking",
             providerOptions: "Provider-specific options",
