@@ -135,6 +135,8 @@ class StoredEvalRun:
             "batch_id": str(metadata.get("batch_id") or ""),
             "expected_summary": str(metadata.get("expected_summary") or ""),
             "actual_response": str(metadata.get("actual_response") or self.response_preview),
+            "error": str(metadata.get("error") or ""),
+            "response_source": str(metadata.get("response_source") or ""),
             "created_at": self.created_at,
         }
 

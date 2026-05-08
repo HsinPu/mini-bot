@@ -6,7 +6,7 @@ from opensprite.evals.task_completion import (
     run_live_task_completion_eval,
     run_task_completion_smoke,
 )
-from opensprite.storage import MemoryStorage
+from opensprite.storage import MemoryStorage, StoredMessage
 
 
 def test_task_completion_case_passes_required_checks():
@@ -247,3 +247,82 @@ async def _run_live_task_completion_eval_scores_agent_result():
     assert history_by_case["literal_instruction"].metadata["actual_response"] == "alpha beta gamma"
     assert history_by_case["literal_instruction"].metadata["model"] == model_info
     assert history_by_case["multi_step_completion"].eval_id == cases_by_id["multi_step_completion"]["eval_id"]
+
+
+def test_live_task_completion_eval_uses_stored_response_when_agent_return_is_empty():
+    asyncio.run(_run_live_task_completion_eval_uses_stored_response_when_agent_return_is_empty())
+
+
+async def _run_live_task_completion_eval_uses_stored_response_when_agent_return_is_empty():
+    storage = MemoryStorage()
+
+    class EmptyReturnAgent:
+        async def process(self, user_message):
+            case_id = user_message.metadata["eval_case_id"]
+            run_id = f"run-{case_id}"
+            response_text = {
+                "literal_instruction": "alpha beta gamma",
+                "multi_step_completion": (
+                    "1. 問題：這是格式遵循測試。\n"
+                    "2. 可能原因：模型可能漏掉步驟；輸出格式可能不穩定。\n"
+                    "3. 結論：已完成三步驟回答"
+                ),
+                "exact_two_line_output": "狀態：完成\n代碼：A7-42",
+                "exact_json_output": '{"status":"complete","items":["alpha","beta"]}',
+            }[case_id]
+            await storage.create_run(user_message.session_id, run_id, status="running", created_at=1.0)
+            await storage.add_run_part(
+                user_message.session_id,
+                run_id,
+                "assistant_message",
+                content=response_text,
+                created_at=2.0,
+            )
+            await storage.add_message(
+                user_message.session_id,
+                StoredMessage(role="assistant", content=response_text, timestamp=2.0),
+            )
+            await storage.add_run_event(
+                user_message.session_id,
+                run_id,
+                "completion_gate.evaluated",
+                payload={"status": "complete", "reason": "test"},
+                created_at=3.0,
+            )
+            await storage.add_run_event(
+                user_message.session_id,
+                run_id,
+                "run_finished",
+                payload={"status": "completed", "had_tool_error": False},
+                created_at=4.0,
+            )
+            await storage.update_run_status(
+                user_message.session_id,
+                run_id,
+                "completed",
+                metadata={"had_tool_error": False},
+                finished_at=4.0,
+            )
+            return AssistantMessage(
+                text="",
+                channel=user_message.channel,
+                external_chat_id=user_message.external_chat_id,
+                session_id=user_message.session_id,
+            )
+
+    payload = await run_live_task_completion_eval(
+        agent=EmptyReturnAgent(),
+        storage=storage,
+        channel="web",
+        timeout_seconds=1,
+        model_info={"provider_id": "test-provider", "provider": "test", "model": "test-model", "configured": True},
+    )
+
+    assert payload["ok"] is True
+    cases_by_id = {case["id"]: case for case in payload["cases"]}
+    assert cases_by_id["exact_json_output"]["actual_response"] == '{"status":"complete","items":["alpha","beta"]}'
+    assert cases_by_id["exact_json_output"]["response_source"] == "run_part"
+    history = await storage.list_eval_runs(kind="task_completion", limit=10)
+    history_by_case = {item.case_id: item for item in history}
+    assert history_by_case["exact_json_output"].metadata["actual_response"] == '{"status":"complete","items":["alpha","beta"]}'
+    assert history_by_case["exact_json_output"].metadata["response_source"] == "run_part"

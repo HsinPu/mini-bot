@@ -149,6 +149,7 @@ assertIncludes(settingsModal, "eval-result-row__title", "task completion result 
 assertIncludes(settingsModal, "evalHistoryCaseLabel", "task completion history case labels");
 assertIncludes(settingsModal, "evalExpectedSummary", "task completion expected answer display");
 assertIncludes(settingsModal, "evalActualResponse", "task completion actual answer display");
+assertIncludes(settingsModal, "evalEntryError", "task completion eval error display");
 assertIncludes(settingsModal, "copyEvalDebugReport", "task completion debug report copy action");
 assertIncludes(settingsModal, "buildEvalDebugReport", "task completion debug report builder");
 assertIncludes(settingsModal, "evalCopyButtonLabel", "task completion debug copy button state");
@@ -256,6 +257,7 @@ for (const key of [
   "failedChecksTitle",
   "failedChecksForCase",
   "checksSummary",
+  "errorLabel",
   "expectedAnswerTitle",
   "actualAnswerTitle",
   "copyDebug",

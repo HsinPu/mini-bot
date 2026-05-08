@@ -203,6 +203,7 @@ async def _persist_eval_case(storage: Any, evaluated_case: Mapping[str, Any]) ->
             "batch_id": _string(evaluated_case.get("batch_id")),
             "expected_summary": _string(evaluated_case.get("expected_summary")),
             "actual_response": _string(evaluated_case.get("actual_response")),
+            "response_source": _string(evaluated_case.get("response_source")),
         },
         created_at=time.time(),
     )
@@ -345,6 +346,7 @@ def evaluate_task_completion_case(case: Mapping[str, Any], result: Mapping[str, 
         "run_status": _string(result.get("run_status")),
         "error": _string(result.get("error")),
         "model": _model_info_payload(result.get("model")),
+        "response_source": _string(result.get("response_source")),
         "expected_summary": _expected_summary(case),
         "actual_response": response_text.strip(),
         "response_preview": _preview(response_text),
@@ -436,16 +438,58 @@ async def _live_result_from_storage(
         or {}
     )
     run_metadata = dict(getattr(run, "metadata", {}) or {}) if run is not None else {}
+    resolved_response_text, response_source = await _resolve_live_response_text(
+        storage,
+        session_id=session_id,
+        trace=trace,
+        response_text=response_text,
+    )
     return {
         "session_id": session_id,
         "run_id": getattr(run, "run_id", "") if run is not None else "",
         "run_status": getattr(run, "status", "") if run is not None else "",
-        "response_text": response_text,
+        "response_text": resolved_response_text,
+        "response_source": response_source,
         "completion_status": completion_payload.get("status") or "",
         "had_tool_error": _bool(run_metadata.get("had_tool_error")) or _bool(terminal_payload.get("had_tool_error")),
         "error": error,
         "model": dict(model_info),
     }
+
+
+async def _resolve_live_response_text(
+    storage: Any,
+    *,
+    session_id: str,
+    trace: Any,
+    response_text: str,
+) -> tuple[str, str]:
+    direct_response = _string(response_text)
+    if direct_response:
+        return direct_response, "agent_return"
+
+    for part in reversed(list(getattr(trace, "parts", []) or [])):
+        if getattr(part, "part_type", "") != "assistant_message":
+            continue
+        part_content = _string(getattr(part, "content", ""))
+        if part_content:
+            return part_content, "run_part"
+
+    get_messages = getattr(storage, "get_messages", None)
+    if callable(get_messages):
+        try:
+            messages = await get_messages(session_id, limit=10)
+        except TypeError:
+            messages = await get_messages(session_id)
+        for message in reversed(list(messages or [])):
+            role = _string(getattr(message, "role", "") if not isinstance(message, Mapping) else message.get("role"))
+            if role != "assistant":
+                continue
+            content = _string(getattr(message, "content", "") if not isinstance(message, Mapping) else message.get("content"))
+            if content:
+                return content, "stored_message"
+
+    return direct_response, ""
 
 
 def _latest_event_payload(events: Sequence[Any], event_type: str) -> dict[str, Any] | None:

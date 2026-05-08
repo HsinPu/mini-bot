@@ -1359,6 +1359,7 @@
                   <span class="provider-row__badge">{{ evalCase.ok ? copy.settings.eval.pass : copy.settings.eval.fail }}</span>
                 </span>
                 <span>{{ evalResultMeta(evalCase) }}</span>
+                <span v-if="evalEntryError(evalCase)">{{ copy.settings.eval.errorLabel(evalEntryError(evalCase)) }}</span>
                 <span v-if="evalModelLabel(evalCase)">{{ evalModelLabel(evalCase) }}</span>
                 <span v-if="failedEvalChecks(evalCase).length">{{ failedEvalChecksSummary(evalCase) }}</span>
               </div>
@@ -1402,6 +1403,7 @@
                   <span class="provider-row__badge">{{ evalCase.ok ? copy.settings.eval.pass : copy.settings.eval.fail }}</span>
                 </span>
                 <span>{{ evalResultMeta(evalCase, true) }}</span>
+                <span v-if="evalEntryError(evalCase)">{{ copy.settings.eval.errorLabel(evalEntryError(evalCase)) }}</span>
                 <span v-if="evalModelLabel(evalCase)">{{ evalModelLabel(evalCase) }}</span>
                 <span v-if="failedEvalChecks(evalCase).length">{{ failedEvalChecksSummary(evalCase) }}</span>
               </div>
@@ -1489,6 +1491,7 @@
                     </span>
                     <span v-if="item.case_id && item.case_id !== evalHistoryCaseLabel(item)">{{ item.case_id }}</span>
                     <span>{{ copy.settings.eval.historyMeta(formatTimestamp(item.created_at), item.completion_status || copy.settings.eval.none, item.run_id || copy.settings.eval.none) }}</span>
+                    <span v-if="evalEntryError(item)">{{ copy.settings.eval.errorLabel(evalEntryError(item)) }}</span>
                     <span>{{ item.response_preview }}</span>
                   </div>
                   <div class="settings-row__actions eval-history-row__actions">
@@ -2403,6 +2406,10 @@ function evalActualResponse(entry) {
   return String(entry?.actual_response || entry?.metadata?.actual_response || entry?.response_preview || props.copy.settings.eval.none).trim();
 }
 
+function evalEntryError(entry) {
+  return String(entry?.error || entry?.metadata?.error || "").trim();
+}
+
 function failedEvalCheckItem(checkId, fallbackLabel = "") {
   const labels = props.copy.settings.eval.failedCheckItems;
   if (checkId === "completion_status") {
@@ -2598,6 +2605,9 @@ function buildEvalDebugReport(entries, context = {}) {
     if (evalModelLabel(entry)) {
       lines.push(`- ${debug.model}: ${evalModelLabel(entry)}`);
     }
+    if (entry?.response_source || entry?.metadata?.response_source) {
+      lines.push(`- ${debug.responseSource}: ${entry.response_source || entry.metadata.response_source}`);
+    }
     if (entry?.session_id) {
       lines.push(`- ${debug.session}: ${entry.session_id}`);
     }
@@ -2605,6 +2615,9 @@ function buildEvalDebugReport(entries, context = {}) {
       lines.push(`- ${debug.run}: ${entry.run_id}`);
     }
     lines.push(`- ${debug.completionStatus}: ${entry?.completion_status || props.copy.settings.eval.none}`);
+    if (evalEntryError(entry)) {
+      lines.push(`- ${debug.error}: ${evalEntryError(entry)}`);
+    }
     lines.push(`- ${debug.summary}: ${evalEntrySummary(entry)}`);
     lines.push(`- ${debug.responsePreview}: ${entry?.response_preview || props.copy.settings.eval.none}`);
     lines.push("", `### ${debug.prompt}`, evalEntryPrompt(entry));
