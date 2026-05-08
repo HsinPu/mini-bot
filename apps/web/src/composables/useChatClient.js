@@ -4038,12 +4038,6 @@ export function useChatClient() {
     if (targets.length === 0) {
       return;
     }
-    const confirmMessage = targets.length === 1
-      ? copy.value.sidebar.confirmDeleteChat(getSessionTitle(targets[0]))
-      : copy.value.sidebar.confirmDeleteChats(targets.length);
-    if (typeof window !== "undefined" && !window.confirm(confirmMessage)) {
-      return;
-    }
 
     const deletedExternalChatIds = new Set();
     let failureCount = 0;
@@ -4084,9 +4078,6 @@ export function useChatClient() {
   }
 
   async function clearWebSessions() {
-    if (typeof window !== "undefined" && !window.confirm(copy.value.settings.general.clearWebChats.confirm)) {
-      return;
-    }
     try {
       const payload = await requestSettingsJson(buildSessionsClearPath("web"), { method: "DELETE" });
       removeSessionsFromState((session) => !session.channel || session.channel === "web", { preferWeb: true });

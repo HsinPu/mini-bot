@@ -107,8 +107,13 @@ assertIncludes(app, "state.authRequired", "auth gate visibility");
 assertIncludes(app, "submitAccessToken", "auth gate submit wiring");
 assertIncludes(app, "deleteSessions", "conversation batch delete app wiring");
 assertIncludes(app, "clearWebSessions", "web conversation clear app wiring");
+assertIncludes(app, "conversationDeleteDialog", "conversation delete custom confirm state");
+assertIncludes(app, "confirmConversationDelete", "conversation delete custom confirm action");
+assertIncludes(app, "deleteSessions: deleteSessionsNow", "conversation delete skips native confirm in client action");
+assertIncludes(app, "clearWebSessions: clearWebSessionsNow", "web conversation clear skips native confirm in client action");
 assertIncludes(settingsModal, "clear-web-sessions", "settings clear web sessions event");
 assertIncludes(styles, ".auth-gate", "auth gate styling");
+assertIncludes(styles, ".confirm-dialog", "custom confirmation dialog styling");
 assertIncludes(styles, ".session-tile__select", "sidebar session select styling");
 assertIncludes(styles, ".secondary-button--danger", "settings destructive action styling");
 assertIncludes(curatorSettingsPage, "settings-card", "curator settings card layout");
@@ -183,6 +188,8 @@ assertOrder(settingsModal, "section === 'providers'", "copy.settings.providers.c
 assertIncludes(chatClient, "/api/commands", "command catalog fetch");
 assertIncludes(chatClient, "buildSessionDeletePath", "conversation delete API path");
 assertIncludes(chatClient, "buildSessionsClearPath", "web conversation clear API path");
+assertNotIncludes(chatClient, "copy.value.sidebar.confirmDeleteChat", "conversation delete does not use native confirm in client action");
+assertNotIncludes(chatClient, "copy.value.settings.general.clearWebChats.confirm", "web conversation clear does not use native confirm in client action");
 assertIncludes(settingsLogic, "/api/settings/media", "media model settings fetch");
 assertIncludes(chatClient, "/api/curator/status", "curator status fetch");
 assertIncludes(chatClient, "/api/curator/history", "curator history fetch");
@@ -225,8 +232,11 @@ for (const key of [
   "deleteChat",
   "cancelDelete",
   "clearWebChats",
+  "confirmDeleteTitle",
   "confirmDeleteChat",
   "confirmDeleteChats",
+  "confirmDeleteDetail",
+  "confirmDeleteAction",
   "conversationsTitle",
   "sessionDeleted",
   "sessionsDeleted",
